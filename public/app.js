@@ -26,6 +26,7 @@ const ICON_PATHS = {
   settings: '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="currentColor"/><circle cx="15" cy="17" r="2" fill="currentColor"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>',
+  chevron: '<path d="m6 9 6 6 6-6"/>',
   send: '<path d="m22 2-7 20-4-9-9-4L22 2ZM22 2 11 13"/>',
   refresh: '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 6a8 8 0 0 1 13 2l1 4M4 12l1 4a8 8 0 0 0 13 2"/>',
   upload: '<path d="M12 16V3m-5 5 5-5 5 5M4 15v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"/>',
@@ -95,6 +96,60 @@ let dialogState = null;
 let dialogSaving = false;
 let refreshSequence = 0;
 let disposeGraph = null;
+const mobileLayout = window.matchMedia('(max-width: 700px)');
+let layoutFrame = null;
+
+function startEntrance() {
+  const screen = $('#startup-screen');
+  if (!screen) return;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const dismiss = () => screen.remove();
+  if (reducedMotion.matches) { dismiss(); return; }
+  screen.addEventListener('animationend', event => {
+    if (event.target === screen && event.animationName === 'startup-exit') dismiss();
+  });
+  reducedMotion.addEventListener('change', event => { if (event.matches) dismiss(); }, { once: true });
+  // Entrance is decorative and never waits for a network response.
+  setTimeout(dismiss, 1800);
+}
+
+function scheduleMobileLayout() {
+  if (layoutFrame !== null) return;
+  layoutFrame = requestAnimationFrame(() => {
+    layoutFrame = null;
+    const viewport = window.visualViewport;
+    const editing = document.activeElement?.matches('input:not([type="checkbox"]), textarea, select');
+    const keyboardOpen = mobileLayout.matches && editing && (!viewport || viewport.scale === 1)
+      && window.innerHeight - (viewport?.height || window.innerHeight) > 120;
+    document.body.dataset.keyboardOpen = String(Boolean(keyboardOpen));
+    // Pinch zoom must not resize the conversation or reflow an active form.
+    if (viewport && viewport.scale !== 1) return;
+    document.documentElement.style.setProperty('--visible-height', `${viewport?.height || window.innerHeight}px`);
+    document.documentElement.style.setProperty('--visible-top', `${viewport?.offsetTop || 0}px`);
+    const panel = $('.chat-panel');
+    if (!mobileLayout.matches || !panel) return;
+    const navigationHeight = keyboardOpen ? 0 : $('#navigation').getBoundingClientRect().height;
+    const panelTop = panel.getBoundingClientRect().top + window.scrollY;
+    const available = (viewport?.height || window.innerHeight) - panelTop - navigationHeight - 12;
+    panel.style.setProperty('--chat-height', `${Math.max(320, available)}px`);
+    if (keyboardOpen && document.activeElement?.id === 'chat-input') {
+      const bottom = $('.composer-wrap').getBoundingClientRect().bottom;
+      const viewportBottom = (viewport?.offsetTop || 0) + (viewport?.height || window.innerHeight);
+      if (bottom > viewportBottom - 8) window.scrollBy({ top: bottom - viewportBottom + 8, behavior: 'instant' });
+    }
+  });
+}
+
+startEntrance();
+window.addEventListener('resize', scheduleMobileLayout);
+window.visualViewport?.addEventListener('resize', scheduleMobileLayout);
+document.addEventListener('focusin', scheduleMobileLayout);
+document.addEventListener('focusout', scheduleMobileLayout);
+mobileLayout.addEventListener('change', () => {
+  const context = $('.chat-context');
+  if (context) context.open = !mobileLayout.matches;
+  scheduleMobileLayout();
+});
 
 async function api(path, method = 'GET', data) {
   let response;
@@ -139,6 +194,7 @@ function personaOptions(value, { all = false, blank = false } = {}) {
   return `${all ? `<option value="all"${selected(value, 'all')}>所有角色</option>` : ''}${blank ? `<option value=""${selected(value, '')}>不关联角色</option>` : ''}${(state.data?.personas || []).map(p => `<option value="${e(p.id)}"${selected(value, p.id)}>${e(p.name)}</option>`).join('')}`;
 }
 function updateShell() {
+  document.body.dataset.page = state.page;
   const statuses = { loading: '正在连接本地服务', online: '本地服务已连接', offline: '本地服务不可达' };
   const settings = state.data?.settings;
   const configured = Boolean(settings?.baseUrl && settings?.model);
@@ -233,6 +289,7 @@ function renderPage({ toBottom = false } = {}) {
   }
   const messageList = $('#chat-messages');
   if (messageList) messageList.scrollTop = toBottom || !scroll || scroll.key !== messageList.dataset.conversation || scroll.nearBottom ? messageList.scrollHeight : scroll.top;
+  scheduleMobileLayout();
 }
 function navigate(page) {
   if (!Object.hasOwn(PAGES, page)) page = 'chat';
@@ -274,12 +331,12 @@ function renderChat() {
         ${messages.length ? messages.map(m => renderMessage(m, persona)).join('') : loading ? '<div class="loading-state" role="status"><span class="spinner"></span>正在读取对话…</div>' : `<div class="chat-welcome"><div class="orbit-mark" aria-hidden="true">${icon('leaf')}</div><h2>${persona ? '把此刻的想法，轻轻放下。' : '从一个角色开始'}</h2><div class="welcome-rule"></div>${persona ? `<span class="greeting-label">${e(persona.name)} · 开场白</span><p class="plain-text">${e(persona.greeting || '你可以分享近况、整理思路，或向已导入的资料提问。')}</p><span class="micro muted">发送后才会生成回复，不会自动调用模型</span>` : `<p>本地服务尚未提供角色。创建一位属于你的对话伙伴。</p>${button('创建角色', 'create-persona', { kind: 'primary', iconName: 'plus' })}`}</div>`}
         ${sendingHere ? '<div class="waiting-line" role="status"><span class="spinner" aria-hidden="true"></span>正在等待模型完整回复，请稍候…</div>' : ''}
       </div>
-      <div class="composer-wrap">${errorHTML(state.chatErrors.get(key))}<form id="chat-form" class="composer"><label class="sr-only" for="chat-input">发送给当前角色的消息</label><textarea id="chat-input" name="content" rows="2" maxlength="8000" placeholder="说说今天，或者问一个你在意的问题…"${disabled(!persona || loading)}>${e(state.drafts.get(key) || '')}</textarea><div class="composer-bottom"><span>Enter 发送 · Shift + Enter 换行</span><button class="button primary small" type="submit"${disabled(!persona || loading || Boolean(loadError) || Boolean(state.sending))}>${sendingHere ? '<span class="spinner" aria-hidden="true"></span>' : icon('send')}${state.sending ? '等待回复' : '发送'}</button></div></form><div class="composer-note">${icon('shield')}<span>发送后，聊天内容、相关知识片段和角色记忆会传至已配置的模型服务。模型回答请自行核实。</span></div></div>
-    </section><aside class="chat-aside" aria-label="当前角色与会话信息">
+      <div class="composer-wrap">${errorHTML(state.chatErrors.get(key))}<form id="chat-form" class="composer"><label class="sr-only" for="chat-input">发送给当前角色的消息</label><textarea id="chat-input" name="content" rows="2" maxlength="8000" placeholder="说说今天，或者问一个你在意的问题…"${disabled(!persona || loading)}>${e(state.drafts.get(key) || '')}</textarea><div class="composer-bottom"><span class="keyboard-hint">Enter 发送 · Shift + Enter 换行</span><span class="touch-hint">换行继续写，轻触发送</span><button class="button primary small" type="submit"${disabled(!persona || loading || Boolean(loadError) || Boolean(state.sending))}>${sendingHere ? '<span class="spinner" aria-hidden="true"></span>' : icon('send')}${state.sending ? '等待回复' : '发送'}</button></div></form><div class="composer-note">${icon('shield')}<span>发送后，聊天内容、相关知识片段和角色记忆会传至已配置的模型服务。模型回答请自行核实。</span></div></div>
+    </section><details class="chat-context" data-detail="chat-context"${mobileLayout.matches ? '' : ' open'}><summary>${icon('book')}<span>会话与记忆</span><span class="context-hint">查看对话手记</span>${icon('chevron')}</summary><aside class="chat-aside" aria-label="当前角色与会话信息">
       <section class="card persona-summary"><div class="eyebrow">YOUR COMPANION</div><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><h2>${e(persona?.name || '等待一个名字')}</h2><p class="plain-text">${e(persona?.description || '给角色写下一段简介，让陪伴拥有自己的模样。')}</p>${persona?.tone ? `<span class="pill">${e(persona.tone)}</span>` : ''}${persona ? `<div>${button('了解与编辑人设', 'edit-persona', { id: persona.id, kind: 'subtle small', iconName: 'arrow' })}</div>` : ''}</section>
       <section class="card aside-card"><div class="card-header"><h3>正在生长的记忆</h3>${icon('leaf')}</div><div class="stat-line"><span>当前角色 · 活跃记忆</span><strong>${number(activeMemories)}</strong></div><div class="stat-line"><span>其中固定保留</span><strong>${number(pinnedMemories)}</strong></div><div class="stat-line"><span>共享知识文档</span><strong>${number(state.data.documents.length)}</strong></div><p class="aside-footnote">只有相关的资料才会被检索。回复下方可展开查看实际引用。</p></section>
       <section class="card aside-card"><div class="card-header"><h3>对话手记</h3><span class="small-label">${history.length} CONVERSATIONS</span></div><div class="history-list">${history.length ? history.map(c => `<button type="button" class="history-item${c.id === state.conversationId ? ' active' : ''}" data-action="open-conversation" data-id="${e(c.id)}"${c.id === state.conversationId ? ' aria-current="true"' : ''}>${icon('chat')}<span><strong class="truncate">${e(c.title || '未命名对话')}</strong><small>${e(date(c.updatedAt || c.createdAt))}</small></span></button>`).join('') : '<p class="small muted">还没有对话手记。<br>第一句，就从今天开始。</p>'}</div></section>
-    </aside></div>`;
+    </aside></details></div>`;
 }
 async function loadConversation(id) {
   if (!id || state.loadingConversations.has(id)) return;
@@ -871,7 +928,7 @@ document.addEventListener('change', event => {
   else if (target.id === 'task-type' || target.id === 'task-scheduleType') updateTaskFields();
 });
 document.addEventListener('keydown', event => {
-  if (event.target.id === 'chat-input' && event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+  if (event.target.id === 'chat-input' && event.key === 'Enter' && !window.matchMedia('(pointer: coarse)').matches && !event.shiftKey && !event.isComposing && event.keyCode !== 229 && !event.ctrlKey && !event.metaKey && !event.altKey) {
     event.preventDefault();
     $('#chat-form')?.requestSubmit();
   }

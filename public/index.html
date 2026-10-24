@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#f5f4ed">
   <meta name="description" content="栖忆 MEMORY STUDIO — 本地、单用户的 AI 对话与记忆空间。">
@@ -13,6 +13,19 @@
 </head>
 <body>
   <a class="skip-link" href="#main">跳至主要内容</a>
+  <div id="startup-screen" class="startup-screen" aria-hidden="true">
+    <div class="startup-content">
+      <svg class="startup-emblem" viewBox="0 0 100 100" fill="none">
+        <path class="startup-stem" pathLength="1" d="M50 86V18"/>
+        <path class="startup-leaf startup-leaf-first" pathLength="1" d="M50 59C27 60 19 45 20 33c21-1 30 12 30 26Z"/>
+        <path class="startup-leaf startup-leaf-second" pathLength="1" d="M50 46c0-23 12-33 30-32 0 21-11 32-30 32Z"/>
+        <path class="startup-leaf startup-leaf-third" pathLength="1" d="M50 83c0-22 12-32 30-31 0 19-12 31-30 31Z"/>
+      </svg>
+      <div class="startup-wordmark">栖忆</div>
+      <p class="startup-caption">让对话生长，让值得的被记住。</p>
+      <span class="startup-rule"></span>
+    </div>
+  </div>
   <div class="app-shell">
     <aside class="sidebar" aria-label="应用导航">
       <a class="brand" href="#chat" aria-label="栖忆，返回对话">

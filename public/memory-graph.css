@@ -161,11 +161,17 @@
   .memory-graph .mg-detail { max-height: 480px; }
 }
 
-@media (max-width: 600px) {
-  .memory-graph { --mg-stage-height: 360px; }
+@media (max-width: 700px) {
+  .memory-graph { --mg-stage-height: clamp(280px, 45svh, 420px); }
   .memory-graph .mg-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .memory-graph .mg-lists { grid-template-columns: minmax(0, 1fr); }
   .memory-graph .mg-switches { flex-basis: 100%; }
+  .memory-graph .mg-button, .memory-graph .mg-viewport-tools .mg-button, .memory-graph .mg-directory-header .mg-button { min-height: 44px; }
+  .memory-graph .mg-viewport-tools .mg-button[data-action^="zoom-"] { min-width: 44px; }
+  .memory-graph .mg-search-input { min-height: 46px; font-size: 16px; }
+  .memory-graph .mg-checkbox { min-height: 44px; }
+  .memory-graph .mg-directory-header { flex-wrap: wrap; }
+  .memory-graph .mg-detail-title { font-size: 18px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
