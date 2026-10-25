@@ -1,4 +1,6 @@
 import { mountMemoryGraph } from './memory-graph.js';
+import { createMediaUI, renderAttachments } from './media.js';
+import { createMailUI } from './mail.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -96,6 +98,8 @@ let dialogState = null;
 let dialogSaving = false;
 let refreshSequence = 0;
 let disposeGraph = null;
+const mediaUI = createMediaUI({ request: api, toast, redraw: () => renderPage() });
+const mailUI = createMailUI({ request: api, toast, redraw: () => renderPage() });
 const mobileLayout = window.matchMedia('(max-width: 700px)');
 let layoutFrame = null;
 
@@ -128,7 +132,7 @@ function scheduleMobileLayout() {
     document.documentElement.style.setProperty('--visible-top', `${viewport?.offsetTop || 0}px`);
     const panel = $('.chat-panel');
     if (!mobileLayout.matches || !panel) return;
-    const navigationHeight = keyboardOpen ? 0 : $('#navigation').getBoundingClientRect().height;
+    const navigationHeight = (keyboardOpen ? 0 : $('#navigation').getBoundingClientRect().height) + ($('#music-dock')?.getBoundingClientRect().height || 0);
     const panelTop = panel.getBoundingClientRect().top + window.scrollY;
     const available = (viewport?.height || window.innerHeight) - panelTop - navigationHeight - 12;
     panel.style.setProperty('--chat-height', `${Math.max(320, available)}px`);
@@ -142,6 +146,7 @@ function scheduleMobileLayout() {
 
 startEntrance();
 window.addEventListener('resize', scheduleMobileLayout);
+window.addEventListener('qiyi-player-layout', scheduleMobileLayout);
 window.visualViewport?.addEventListener('resize', scheduleMobileLayout);
 document.addEventListener('focusin', scheduleMobileLayout);
 document.addEventListener('focusout', scheduleMobileLayout);
@@ -227,6 +232,8 @@ async function refreshData({ silent = false, draw = true } = {}) {
     }
     if (sequence !== refreshSequence) return false;
     state.data = data;
+    mediaUI.sync(data.media);
+    mailUI.sync(data.mail);
     state.bootstrapError = '';
     state.lastSync = new Date().toISOString();
     if (!data.personas.some(p => p.id === state.personaId)) {
@@ -269,7 +276,7 @@ function renderPage({ toBottom = false } = {}) {
     return;
   }
   const views = { chat: renderChat, personas: renderPersonas, knowledge: renderKnowledge, memories: renderMemories, tasks: renderTasks, settings: renderSettings };
-  main.innerHTML = `${state.bootstrapError ? notice('最近一次数据同步失败，以下显示上次成功读取的数据。可使用右上角刷新重试。', 'warning') : ''}${views[state.page]()}`;
+  main.innerHTML = `${state.bootstrapError ? notice('最近一次数据同步失败，以下显示上次成功读取的数据。可使用右上角刷新重试。', 'warning') : ''}${views[state.page]()}${state.page === 'settings' ? mediaUI.renderSettings() + mailUI.renderSettings() : ''}`;
   const graphContainer = $('#memory-graph-container');
   if (graphContainer && state.graph.data && !state.graph.loading) {
     disposeGraph = mountMemoryGraph(graphContainer, { data: state.graph.data, onOpenMemory: id => {
@@ -310,7 +317,7 @@ function renderMessage(message, persona) {
   const isUser = message.role === 'user';
   const sources = Array.isArray(message.sources) ? message.sources : [];
   const memories = Array.isArray(message.recalledMemories) ? message.recalledMemories : [];
-  return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time></div><div class="message-content plain-text">${e(message.content)}</div>${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
+  return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time></div><div class="message-content plain-text">${e(message.content)}</div>${!isUser ? renderAttachments(message.attachments) + '<div class="message-mail-action"><button type="button" data-mail-action="from-reply">写成邮件</button></div>' : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
 }
 function renderChat() {
   const persona = currentPersona();
@@ -642,7 +649,7 @@ function renderSettings() {
     <div class="settings-grid"><form id="settings-form"><section class="card settings-card"><h2><span class="section-number">01</span>模型连接</h2><div class="field"><label for="settings-baseUrl">Base URL <span>OpenAI 兼容服务地址</span></label><input id="settings-baseUrl" type="url" name="baseUrl" required maxlength="500" value="${e(s.baseUrl)}" placeholder="例如：https://api.openai.com/v1" autocomplete="off" spellcheck="false"><small>填写服务文档指定的基础地址，通常以 /v1 结尾。也支持本机部署的兼容服务。</small></div><div class="field"><label for="settings-model">模型名称</label><input id="settings-model" name="model" maxlength="160" value="${e(s.model)}" placeholder="填写服务商提供的模型 ID" autocomplete="off" spellcheck="false"></div><div class="field"><label for="settings-apiKey">API Key <span>${apiKeySet ? '服务端已有密钥，不会下发到页面' : '服务端尚无密钥，本地模型可不需要'}</span></label><input id="settings-apiKey" type="password" name="apiKey" maxlength="2000" value="${e(s.apiKey)}" placeholder="留空保留当前密钥" autocomplete="new-password" spellcheck="false"${disabled(s.clearApiKey)}><small>界面输入的密钥仅在当前服务进程内保留，不写入长期配置。重启后可能需要重新输入。</small></div><label class="checkbox-label"><input id="settings-clearApiKey" name="clearApiKey" type="checkbox"${checked(s.clearApiKey)}>清除当前运行期密钥（保存后生效）</label>${notice('空白密钥表示保持原值。环境变量配置不由此页面修改。不要将这个单用户本地应用直接暴露到公网。', '', 'lock')}<div class="card-actions">${button(state.testBusy ? '正在测试…' : '测试已保存的连接', 'test-settings', { iconName: 'play', busy: state.testBusy || state.settingsSaving })}<span class="micro muted">不会自动测试；测试将发送一条请求到已保存的模型服务。</span></div>${state.testResult ? `<div class="${state.testResult.ok ? 'inline-success' : 'inline-error'}" role="status">${e(state.testResult.message || (state.testResult.ok ? '连接测试成功。' : '连接测试失败。'))}</div>` : ''}</section>
       <section class="card settings-card"><h2><span class="section-number">02</span>记忆的生长节奏</h2><div class="field-row"><div class="field"><label for="settings-memoryMessageThreshold">总结消息阈值 <span>条</span></label><input id="settings-memoryMessageThreshold" type="number" name="memoryMessageThreshold" required min="2" max="200" step="1" value="${e(s.memoryMessageThreshold)}"><small>会话中未总结的新消息达到该值时触发。</small></div><div class="field"><label for="settings-memoryIntervalHours">总结时间间隔 <span>小时</span></label><input id="settings-memoryIntervalHours" type="number" name="memoryIntervalHours" required min="1" max="720" step="1" value="${e(s.memoryIntervalHours)}"><small>有新消息且距上次总结达到该间隔时触发。</small></div></div><div class="field"><label for="settings-memoryBudget">每个角色的活跃记忆预算 <span>条</span></label><input id="settings-memoryBudget" type="number" name="memoryBudget" required min="10" max="5000" step="1" value="${e(s.memoryBudget)}"><small>超过预算时优先归档低分记忆。固定或处于保护期的条目可能使数量暂时超出预算，不会强制删除。</small></div></section>
       ${errorHTML(state.settingsError)}<div class="settings-actions"><span class="muted">${state.settingsDirty ? '有尚未保存的修改' : '配置来自本地服务'} · 连接测试只使用已保存配置</span><button type="submit" class="button primary"${disabled(state.settingsSaving || state.testBusy)}>${state.settingsSaving ? '<span class="spinner"></span>' : icon('check')}${state.settingsSaving ? '正在保存…' : '保存设置'}</button></div></form>
-    <aside class="card settings-aside"><div class="eyebrow">YOUR DATA, YOUR CHOICE</div><h3>安心，来自清楚的边界。</h3><div class="boundary-item"><strong>${icon('lock')}留在这台设备</strong><p>角色、会话、提取后的文档、记忆与任务保存在本地 SQLite 中。本地存储不等于加密，请自行做好磁盘保护与备份。</p></div><div class="boundary-item"><strong>${icon('arrow')}何时发送到模型</strong><p>聊天、人物分析、记忆总结与 AI 任务会发送相应文本。聊天还可能携带相关知识片段和长期记忆，请只选择获准使用的内容。</p></div><div class="boundary-item"><strong>${icon('shield')}没有隐形的动作</strong><p>不会接管账号、代发消息或运行系统命令。定时任务只在本地服务运行时执行，不会唤醒休眠的电脑。</p></div><div class="boundary-item"><strong>${icon('leaf')}随时修正与遗忘</strong><p>模型可能误解你的意思。你可以查看记忆来源、修改、归档、恢复，或在明确确认后永久删除。</p></div></aside></div>`;
+    <aside class="card settings-aside"><div class="eyebrow">YOUR DATA, YOUR CHOICE</div><h3>安心，来自清楚的边界。</h3><div class="boundary-item"><strong>${icon('lock')}留在这台设备</strong><p>角色、会话、提取后的文档、记忆与任务保存在本地 SQLite 中。本地存储不等于加密，请自行做好磁盘保护与备份。</p></div><div class="boundary-item"><strong>${icon('arrow')}何时发送到模型</strong><p>聊天、人物分析、记忆总结与 AI 任务会发送相应文本。聊天还可能携带相关知识片段和长期记忆，请只选择获准使用的内容。</p></div><div class="boundary-item"><strong>${icon('shield')}没有隐形的动作</strong><p>邮件由你填写收件人、预览并确认后才通过已配置的 SMTP 服务发送。AI 与定时任务不会自动发信。定时任务仅在本地服务运行时执行。</p></div><div class="boundary-item"><strong>${icon('leaf')}随时修正与遗忘</strong><p>模型可能误解你的意思。你可以查看记忆来源、修改、归档、恢复，或在明确确认后永久删除。</p></div></aside></div>`;
 }
 async function saveSettings() {
   if (state.settingsSaving || state.testBusy) return;
@@ -947,7 +954,7 @@ main.addEventListener('drop', event => {
 });
 // Only local reads are automatic. No model tests, analysis, or external requests run on load.
 setInterval(() => {
-  if (document.visibilityState === 'visible' && state.data && !state.refreshing && !dialogSaving && !state.sending && !state.newConversationBusy && !state.settingsSaving && !state.knowledge.uploading && state.busy.size === 0) void refreshData({ silent: true });
+  if (document.visibilityState === 'visible' && state.data && !state.refreshing && !dialogSaving && !state.sending && !state.newConversationBusy && !state.settingsSaving && !state.knowledge.uploading && state.busy.size === 0 && !mediaUI.isBusy() && !mailUI.isBusy()) void refreshData({ silent: true });
 }, 60_000);
 renderPage();
 void refreshData({ silent: true });

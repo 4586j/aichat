@@ -16,6 +16,7 @@
   "dependencies": {
     "cytoscape": "3.34.4",
     "mammoth": "1.13.0",
+    "nodemailer": "10.2.1",
     "pdfjs-dist": "6.4.299"
   },
   "devDependencies": {

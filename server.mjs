@@ -2,6 +2,8 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve, join } from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { createStore } from './lib/store.mjs';
 import { createService } from './lib/service.mjs';
 import { AppError } from './lib/model.mjs';
@@ -12,6 +14,10 @@ const STATIC = new Map([
   ['/index.html', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
+  ['/media.js', ['media.js', 'text/javascript; charset=utf-8']],
+  ['/media.css', ['media.css', 'text/css; charset=utf-8']],
+  ['/mail.js', ['mail.js', 'text/javascript; charset=utf-8']],
+  ['/mail.css', ['mail.css', 'text/css; charset=utf-8']],
   ['/memory-graph.js', ['memory-graph.js', 'text/javascript; charset=utf-8']],
   ['/memory-graph.css', ['memory-graph.css', 'text/css; charset=utf-8']],
   ['/vendor/cytoscape.esm.min.mjs', ['../node_modules/cytoscape/dist/cytoscape.esm.min.mjs', 'text/javascript; charset=utf-8']],
@@ -40,6 +46,28 @@ async function route(api, method, pathname, input, query) {
   const [, resource, itemId, action] = parts;
   if (parts.length > 4) throw new AppError('接口不存在。', 404);
   if (method === 'GET' && pathname === '/api/bootstrap') return api.bootstrap();
+  if (pathname === '/api/mail/settings') {
+    if (method === 'GET') return api.mail.bootstrap();
+    if (method === 'PUT') return api.mail.update(input);
+  }
+  if (method === 'POST' && pathname === '/api/mail/verify') return api.mail.verify();
+  if (method === 'POST' && pathname === '/api/mail/draft') return api.mail.draft(input);
+  if (method === 'POST' && pathname === '/api/mail/prepare') return api.mail.prepare(input);
+  if (method === 'POST' && pathname === '/api/mail/send') return api.mail.send(input);
+  if (method === 'GET' && pathname === '/api/mail/history') return { history: api.mail.list() };
+  if (method === 'DELETE' && resource === 'mail' && itemId === 'history' && action) return api.mail.remove(action);
+  if (pathname === '/api/media/settings') {
+    if (method === 'GET') return api.media.bootstrap();
+    if (method === 'PUT') return api.media.update(input);
+  }
+  if (resource === 'media' && itemId === 'stickers') {
+    if (method === 'POST' && !action) return api.media.upload(input);
+    if (method === 'PUT' && action) return api.media.edit(action,input);
+    if (method === 'DELETE' && action) return api.media.remove(action);
+  }
+  if (method === 'GET' && pathname === '/api/music/status') return api.media.music.status();
+  if (method === 'GET' && pathname === '/api/music/search') return api.media.music.search(query.get('q') || '', query.get('source') || api.media.settings().musicSource);
+  if (method === 'GET' && pathname === '/api/music/song') return { song:api.media.music.get(query.get('id')) };
   if (method === 'GET' && pathname === '/api/graph') {
     const archived = query.get('includeArchived') ?? 'false';
     if (!['true', 'false'].includes(archived)) throw new AppError('归档筛选必须为 true 或 false。');
@@ -91,7 +119,7 @@ export async function startServer({ port = 4317, dbPath = join(ROOT, 'data', 'ag
     response.setHeader('Referrer-Policy', 'no-referrer');
     response.setHeader('X-Frame-Options', 'DENY');
     response.setHeader('Cache-Control', 'no-store');
-    response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'");
+    response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'");
     const json = (status, data) => {
       if (response.destroyed) return;
       response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -104,6 +132,28 @@ export async function startServer({ port = 4317, dbPath = join(ROOT, 'data', 'ag
       if (request.headers.origin && request.headers.origin !== `http://${host}`) throw new AppError('拒绝跨站访问。', 403);
       if (request.headers['sec-fetch-site'] === 'cross-site') throw new AppError('拒绝跨站访问。', 403);
       const url = new URL(request.url, `http://${host}`);
+      if (['GET','HEAD'].includes(request.method) && url.pathname === '/api/media/sticker-image') {
+        const image = await api.media.image(url.searchParams.get('id'));
+        response.writeHead(200,{'Content-Type':image.mime,'Content-Length':image.data.length});
+        return response.end(request.method==='HEAD'?undefined:image.data);
+      }
+      if (['GET','HEAD'].includes(request.method) && ['/api/music/stream','/api/music/cover'].includes(url.pathname)) {
+        const range=request.headers.range;
+        if(range && (!/^bytes=\d*-\d*$/u.test(range)||range==='bytes=-'))throw new AppError('音频范围请求无效。',416);
+        const controller=new AbortController();
+        const abort=()=>controller.abort();
+        response.once('close',abort);
+        try {
+          const upstream=await api.media.music.resource(url.searchParams.get('id'),url.pathname.endsWith('/cover'),range,controller.signal);
+          const headers={};
+          for(const key of ['content-type','content-length','content-range','accept-ranges'])if(upstream.headers.has(key))headers[key]=upstream.headers.get(key);
+          if(upstream.status===416){await upstream.body?.cancel();response.writeHead(416,headers);return response.end();}
+          response.writeHead(upstream.status,headers);
+          if(request.method==='HEAD'||!upstream.body){await upstream.body?.cancel();return response.end();}
+          await pipeline(Readable.fromWeb(upstream.body),response,{signal:controller.signal});
+          return;
+        } finally {response.removeListener('close',abort);controller.abort();}
+      }
       if (url.pathname.startsWith('/api/')) {
         const method = request.method;
         const input = ['POST', 'PUT', 'DELETE'].includes(method) ? await readJson(request) : {};
@@ -115,6 +165,8 @@ export async function startServer({ port = 4317, dbPath = join(ROOT, 'data', 'ag
       response.writeHead(200, { 'Content-Type': asset[1], 'Content-Length': contents.length });
       response.end(request.method === 'HEAD' ? undefined : contents);
     } catch (error) {
+      if(response.destroyed)return;
+      if(response.headersSent){response.destroy();return;}
       if (error instanceof AppError) return json(error.status, { error: error.message });
       if (error instanceof URIError) return json(400, { error: '请求路径无效。' });
       console.error('请求处理失败：', error.code || error.name);
