@@ -1,0 +1,20 @@
+# 栖忆配置指南
+
+> 本地单用户 AI 对话应用的配置参考，适用于 1.0.0；文档修订 2026-10-25.2。
+
+模型连接、表情包、音乐和邮件均在应用设置中填写。凭据由使用者自己输入，本文档不包含真实密码。
+
+## 配置文档
+
+- [首次启动与配置顺序](https://raw.githubusercontent.com/4586j/aichat/main/docs/configuration/start.md): 栖忆、安装、启动、环境变量、本地、设置、入门
+- [模型连接与 API Key](https://raw.githubusercontent.com/4586j/aichat/main/docs/configuration/model.md): 模型、AI、Base URL、API Key、OpenAI兼容、连接、401、404、429
+- [本地表情包与联网补充](https://raw.githubusercontent.com/4586j/aichat/main/docs/configuration/stickers.md): 表情包、贴纸、图库、图片、动图、GIF、上传、图源
+- [音乐平台与背景播放](https://raw.githubusercontent.com/4586j/aichat/main/docs/configuration/music.md): 音乐、歌曲、QQ、网易云、曲库、播放、音量、音乐服务、背景音乐
+- [邮件、SMTP 与授权码](https://raw.githubusercontent.com/4586j/aichat/main/docs/configuration/email.md): 邮件、邮箱、SMTP、TLS、STARTTLS、授权码、密送、退信、发信
+- [常见问题与排查](https://raw.githubusercontent.com/4586j/aichat/main/docs/configuration/troubleshooting.md): 报错、失败、超时、重启、收不到、没有声音、无法连接、忘记、密码、排查
+
+## 读取方式
+
+- [完整机器可读文档包](https://raw.githubusercontent.com/4586j/aichat/main/docs/configuration/guide-bundle.json): 与上述 Markdown 同步生成，含正文、标题、适用版本与修订号。
+
+具备网页读取工具的 AI 可按需跟随链接；普通聊天模型不会自动访问这些 URL，需要应用先检索并提供相关正文。此索引不授予修改设置、测试服务或发信的权限。

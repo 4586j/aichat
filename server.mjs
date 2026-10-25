@@ -18,6 +18,9 @@ const STATIC = new Map([
   ['/media.css', ['media.css', 'text/css; charset=utf-8']],
   ['/mail.js', ['mail.js', 'text/javascript; charset=utf-8']],
   ['/mail.css', ['mail.css', 'text/css; charset=utf-8']],
+  ['/guides.js', ['guides.js', 'text/javascript; charset=utf-8']],
+  ['/guides.css', ['guides.css', 'text/css; charset=utf-8']],
+  ['/llms.txt', ['../llms.txt', 'text/plain; charset=utf-8']],
   ['/memory-graph.js', ['memory-graph.js', 'text/javascript; charset=utf-8']],
   ['/memory-graph.css', ['memory-graph.css', 'text/css; charset=utf-8']],
   ['/vendor/cytoscape.esm.min.mjs', ['../node_modules/cytoscape/dist/cytoscape.esm.min.mjs', 'text/javascript; charset=utf-8']],
@@ -46,6 +49,9 @@ async function route(api, method, pathname, input, query) {
   const [, resource, itemId, action] = parts;
   if (parts.length > 4) throw new AppError('接口不存在。', 404);
   if (method === 'GET' && pathname === '/api/bootstrap') return api.bootstrap();
+  if (method === 'GET' && pathname === '/api/guides') return { guides: api.guides.bootstrap() };
+  if (method === 'GET' && resource === 'guides' && itemId && !action) return { document: api.guides.get(itemId) };
+  if (method === 'POST' && pathname === '/api/guides/sync') return api.guides.sync();
   if (pathname === '/api/mail/settings') {
     if (method === 'GET') return api.mail.bootstrap();
     if (method === 'PUT') return api.mail.update(input);
@@ -132,6 +138,12 @@ export async function startServer({ port = 4317, dbPath = join(ROOT, 'data', 'ag
       if (request.headers.origin && request.headers.origin !== `http://${host}`) throw new AppError('拒绝跨站访问。', 403);
       if (request.headers['sec-fetch-site'] === 'cross-site') throw new AppError('拒绝跨站访问。', 403);
       const url = new URL(request.url, `http://${host}`);
+      if (['GET', 'HEAD'].includes(request.method) && /^\/guides\/[a-z]+\.md$/.test(url.pathname)) {
+        const doc = api.guides.get(url.pathname.slice(8, -3));
+        const content = Buffer.from(doc.content + '\n');
+        response.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Content-Length': content.length });
+        return response.end(request.method === 'HEAD' ? undefined : content);
+      }
       if (['GET','HEAD'].includes(request.method) && url.pathname === '/api/media/sticker-image') {
         const image = await api.media.image(url.searchParams.get('id'));
         response.writeHead(200,{'Content-Type':image.mime,'Content-Length':image.data.length});

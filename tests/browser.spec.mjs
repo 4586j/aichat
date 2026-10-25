@@ -113,13 +113,14 @@ test('six pages complete the offline AI, knowledge, memory and task workflow', a
   expect(errors).toEqual([]);
 });
 
-test('unconfigured model preserves draft and exposes no fabricated messages', async ({ page, request }) => {
+test('unconfigured model preserves the first draft and shows one local setup message', async ({ page, request }) => {
   await request.put('/api/settings', { data: { model: '' } });
   try {
     await page.goto('/#chat');
     await page.getByLabel('发送给当前角色的消息', { exact: true }).fill('这是一条失败后应该保留的草稿');
     await page.getByRole('button', { name: '发送', exact: true }).click();
-    await expect(page.locator('.composer-wrap .inline-error')).toContainText('请先在设置中填写模型名称');
+    await expect(page.getByRole('article', { name: '快捷配置消息' })).toContainText('本地配置助手');
+    await expect(page.locator('.composer-wrap .inline-error')).toHaveCount(0);
     await expect(page.getByLabel('发送给当前角色的消息', { exact: true })).toHaveValue('这是一条失败后应该保留的草稿');
     await expect(page.locator('.message')).toHaveCount(0);
   } finally { await request.put('/api/settings', { data: { model: 'offline-ui-test' } }); }

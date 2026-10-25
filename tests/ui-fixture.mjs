@@ -1,5 +1,6 @@
 import { startServer } from '../server.mjs';
 import { mockMediaFetch } from './media-fixtures.mjs';
+import { readFileSync } from 'node:fs';
 
 const fetchImpl = async (_url, options) => {
   const request = JSON.parse(options.body);
@@ -16,6 +17,7 @@ const fetchImpl = async (_url, options) => {
     content = JSON.stringify({ overview: '测试人物倾向于清晰、直接地交流；仅依据提供的少量记录。', traits: ['表达直接'], speakingStyle: ['简洁、有条理'], boundaries: ['需要更多样本才能确定'], evidence: ['“请简洁一点”体现了对简洁表达的偏好。'], personaPrompt: '你是一位表达简洁、条理清晰的 AI 助手，不冒充真实人物。' });
   } else {
     content = '这是离线测试回复，不来自真实模型。\n\n我会参考提供的知识片段回答 [1]，并保留可追溯的来源。';
+    if (instruction.includes('当前问题命中了栖忆配置指南')) content = '根据栖忆配置指南，请在对应的设置字段填写并保存，随后手动测试连接。[1]\n\n这是离线配置帮助测试回复，没有修改设置或连接外部服务。';
     const question = request.messages.at(-1).content;
     if(question.includes('媒体演示')) content += '\n<qiyi-media>{"stickerId":"leaf-cheer","songQuery":"安静片刻","songReason":"轻轻的旋律，留一点空间给思绪。"}</qiyi-media>';
     else if(question.includes('联网表情演示')) content += '\n<qiyi-media>{"stickerQuery":"galaxyxrobot"}</qiyi-media>';
@@ -25,6 +27,11 @@ const fetchImpl = async (_url, options) => {
 };
 
 const app = await startServer({ port: 4318, dbPath: ':memory:', modelOptions: { fetchImpl, apiKey: '', musicApiKey:'', stickerApiKey:'', mediaFetchImpl:mockMediaFetch,
+  guideFetchImpl: async () => {
+    const bundle = JSON.parse(readFileSync(new URL('../docs/configuration/guide-bundle.json', import.meta.url), 'utf8'));
+    bundle.revision = '2026-10-26.1';
+    return new Response(JSON.stringify(bundle), { headers: { etag: '"offline-guide-update"' } });
+  },
   smtpPassword: '', mailTransportFactory: () => ({ close() {}, verify: async () => true, sendMail: async message => {
     await new Promise(resolve => setTimeout(resolve, 100));
     if (message.subject.includes('中断演示')) throw Object.assign(new Error('offline timeout'), { code: 'ETIMEDOUT', command: 'DATA' });

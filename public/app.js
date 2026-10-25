@@ -1,6 +1,7 @@
 import { mountMemoryGraph } from './memory-graph.js';
 import { createMediaUI, renderAttachments } from './media.js';
 import { createMailUI } from './mail.js';
+import { createGuidesUI } from './guides.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -85,6 +86,7 @@ const state = {
   personaId: '', conversationId: null, personaConversations: new Map(),
   messages: new Map(), loadingConversations: new Set(), loadErrors: new Map(),
   drafts: new Map(), chatErrors: new Map(), sending: null, newConversationBusy: false,
+  setupPrompts: new Set(),
   analysis: { text: '', target: '', fileName: '', result: null, resultTarget: '', busy: false, error: '' },
   knowledge: { query: '', result: null, resultQuery: '', busy: false, uploading: false, error: '', uploadError: '' },
   memoryRole: 'all', memoryStatus: 'active', memoryView: 'list', busy: new Set(),
@@ -100,6 +102,7 @@ let refreshSequence = 0;
 let disposeGraph = null;
 const mediaUI = createMediaUI({ request: api, toast, redraw: () => renderPage() });
 const mailUI = createMailUI({ request: api, toast, redraw: () => renderPage() });
+const guidesUI = createGuidesUI({ request: api, askInChat: beginGuideQuestion });
 const mobileLayout = window.matchMedia('(max-width: 700px)');
 let layoutFrame = null;
 
@@ -195,6 +198,15 @@ function toast(message, kind = 'success') {
 function currentPersona() { return state.data?.personas.find(p => p.id === state.personaId); }
 function personaName(id) { return state.data?.personas.find(p => p.id === id)?.name || '未关联角色'; }
 function currentDraftKey() { return state.conversationId || `new:${state.personaId}`; }
+function beginGuideQuestion(question) {
+  if (!state.data?.settings.model || !state.personaId) { toast('请先完成模型配置，再向 AI 提问。', 'error'); return false; }
+  if (state.sending) { toast('当前回复尚未结束，请稍后再填写新问题。', 'error'); return false; }
+  const key = currentDraftKey();
+  if (state.drafts.get(key)?.trim() && !window.confirm('用配置问题替换当前聊天草稿？')) return false;
+  state.drafts.set(key, question);
+  location.hash = 'chat'; navigate('chat');
+  return true;
+}
 function personaOptions(value, { all = false, blank = false } = {}) {
   return `${all ? `<option value="all"${selected(value, 'all')}>所有角色</option>` : ''}${blank ? `<option value=""${selected(value, '')}>不关联角色</option>` : ''}${(state.data?.personas || []).map(p => `<option value="${e(p.id)}"${selected(value, p.id)}>${e(p.name)}</option>`).join('')}`;
 }
@@ -234,6 +246,7 @@ async function refreshData({ silent = false, draw = true } = {}) {
     state.data = data;
     mediaUI.sync(data.media);
     mailUI.sync(data.mail);
+    guidesUI.sync(data.guides, Boolean(data.settings.model));
     state.bootstrapError = '';
     state.lastSync = new Date().toISOString();
     if (!data.personas.some(p => p.id === state.personaId)) {
@@ -276,6 +289,7 @@ function renderPage({ toBottom = false } = {}) {
     return;
   }
   const views = { chat: renderChat, personas: renderPersonas, knowledge: renderKnowledge, memories: renderMemories, tasks: renderTasks, settings: renderSettings };
+  guidesUI.setModelConfigured(Boolean(state.data.settings.model));
   main.innerHTML = `${state.bootstrapError ? notice('最近一次数据同步失败，以下显示上次成功读取的数据。可使用右上角刷新重试。', 'warning') : ''}${views[state.page]()}${state.page === 'settings' ? mediaUI.renderSettings() + mailUI.renderSettings() : ''}`;
   const graphContainer = $('#memory-graph-container');
   if (graphContainer && state.graph.data && !state.graph.loading) {
@@ -308,7 +322,10 @@ function navigate(page) {
 }
 
 function sourceItems(sources = []) {
-  return (Array.isArray(sources) ? sources : []).map(source => `<div class="evidence-item"><strong>${e(source.name || '知识片段')} <span class="pill">块 ${e(source.index ?? '—')}</span></strong><p class="plain-text">${e(source.content)}</p>${source.score != null ? `<span class="micro muted">相关性 ${e(decimal(source.score))}</span>` : ''}</div>`).join('');
+  return (Array.isArray(sources) ? sources : []).map(source => {
+    const guide = source.kind === 'configuration-guide' && ['start', 'model', 'stickers', 'music', 'email', 'troubleshooting'].includes(source.guideId);
+    return `<div class="evidence-item"><strong>${e(source.name || '知识片段')} <span class="pill">块 ${e(source.index ?? '—')}</span></strong>${guide ? `<span class="guide-source-label">${source.origin === 'github' ? 'GitHub 本地副本' : '应用内置副本'} · 修订 ${e(source.revision)}</span>` : ''}<p class="plain-text">${e(source.content)}</p>${source.score != null ? `<span class="micro muted">相关性 ${e(decimal(source.score))}</span>` : ''}${guide ? `<div><button type="button" class="button small guide-source-link" data-guide-action="open" data-guide-id="${e(source.guideId)}">阅读本机指南</button></div>` : ''}</div>`;
+  }).join('');
 }
 function recalledItems(memories = []) {
   return (Array.isArray(memories) ? memories : []).map(memory => `<div class="evidence-item"><strong>${e(CATEGORIES[memory.category] || memory.category || '长期记忆')}</strong><p class="plain-text">${e(memory.content)}</p>${memory.source ? `<p class="plain-text">来源：${e(text(memory.source))}</p>` : ''}</div>`).join('');
@@ -319,12 +336,19 @@ function renderMessage(message, persona) {
   const memories = Array.isArray(message.recalledMemories) ? message.recalledMemories : [];
   return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time></div><div class="message-content plain-text">${e(message.content)}</div>${!isUser ? renderAttachments(message.attachments) + '<div class="message-mail-action"><button type="button" data-mail-action="from-reply">写成邮件</button></div>' : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
 }
+function renderSetupPrompt(key) {
+  if (!state.setupPrompts.has(key)) return '';
+  const configured = Boolean(state.data.settings.model);
+  const busy = Boolean(state.sending || state.testBusy || state.settingsSaving);
+  return `<article class="setup-message" aria-label="快捷配置消息"><div class="message-meta"><span class="avatar" aria-hidden="true">${icon('settings')}</span><span>本地配置助手</span><span class="pill">无需模型</span></div><div class="message-content setup-message-body"><h2>${configured ? '模型信息已保存，可以继续了' : '先连上模型，再开始聊天'}</h2><p>${configured ? '保存不代表连接成功。你可以先测试已保存的连接，再发送输入框里保留的那句话。' : '你的第一句话已保留在输入框中。先完成下面三步，就能开始对话。'}</p>${!configured ? '<ol><li>准备模型服务的基础地址（Base URL）、模型 ID 和 API Key；无需认证的本机服务可不填 Key。</li><li>点击“快捷配置模型”填写并保存；基础地址不要带 /chat/completions。</li><li>保存后可手动测试连接，再继续发送刚才的话。</li></ol>' : ''}<div class="setup-message-actions">${configured ? `${button(state.testBusy ? '正在测试…' : '测试已保存的连接', 'test-settings', { busy, iconName: 'play' })}${button('继续发送', 'resume-setup-chat', { busy, kind: 'primary', iconName: 'send' })}` : button('快捷配置模型', 'quick-model-setup', { busy, kind: 'primary', iconName: 'settings' })}<button type="button" class="button" data-guide-action="open" data-guide-id="model">查看配置方法</button>${configured ? button('调整模型配置', 'quick-model-setup', { busy }) : ''}</div>${configured && state.testResult ? `<p class="${state.testResult.ok ? 'inline-success' : 'inline-error'}" role="status">${e(state.testResult.message || '连接测试完成。')}</p>` : ''}<details class="setup-optional"><summary>音乐、邮件和表情包怎么配？</summary><p>这些功能可以稍后分别配置，不影响先开始聊天。</p><div class="setup-message-actions"><button type="button" class="button small" data-guide-action="open" data-guide-id="music">音乐配置方法</button><button type="button" class="button small" data-guide-action="open" data-guide-id="email">邮件配置方法</button><button type="button" class="button small" data-guide-action="open" data-guide-id="stickers">表情包配置方法</button></div></details></div></article>`;
+}
 function renderChat() {
   const persona = currentPersona();
   const history = state.data.conversations.filter(c => c.personaId === state.personaId).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
   const messages = state.messages.get(state.conversationId) || [];
   const loading = state.loadingConversations.has(state.conversationId);
   const key = currentDraftKey();
+  const setupPrompt = renderSetupPrompt(key);
   const sendingHere = state.sending && (state.sending.conversationId ? state.sending.conversationId === state.conversationId : state.sending.personaId === state.personaId && !state.conversationId);
   const activeMemories = state.data.memories.filter(m => m.personaId === state.personaId && m.status === 'active').length;
   const pinnedMemories = state.data.memories.filter(m => m.personaId === state.personaId && m.status === 'active' && m.pinned).length;
@@ -335,7 +359,8 @@ function renderChat() {
       <div class="chat-toolbar"><div class="persona-control"><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><div><label class="sr-only" for="chat-persona">选择聊天角色</label><select id="chat-persona"${disabled(!persona)}>${personaOptions(state.personaId)}${!persona ? '<option value="">请先创建角色</option>' : ''}</select><div class="micro muted truncate" title="${e(title || '尚未开始的新对话')}">${e(title || '尚未开始的新对话')}</div></div></div><div class="chat-toolbar-note">${icon('lock')}角色记忆独立保存</div></div>
       <div id="chat-messages" class="chat-messages" data-conversation="${e(key)}" role="log" aria-live="polite" aria-relevant="additions text" aria-label="聊天消息" aria-busy="${Boolean(loading || sendingHere)}">
         ${loadError ? `${errorHTML(loadError)}${button('重新读取会话', 'reload-conversation', { iconName: 'refresh', busy: loading })}` : ''}
-        ${messages.length ? messages.map(m => renderMessage(m, persona)).join('') : loading ? '<div class="loading-state" role="status"><span class="spinner"></span>正在读取对话…</div>' : `<div class="chat-welcome"><div class="orbit-mark" aria-hidden="true">${icon('leaf')}</div><h2>${persona ? '把此刻的想法，轻轻放下。' : '从一个角色开始'}</h2><div class="welcome-rule"></div>${persona ? `<span class="greeting-label">${e(persona.name)} · 开场白</span><p class="plain-text">${e(persona.greeting || '你可以分享近况、整理思路，或向已导入的资料提问。')}</p><span class="micro muted">发送后才会生成回复，不会自动调用模型</span>` : `<p>本地服务尚未提供角色。创建一位属于你的对话伙伴。</p>${button('创建角色', 'create-persona', { kind: 'primary', iconName: 'plus' })}`}</div>`}
+        ${messages.length ? messages.map(m => renderMessage(m, persona)).join('') : setupPrompt ? '' : loading ? '<div class="loading-state" role="status"><span class="spinner"></span>正在读取对话…</div>' : `<div class="chat-welcome"><div class="orbit-mark" aria-hidden="true">${icon('leaf')}</div><h2>${persona ? '把此刻的想法，轻轻放下。' : '从一个角色开始'}</h2><div class="welcome-rule"></div>${persona ? `<span class="greeting-label">${e(persona.name)} · 开场白</span><p class="plain-text">${e(persona.greeting || '你可以分享近况、整理思路，或向已导入的资料提问。')}</p><span class="micro muted">发送后才会生成回复，不会自动调用模型</span>` : `<p>本地服务尚未提供角色。创建一位属于你的对话伙伴。</p>${button('创建角色', 'create-persona', { kind: 'primary', iconName: 'plus' })}`}</div>`}
+        ${setupPrompt}
         ${sendingHere ? '<div class="waiting-line" role="status"><span class="spinner" aria-hidden="true"></span>正在等待模型完整回复，请稍候…</div>' : ''}
       </div>
       <div class="composer-wrap">${errorHTML(state.chatErrors.get(key))}<form id="chat-form" class="composer"><label class="sr-only" for="chat-input">发送给当前角色的消息</label><textarea id="chat-input" name="content" rows="2" maxlength="8000" placeholder="说说今天，或者问一个你在意的问题…"${disabled(!persona || loading)}>${e(state.drafts.get(key) || '')}</textarea><div class="composer-bottom"><span class="keyboard-hint">Enter 发送 · Shift + Enter 换行</span><span class="touch-hint">换行继续写，轻触发送</span><button class="button primary small" type="submit"${disabled(!persona || loading || Boolean(loadError) || Boolean(state.sending))}>${sendingHere ? '<span class="spinner" aria-hidden="true"></span>' : icon('send')}${state.sending ? '等待回复' : '发送'}</button></div></form><div class="composer-note">${icon('shield')}<span>发送后，聊天内容、相关知识片段和角色记忆会传至已配置的模型服务。模型回答请自行核实。</span></div></div>
@@ -394,6 +419,12 @@ async function sendMessage() {
   const rawDraft = state.drafts.get(key) || '';
   const content = rawDraft.trim();
   if (!content) { $('#chat-input')?.focus(); return; }
+  if (!state.data.settings.model) {
+    state.setupPrompts.add(key);
+    state.chatErrors.delete(key);
+    renderPage({ toBottom: true });
+    return;
+  }
   const personaId = state.personaId;
   let conversationId = state.conversationId;
   state.sending = { personaId, conversationId };
@@ -406,6 +437,7 @@ async function sendMessage() {
       state.data.conversations.unshift(conversation);
       state.messages.set(conversationId, []);
       state.drafts.set(conversationId, state.drafts.get(key) || rawDraft);
+      if (state.setupPrompts.delete(key)) state.setupPrompts.add(conversationId);
       state.drafts.delete(key);
       state.personaConversations.set(personaId, conversationId);
       if (state.personaId === personaId && state.conversationId === null) state.conversationId = conversationId;
@@ -420,6 +452,7 @@ async function sendMessage() {
       if (message && message.id != null && !messages.some(m => m.id === message.id)) messages.push(message);
     }
     state.messages.set(conversationId, messages);
+    state.setupPrompts.delete(key);
     if (state.drafts.get(key) === rawDraft) state.drafts.delete(key);
     state.chatErrors.delete(key);
     await refreshData({ silent: true, draw: false });
@@ -645,7 +678,7 @@ function renderSettings() {
   initializeSettingsDraft();
   const s = state.settingsDraft;
   const apiKeySet = Boolean(state.data.settings.hasApiKey);
-  return `${heading('把连接与边界，交还给你。', '选择你的模型服务，让记忆按适合自己的节奏生长。', 'SETTINGS & BOUNDARIES')}
+  return `${heading('把连接与边界，交还给你。', '选择你的模型服务，让记忆按适合自己的节奏生长。', 'SETTINGS & BOUNDARIES', '<button type="button" class="button" data-guide-action="open">配置指南</button>')}${guidesUI.renderEntry()}
     <div class="settings-grid"><form id="settings-form"><section class="card settings-card"><h2><span class="section-number">01</span>模型连接</h2><div class="field"><label for="settings-baseUrl">Base URL <span>OpenAI 兼容服务地址</span></label><input id="settings-baseUrl" type="url" name="baseUrl" required maxlength="500" value="${e(s.baseUrl)}" placeholder="例如：https://api.openai.com/v1" autocomplete="off" spellcheck="false"><small>填写服务文档指定的基础地址，通常以 /v1 结尾。也支持本机部署的兼容服务。</small></div><div class="field"><label for="settings-model">模型名称</label><input id="settings-model" name="model" maxlength="160" value="${e(s.model)}" placeholder="填写服务商提供的模型 ID" autocomplete="off" spellcheck="false"></div><div class="field"><label for="settings-apiKey">API Key <span>${apiKeySet ? '服务端已有密钥，不会下发到页面' : '服务端尚无密钥，本地模型可不需要'}</span></label><input id="settings-apiKey" type="password" name="apiKey" maxlength="2000" value="${e(s.apiKey)}" placeholder="留空保留当前密钥" autocomplete="new-password" spellcheck="false"${disabled(s.clearApiKey)}><small>界面输入的密钥仅在当前服务进程内保留，不写入长期配置。重启后可能需要重新输入。</small></div><label class="checkbox-label"><input id="settings-clearApiKey" name="clearApiKey" type="checkbox"${checked(s.clearApiKey)}>清除当前运行期密钥（保存后生效）</label>${notice('空白密钥表示保持原值。环境变量配置不由此页面修改。不要将这个单用户本地应用直接暴露到公网。', '', 'lock')}<div class="card-actions">${button(state.testBusy ? '正在测试…' : '测试已保存的连接', 'test-settings', { iconName: 'play', busy: state.testBusy || state.settingsSaving })}<span class="micro muted">不会自动测试；测试将发送一条请求到已保存的模型服务。</span></div>${state.testResult ? `<div class="${state.testResult.ok ? 'inline-success' : 'inline-error'}" role="status">${e(state.testResult.message || (state.testResult.ok ? '连接测试成功。' : '连接测试失败。'))}</div>` : ''}</section>
       <section class="card settings-card"><h2><span class="section-number">02</span>记忆的生长节奏</h2><div class="field-row"><div class="field"><label for="settings-memoryMessageThreshold">总结消息阈值 <span>条</span></label><input id="settings-memoryMessageThreshold" type="number" name="memoryMessageThreshold" required min="2" max="200" step="1" value="${e(s.memoryMessageThreshold)}"><small>会话中未总结的新消息达到该值时触发。</small></div><div class="field"><label for="settings-memoryIntervalHours">总结时间间隔 <span>小时</span></label><input id="settings-memoryIntervalHours" type="number" name="memoryIntervalHours" required min="1" max="720" step="1" value="${e(s.memoryIntervalHours)}"><small>有新消息且距上次总结达到该间隔时触发。</small></div></div><div class="field"><label for="settings-memoryBudget">每个角色的活跃记忆预算 <span>条</span></label><input id="settings-memoryBudget" type="number" name="memoryBudget" required min="10" max="5000" step="1" value="${e(s.memoryBudget)}"><small>超过预算时优先归档低分记忆。固定或处于保护期的条目可能使数量暂时超出预算，不会强制删除。</small></div></section>
       ${errorHTML(state.settingsError)}<div class="settings-actions"><span class="muted">${state.settingsDirty ? '有尚未保存的修改' : '配置来自本地服务'} · 连接测试只使用已保存配置</span><button type="submit" class="button primary"${disabled(state.settingsSaving || state.testBusy)}>${state.settingsSaving ? '<span class="spinner"></span>' : icon('check')}${state.settingsSaving ? '正在保存…' : '保存设置'}</button></div></form>
@@ -698,6 +731,13 @@ function openDialog(title, content, submitLabel, config) {
   if (!dialog.open) dialog.showModal();
   const firstControl = $('input:not([type="hidden"]), select, textarea', dialog);
   (firstControl || (config.type === 'confirm' ? $('[data-action="close-dialog"]', dialog) : $('#dialog-submit')))?.focus();
+}
+function openQuickModelSetup() {
+  const settings = state.data.settings;
+  openDialog('快捷配置模型', `${notice('你的聊天草稿会继续保留。保存只更新模型连接信息，不会自动测试或发送聊天内容。')}
+    ${field('quick-model-baseUrl', '模型基础地址（Base URL）', `<input id="quick-model-baseUrl" name="baseUrl" type="url" required maxlength="500" value="${e(settings.baseUrl)}" placeholder="填写服务商提供的基础地址" autocomplete="off">`, '程序会自动追加 /chat/completions，不要重复填写该后缀。')}
+    ${field('quick-model-name', '模型 ID', `<input id="quick-model-name" name="model" required maxlength="160" value="${e(settings.model)}" placeholder="填写服务商实际提供的模型 ID" autocomplete="off">`)}
+    ${field('quick-model-key', '模型 API Key', `<input id="quick-model-key" name="apiKey" type="password" maxlength="2000" autocomplete="new-password" placeholder="${settings.hasApiKey ? '已配置，留空保留' : '无需认证的本机服务可留空'}">`, '仅保留在服务进程内，不写入数据库；不要把密钥贴到聊天中。')}`, '保存快捷配置', { type: 'quick-model' });
 }
 function openPersonaEditor(persona, fromAnalysis = false) {
   const draft = persona || (fromAnalysis ? {
@@ -778,7 +818,16 @@ async function submitDialog() {
   $('#dialog-error').hidden = true;
   try {
     let successMessage = '';
-    if (config.type === 'persona') {
+    if (config.type === 'quick-model') {
+      if (!values.model.trim()) throw new Error('请填写模型 ID。');
+      const { settings } = await api('/settings', 'PUT', { baseUrl: values.baseUrl.trim(), model: values.model.trim(), apiKey: values.apiKey });
+      state.data.settings = settings;
+      state.testResult = null;
+      if (!state.settingsDirty) state.settingsDraft = null;
+      else Object.assign(state.settingsDraft, { baseUrl: settings.baseUrl, model: settings.model, apiKey: '', clearApiKey: false });
+      $('input[type="password"]', form).value = '';
+      successMessage = '模型信息已保存。可先测试连接，再继续发送保留的第一句话。';
+    } else if (config.type === 'persona') {
       const payload = { name: values.name.trim(), description: values.description.trim(), tone: values.tone.trim(), greeting: values.greeting.trim(), systemPrompt: values.systemPrompt.trim() };
       if (!payload.name || !payload.systemPrompt) throw new Error('角色名称和系统提示词不能为空。');
       const { persona } = await api(config.id ? `/personas/${endpointId(config.id)}` : '/personas', config.id ? 'PUT' : 'POST', payload);
@@ -854,7 +903,12 @@ $('#refresh-button').addEventListener('click', async () => {
 });
 window.addEventListener('hashchange', () => navigate(location.hash.slice(1)));
 dialog.addEventListener('cancel', event => { if (dialogSaving) event.preventDefault(); });
-dialog.addEventListener('close', () => { if (!dialog.open) dialogState = null; });
+dialog.addEventListener('close', () => {
+  if (!dialog.open) {
+    if (dialogState?.type === 'quick-model') $$('input[type="password"]', dialog).forEach(input => { input.value = ''; });
+    dialogState = null;
+  }
+});
 
 document.addEventListener('click', async event => {
   const control = event.target.closest('[data-action]');
@@ -898,6 +952,8 @@ document.addEventListener('click', async event => {
       case 'run-task': await taskAction(id, 'run'); break;
       case 'delete-task': confirmDelete('task', id); break;
       case 'test-settings': await testSettings(); break;
+      case 'quick-model-setup': if (!state.sending && !state.testBusy) openQuickModelSetup(); break;
+      case 'resume-setup-chat': if (!state.testBusy) await sendMessage(); break;
       default: break;
     }
   } catch (error) { toast(error.message || '操作未能完成，请重试。', 'error'); }
@@ -954,7 +1010,7 @@ main.addEventListener('drop', event => {
 });
 // Only local reads are automatic. No model tests, analysis, or external requests run on load.
 setInterval(() => {
-  if (document.visibilityState === 'visible' && state.data && !state.refreshing && !dialogSaving && !state.sending && !state.newConversationBusy && !state.settingsSaving && !state.knowledge.uploading && state.busy.size === 0 && !mediaUI.isBusy() && !mailUI.isBusy()) void refreshData({ silent: true });
+  if (document.visibilityState === 'visible' && state.data && !state.refreshing && !dialogSaving && !state.sending && !state.newConversationBusy && !state.settingsSaving && !state.knowledge.uploading && state.busy.size === 0 && !mediaUI.isBusy() && !mailUI.isBusy() && !guidesUI.isBusy()) void refreshData({ silent: true });
 }, 60_000);
 renderPage();
 void refreshData({ silent: true });

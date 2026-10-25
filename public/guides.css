@@ -1,0 +1,56 @@
+.guide-entry { display: grid; grid-template-columns: minmax(200px, .8fr) minmax(0, 1.2fr); gap: 22px; padding: 22px 24px; margin-bottom: 26px; background: #eaf0e3; border-left: 3px solid #8aa17c; border-radius: 8px; }
+.guide-entry h2 { margin: 0 0 8px; font-size: 16px; }
+.guide-entry p { margin: 0; color: #66775f; font-size: 12px; line-height: 1.8; }
+.guide-entry-topics { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.guide-entry .button { background: #f7f9f1; min-height: 34px; }
+.guides-dialog { width: min(1060px, calc(100vw - 36px)); max-width: 1060px; padding: 0; }
+.guides-dialog .dialog-header { position: sticky; top: 0; z-index: 2; background: #f9faf4; }
+.guides-dialog .dialog-header p { margin: 8px 0 0; }
+.guides-dialog .icon-button { font-size: 27px; }
+.guide-layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); }
+.guide-topics { display: flex; flex-direction: column; padding: 22px 14px; gap: 4px; background: #eef1e7; border-right: 1px solid #dfe3d7; }
+.guide-topics button { text-align: left; padding: 11px 12px; border: 0; background: transparent; color: #6b7c63; border-radius: 6px; font-size: 12px; line-height: 1.7; }
+.guide-topics [aria-current] { background: #dfe8d7; color: #315c47; font-weight: 600; }
+.guide-reading { min-width: 0; padding: 22px 26px 26px; }
+.guide-feedback { margin-bottom: 20px; color: #68765f; }
+.guide-document { overflow-wrap: anywhere; line-height: 1.9; font-size: 13px; }
+.guide-document > h2 { font-family: var(--serif); font-size: 24px; font-weight: 400; margin: 0 0 18px; }
+.guide-document h3 { font-size: 15px; margin: 24px 0 10px; }
+.guide-document p { white-space: pre-line; }
+.guide-document ul { padding-left: 20px; }
+.guide-document li { margin: 8px 0; }
+.guide-document code { padding: 2px 4px; background: #edf0e6; border-radius: 3px; font-size: .92em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.guide-document pre { background: #edf0e6; padding: 14px; overflow: auto; border-radius: 6px; }
+.guide-question { border-top: 1px solid #dfe3d7; margin-top: 28px; padding-top: 22px; }
+.guide-question h3 { font-size: 15px; }
+.guide-question textarea { display: block; width: 100%; margin: 12px 0; }
+.guide-question > small { display: block; margin-top: 8px; }
+.guide-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 18px 24px; border-top: 1px solid #dfe3d7; }
+.guide-footer p { flex: 1 1 350px; margin: 0; }
+.guide-source-label { display: block; margin-top: 6px; font-size: 11px; color: #71836c; }
+.guide-source-link { display: inline-block; margin-top: 8px; font-size: 12px; }
+.setup-message { margin-bottom: 20px; }
+.setup-message .avatar svg { width: 15px; height: 15px; }
+.setup-message-body { border-color: #d6e1cb; background: #f2f6eb; }
+.setup-message-body h2 { font-size: 17px; margin-bottom: 10px; }
+.setup-message-body > p { margin-bottom: 12px; color: #66765e; font-size: 12px; line-height: 1.8; }
+.setup-message-body ol { margin: 0 0 16px; padding-left: 20px; font-size: 12px; }
+.setup-message-body li { margin-bottom: 7px; }
+.setup-message-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.setup-optional { border-top: 1px solid #dfe6d6; padding-top: 12px; margin-top: 16px; }
+.setup-optional summary { cursor: pointer; color: #5d7254; font-size: 12px; }
+.setup-optional p { font-size: 11px; color: #75836c; margin: 12px 0; }
+@media (max-width: 900px) { .guide-entry { grid-template-columns: minmax(0, 1fr); gap: 16px; } }
+@media (max-width: 700px) {
+  .guide-entry { padding: 18px; }
+  .guide-entry .button { min-height: 44px; }
+  .guides-dialog { width: calc(100vw - 16px); max-height: calc(var(--visible-height, 100dvh) - max(12px, env(safe-area-inset-top, 0px)) - 12px); }
+  .guide-layout { grid-template-columns: minmax(0, 1fr); }
+  .guide-topics { flex-direction: row; flex-wrap: wrap; gap: 6px; border-right: 0; border-bottom: 1px solid #dfe3d7; padding: 14px 18px; }
+  .guide-topics button { min-height: 44px; padding: 8px 10px; }
+  .guide-reading { padding: 18px; }
+  .guide-document > h2 { font-size: 22px; }
+  .guide-footer { padding: 18px; }
+  .guide-footer .button { width: 100%; min-height: 44px; }
+  .setup-message-actions .button { min-height: 44px; }
+}
