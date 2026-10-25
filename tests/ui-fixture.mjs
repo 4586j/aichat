@@ -22,6 +22,10 @@ const fetchImpl = async (_url, options) => {
     if(question.includes('媒体演示')) content += '\n<qiyi-media>{"stickerId":"leaf-cheer","songQuery":"安静片刻","songReason":"轻轻的旋律，留一点空间给思绪。"}</qiyi-media>';
     else if(question.includes('联网表情演示')) content += '\n<qiyi-media>{"stickerQuery":"galaxyxrobot"}</qiyi-media>';
     else if(question.includes('动图演示')) {const sticker=app.api.media.list().find(s=>s.enabled&&s.animated);if(sticker)content+=`\n<qiyi-media>${JSON.stringify({stickerId:sticker.id})}</qiyi-media>`;}
+    if (question.includes('状态演示')) {
+      const stateField = (value, quote) => ({ value, confidence: 'high', evidence: [{ messageId: 'current', quote }] });
+      content += `\n<qiyi-state>${JSON.stringify({ emotion: { ...stateField(['irritated'], '有点烦躁'), intensity: 2 }, energy: stateField('low', '今天好累'), need: stateField('listen', '先别给我建议'), roleMood: stateField('caring', '今天好累'), proactivity: stateField('low', '先别给我建议') })}</qiyi-state>`;
+    }
   }
   return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { headers: { 'content-type': 'application/json' } });
 };

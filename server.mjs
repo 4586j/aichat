@@ -23,6 +23,8 @@ const STATIC = new Map([
   ['/guides.css', ['guides.css', 'text/css; charset=utf-8']],
   ['/pets.js', ['pets.js', 'text/javascript; charset=utf-8']],
   ['/pets.css', ['pets.css', 'text/css; charset=utf-8']],
+  ['/chat-state.js', ['chat-state.js', 'text/javascript; charset=utf-8']],
+  ['/chat-state.css', ['chat-state.css', 'text/css; charset=utf-8']],
   ['/llms.txt', ['../llms.txt', 'text/plain; charset=utf-8']],
   ['/memory-graph.js', ['memory-graph.js', 'text/javascript; charset=utf-8']],
   ['/memory-graph.css', ['memory-graph.css', 'text/css; charset=utf-8']],
@@ -53,6 +55,8 @@ async function route(api, method, pathname, input, query) {
   const [, resource, itemId, action] = parts;
   if (parts.length > 4) throw new AppError('接口不存在。', 404);
   if (method === 'GET' && pathname === '/api/bootstrap') return api.bootstrap();
+  if (method === 'GET' && pathname === '/api/chat-state') return api.getChatState({ personaId: query.get('personaId'), conversationId: query.get('conversationId') || null });
+  if (method === 'POST' && pathname === '/api/chat-state') return api.updateChatState(input);
   if (method === 'GET' && pathname === '/api/pets') return api.pets.bootstrap();
   if (method === 'PUT' && pathname === '/api/pets/settings') return api.pets.update(input);
   if (method === 'POST' && pathname === '/api/pets/interact') return api.pets.interact(input);

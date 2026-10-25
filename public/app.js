@@ -3,6 +3,7 @@ import { createMediaUI, renderAttachments } from './media.js';
 import { createMailUI } from './mail.js';
 import { createGuidesUI } from './guides.js';
 import { createPetsUI } from './pets.js';
+import { createChatStateUI } from './chat-state.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -105,6 +106,7 @@ const mediaUI = createMediaUI({ request: api, toast, redraw: () => renderPage() 
 const mailUI = createMailUI({ request: api, toast, redraw: () => renderPage() });
 const guidesUI = createGuidesUI({ request: api, askInChat: beginGuideQuestion });
 const petsUI = createPetsUI({ request: api, toast, redraw: () => renderPage() });
+const chatStateUI = createChatStateUI({ request: api, redraw: () => { if (state.page === 'chat') renderPage(); }, onSaved: acceptStateSave });
 const mobileLayout = window.matchMedia('(max-width: 700px)');
 let layoutFrame = null;
 
@@ -200,6 +202,17 @@ function toast(message, kind = 'success') {
 function currentPersona() { return state.data?.personas.find(p => p.id === state.personaId); }
 function personaName(id) { return state.data?.personas.find(p => p.id === id)?.name || '未关联角色'; }
 function currentDraftKey() { return state.conversationId || `new:${state.personaId}`; }
+function acceptStateSave(result) {
+  const conversation = result.conversation;
+  if (conversation && !state.data.conversations.some(row => row.id === conversation.id)) state.data.conversations.unshift(conversation);
+  if (conversation && state.personaId === conversation.personaId && !state.conversationId) {
+    const key = currentDraftKey(); state.conversationId = conversation.id;
+    state.messages.set(conversation.id, []); state.personaConversations.set(conversation.personaId, conversation.id);
+    if (state.drafts.has(key)) { state.drafts.set(conversation.id, state.drafts.get(key)); state.drafts.delete(key); }
+    if (state.setupPrompts.delete(key)) state.setupPrompts.add(conversation.id);
+  }
+  toast('状态修改已保存，将用于后续回复。');
+}
 function beginGuideQuestion(question) {
   if (!state.data?.settings.model || !state.personaId) { toast('请先完成模型配置，再向 AI 提问。', 'error'); return false; }
   if (state.sending) { toast('当前回复尚未结束，请稍后再填写新问题。', 'error'); return false; }
@@ -294,6 +307,11 @@ function renderPage({ toBottom = false } = {}) {
   const views = { chat: renderChat, personas: renderPersonas, knowledge: renderKnowledge, memories: renderMemories, tasks: renderTasks, settings: renderSettings };
   guidesUI.setModelConfigured(Boolean(state.data.settings.model));
   petsUI.setChatState(Boolean(state.sending));
+  if (state.page === 'chat') {
+    chatStateUI.setContext({ personaId: state.personaId, conversationId: state.conversationId, roleName: currentPersona()?.name, canEdit: !(state.sending && !state.conversationId) }, state.lastSync);
+    const currentState = chatStateUI.current();
+    petsUI.setConversationQuiet(Boolean(currentState && currentState.mode !== 'off' && (currentState.fields.energy.value === 'low' || currentState.fields.need.value === 'listen')));
+  }
   main.innerHTML = `${state.bootstrapError ? notice('最近一次数据同步失败，以下显示上次成功读取的数据。可使用右上角刷新重试。', 'warning') : ''}${views[state.page]()}${state.page === 'settings' ? mediaUI.renderSettings() + mailUI.renderSettings() + petsUI.renderSettings() : ''}`;
   const graphContainer = $('#memory-graph-container');
   if (graphContainer && state.graph.data && !state.graph.loading) {
@@ -361,6 +379,7 @@ function renderChat() {
   return `${heading('让思绪，有处栖息。', '从一次对话开始，慢慢积累只属于你的理解与记忆。', 'A SPACE TO THINK & REMEMBER', button(state.newConversationBusy ? '正在新建…' : '开启新对话', 'new-conversation', { iconName: 'plus', busy: !persona || state.newConversationBusy }))}
     <div class="chat-grid"><section class="card chat-panel" aria-label="与角色对话">${petsUI.renderCompanion(true)}
       <div class="chat-toolbar"><div class="persona-control"><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><div><label class="sr-only" for="chat-persona">选择聊天角色</label><select id="chat-persona"${disabled(!persona)}>${personaOptions(state.personaId)}${!persona ? '<option value="">请先创建角色</option>' : ''}</select><div class="micro muted truncate" title="${e(title || '尚未开始的新对话')}">${e(title || '尚未开始的新对话')}</div></div></div><div class="chat-toolbar-note">${icon('lock')}角色记忆独立保存</div></div>
+      ${chatStateUI.renderBar()}
       <div id="chat-messages" class="chat-messages" data-conversation="${e(key)}" role="log" aria-live="polite" aria-relevant="additions text" aria-label="聊天消息" aria-busy="${Boolean(loading || sendingHere)}">
         ${loadError ? `${errorHTML(loadError)}${button('重新读取会话', 'reload-conversation', { iconName: 'refresh', busy: loading })}` : ''}
         ${messages.length ? messages.map(m => renderMessage(m, persona)).join('') : setupPrompt ? '' : loading ? '<div class="loading-state" role="status"><span class="spinner"></span>正在读取对话…</div>' : `<div class="chat-welcome"><div class="orbit-mark" aria-hidden="true">${icon('leaf')}</div><h2>${persona ? '把此刻的想法，轻轻放下。' : '从一个角色开始'}</h2><div class="welcome-rule"></div>${persona ? `<span class="greeting-label">${e(persona.name)} · 开场白</span><p class="plain-text">${e(persona.greeting || '你可以分享近况、整理思路，或向已导入的资料提问。')}</p><span class="micro muted">发送后才会生成回复，不会自动调用模型</span>` : `<p>本地服务尚未提供角色。创建一位属于你的对话伙伴。</p>${button('创建角色', 'create-persona', { kind: 'primary', iconName: 'plus' })}`}</div>`}
@@ -383,6 +402,7 @@ async function loadConversation(id) {
   try {
     const result = await api(`/conversations/${endpointId(id)}`);
     state.messages.set(id, result.messages || []);
+    if (state.conversationId === id) void chatStateUI.refresh();
   } catch (error) { state.loadErrors.set(id, error.message); }
   finally { state.loadingConversations.delete(id); if (state.page === 'chat') renderPage(); }
 }
@@ -451,6 +471,7 @@ async function sendMessage() {
       renderPage({ toBottom: true });
     }
     const result = await api(`/conversations/${endpointId(conversationId)}/messages`, 'POST', { content });
+    if (result.chatState) chatStateUI.receive(result.chatState);
     petsUI.react('reply', '回复来啦，陪你慢慢看。');
     const assistant = { ...result.message, sources: result.sources ?? result.message?.sources ?? [], recalledMemories: result.recalledMemories ?? result.message?.recalledMemories ?? [] };
     const messages = state.messages.get(conversationId) || [];
@@ -1017,7 +1038,7 @@ main.addEventListener('drop', event => {
 });
 // Only local reads are automatic. No model tests, analysis, or external requests run on load.
 setInterval(() => {
-  if (document.visibilityState === 'visible' && state.data && !state.refreshing && !dialogSaving && !state.sending && !state.newConversationBusy && !state.settingsSaving && !state.knowledge.uploading && state.busy.size === 0 && !mediaUI.isBusy() && !mailUI.isBusy() && !guidesUI.isBusy() && !petsUI.isBusy()) void refreshData({ silent: true });
+  if (document.visibilityState === 'visible' && state.data && !state.refreshing && !dialogSaving && !state.sending && !state.newConversationBusy && !state.settingsSaving && !state.knowledge.uploading && state.busy.size === 0 && !mediaUI.isBusy() && !mailUI.isBusy() && !guidesUI.isBusy() && !petsUI.isBusy() && !chatStateUI.isBusy()) void refreshData({ silent: true });
 }, 60_000);
 renderPage();
 void refreshData({ silent: true });
