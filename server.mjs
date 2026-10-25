@@ -25,6 +25,9 @@ const STATIC = new Map([
   ['/pets.css', ['pets.css', 'text/css; charset=utf-8']],
   ['/chat-state.js', ['chat-state.js', 'text/javascript; charset=utf-8']],
   ['/chat-state.css', ['chat-state.css', 'text/css; charset=utf-8']],
+  ['/response-scenes.js', ['response-scenes.js', 'text/javascript; charset=utf-8']],
+  ['/response-policy.js', ['response-policy.js', 'text/javascript; charset=utf-8']],
+  ['/response-policy.css', ['response-policy.css', 'text/css; charset=utf-8']],
   ['/llms.txt', ['../llms.txt', 'text/plain; charset=utf-8']],
   ['/memory-graph.js', ['memory-graph.js', 'text/javascript; charset=utf-8']],
   ['/memory-graph.css', ['memory-graph.css', 'text/css; charset=utf-8']],
@@ -57,6 +60,8 @@ async function route(api, method, pathname, input, query) {
   if (method === 'GET' && pathname === '/api/bootstrap') return api.bootstrap();
   if (method === 'GET' && pathname === '/api/chat-state') return api.getChatState({ personaId: query.get('personaId'), conversationId: query.get('conversationId') || null });
   if (method === 'POST' && pathname === '/api/chat-state') return api.updateChatState(input);
+  if (method === 'GET' && pathname === '/api/response-settings') return { responseSettings: api.responsePolicy.settings() };
+  if (method === 'PUT' && pathname === '/api/response-settings') return api.responsePolicy.update(input);
   if (method === 'GET' && pathname === '/api/pets') return api.pets.bootstrap();
   if (method === 'PUT' && pathname === '/api/pets/settings') return api.pets.update(input);
   if (method === 'POST' && pathname === '/api/pets/interact') return api.pets.interact(input);
@@ -106,6 +111,7 @@ async function route(api, method, pathname, input, query) {
     if (method === 'POST' && !itemId) return api.createConversation(input);
     if (method === 'GET' && itemId && !action) return api.getConversation(itemId);
     if (method === 'POST' && itemId && action === 'messages') return api.sendMessage(itemId, input);
+    if (method === 'POST' && itemId && action === 'music-feedback') return api.musicFeedback(itemId, input);
   }
   if (resource === 'documents' && !action) {
     if (method === 'POST' && !itemId) return api.importDocument(input);

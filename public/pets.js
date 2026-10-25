@@ -1,3 +1,4 @@
+import { RESPONSE_SCENES, responseScene } from './response-scenes.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const off = value => value ? ' disabled' : '';
@@ -8,13 +9,13 @@ const paw = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-w
 const action = (label, name, extra = '', busy = false) => `<button type="button" class="button small" data-pet-action="${name}" ${extra}${off(busy)}>${label}</button>`;
 
 export function createPetsUI({ request, toast, redraw }) {
-  const state = { info: null, busy: false, feedback: '', error: false, chatting: false, music: false, conversationQuiet: false, reaction: '', reactionText: '', timer: null, nameDrafts: new Map() };
+  const state = { info: null, busy: false, feedback: '', error: false, chatting: false, music: false, scene:'normal', reaction: '', reactionText: '', timer: null, nameDrafts: new Map() };
   const dialog = document.createElement('dialog'); dialog.id = 'pet-home'; dialog.className = 'pet-home'; dialog.setAttribute('aria-labelledby', 'pet-home-title'); document.body.append(dialog);
   const trigger = document.createElement('button'); trigger.type = 'button'; trigger.className = 'icon-button pet-trigger'; trigger.dataset.petAction = 'open'; trigger.setAttribute('aria-label', '打开宠物小窝'); trigger.title = '宠物小窝'; trigger.innerHTML = paw;
   $('.topbar-tools').prepend(trigger);
   const current = () => state.info?.pets.find(pet => pet.id === state.info.settings.selectedId);
-  const phase = () => !state.info?.settings.animations || state.conversationQuiet ? 'quiet' : state.reaction || (state.chatting ? 'thinking' : state.music ? 'music' : 'idle');
-  const caption = () => state.conversationQuiet ? '安静地陪你待着。' : state.reactionText || (state.chatting ? '陪你等一等，回复正在路上。' : state.music ? '听着音乐，轻轻晃一晃。' : !state.info?.settings.animations ? '安静地陪你待着。' : '点点我，给我一个摸摸。');
+  const phase = () => !state.info?.settings.animations ? 'quiet' : ['pet','feed','play'].includes(state.reaction) ? state.reaction : state.scene === 'rest' ? 'quiet' : ['comfort','focus'].includes(state.scene) ? state.scene : state.chatting ? 'thinking' : state.reaction === 'reply' && state.scene === 'celebrate' ? 'celebrate' : state.reaction || (state.music ? 'music' : 'idle');
+  const caption = () => state.scene !== 'normal' ? RESPONSE_SCENES[state.scene].caption : state.reactionText || (state.chatting ? '陪你等一等，回复正在路上。' : state.music ? '听着音乐，轻轻晃一晃。' : !state.info?.settings.animations ? '安静地陪你待着。' : '点点我，给我一个摸摸。');
   function portrait(pet, extra = '') {
     return `<span class="pet-portrait ${extra}" data-pet-portrait data-phase="${phase()}"><img src="${image(pet.id)}" alt="${esc(pet.name)}，${esc(pet.species)}" data-pet-image draggable="false" width="192" height="192"><span class="pet-image-fallback" hidden>${paw}<small>形象暂时无法加载</small></span><span class="pet-sparkle" aria-hidden="true">✦</span></span>`;
   }
@@ -104,5 +105,5 @@ export function createPetsUI({ request, toast, redraw }) {
   for (const event of ['playing', 'pause', 'ended', 'emptied']) audio?.addEventListener(event, () => { state.music = !audio.paused && !audio.ended; paint(); });
   const pauseHidden = () => { document.body.dataset.petSuspended = String(document.hidden); };
   document.addEventListener('visibilitychange', pauseHidden); pauseHidden();
-  return { sync, renderCompanion, renderSettings, react, setChatState: value => { state.chatting = Boolean(value); paint(); }, setConversationQuiet: value => { state.conversationQuiet = Boolean(value); paint(); }, isBusy: () => state.busy || dialog.open };
+  return { sync, renderCompanion, renderSettings, react, setChatState: value => { state.chatting = Boolean(value); paint(); }, setResponseBehavior:(snapshot,linked) => { state.scene=linked?responseScene(snapshot):'normal'; paint(); }, isBusy: () => state.busy || dialog.open };
 }

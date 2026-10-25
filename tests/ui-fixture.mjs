@@ -26,6 +26,13 @@ const fetchImpl = async (_url, options) => {
       const stateField = (value, quote) => ({ value, confidence: 'high', evidence: [{ messageId: 'current', quote }] });
       content += `\n<qiyi-state>${JSON.stringify({ emotion: { ...stateField(['irritated'], '有点烦躁'), intensity: 2 }, energy: stateField('low', '今天好累'), need: stateField('listen', '先别给我建议'), roleMood: stateField('caring', '今天好累'), proactivity: stateField('low', '先别给我建议') })}</qiyi-state>`;
     }
+    if (question.includes('联动演示')) {
+      const stateField = (value, quote) => ({ value, confidence:'high', evidence:[{messageId:'current',quote}] });
+      const prediction = question.includes('很开心') ? { emotion:{...stateField(['happy'],'很开心'),intensity:3},need:stateField('chat','轻松聊天') }
+        : question.includes('解决问题') ? {need:stateField('task','解决问题')}
+        : {energy:stateField('low','今天好累'),need:stateField('listen','只想说说')};
+      content += `\n<qiyi-media>${JSON.stringify({stickerId:'leaf-cheer',songQuery:'安静片刻',songReason:'一首留给聊天间隙的歌曲，点击后收听。'})}</qiyi-media>\n<qiyi-state>${JSON.stringify(prediction)}</qiyi-state>`;
+    }
   }
   return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { headers: { 'content-type': 'application/json' } });
 };
@@ -35,7 +42,7 @@ const app = await startServer({ port: 4318, dbPath: ':memory:', modelOptions: { 
   petClock: () => (petTestTime += 1100),
   guideFetchImpl: async () => {
     const bundle = JSON.parse(readFileSync(new URL('../docs/configuration/guide-bundle.json', import.meta.url), 'utf8'));
-    bundle.revision = '2026-10-26.1';
+    bundle.revision = '2026-10-27.1';
     return new Response(JSON.stringify(bundle), { headers: { etag: '"offline-guide-update"' } });
   },
   smtpPassword: '', mailTransportFactory: () => ({ close() {}, verify: async () => true, sendMail: async message => {

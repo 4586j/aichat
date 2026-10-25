@@ -1,0 +1,26 @@
+.response-settings { padding: 24px 26px; margin-top: 28px; }
+.response-settings fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.response-switches { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin: 20px 0; }
+.response-switches .checkbox-label { align-items: flex-start; line-height: 1.8; color: #315c47; }
+.response-switches input { margin-top: 5px; flex-shrink: 0; }
+.response-switches small { display: block; color: #7a896f; font-size: 11px; margin-top: 7px; }
+.response-setting-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 20px; }
+.response-setting-actions > span { margin-right: auto; }
+.response-song-feedback { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 15px; font-size: 11px; color: #7a896f; }
+.response-song-feedback button, .response-session button { background: none; border: 0; padding: 4px 0; color: #56764c; font-size: 11px; text-decoration: underline; text-underline-offset: 4px; }
+.response-song-feedback button:hover, .response-session button:hover { color: #254e3b; }
+.response-basis { font-size: 11px; color: #7a896f; margin: 14px 0; }
+.response-basis summary { cursor: pointer; color: #69815c; }
+.response-basis p { line-height: 1.9; }
+.response-basis > div { border-left: 2px solid #d0dcc4; padding-left: 12px; margin: 15px 0; }
+.response-basis strong { font-weight: 500; display: block; color: #56704c; }
+.response-basis small { display: block; font-size: 10px; margin: 5px 0; }
+.response-basis blockquote { margin: 8px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.response-session { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 7px 15px; padding: 8px 18px; border-bottom: 1px solid #e0e6d8; background: #f5f7ee; font-size: 10px; color: #7a896f; }
+@media (max-width: 700px) {
+  .response-settings { padding: 18px; }
+  .response-switches { grid-template-columns: minmax(0, 1fr); gap: 15px; }
+  .response-song-feedback button, .response-session button { min-height: 38px; }
+  .response-basis summary { min-height: 36px; padding-top: 7px; }
+  body[data-keyboard-open="true"] .response-session { display: none; }
+}

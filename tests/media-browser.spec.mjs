@@ -3,7 +3,7 @@ import { PNG } from './media-fixtures.mjs';
 
 const nav=(page,name)=>page.getByRole('navigation',{name:'主导航'}).getByRole('link',{name,exact:true});
 async function configure(request,value={}){const response=await request.put('/api/media/settings',{data:{musicBaseUrl:'',musicEnabled:true,stickersEnabled:true,stickerOnlineEnabled:true,stickerSearchUrl:'',clearMusicApiKey:!value.musicApiKey,clearStickerApiKey:!value.stickerApiKey,...value}});expect(response.ok()).toBe(true);return response.json();}
-async function chat(page,request,question='媒体演示'){
+async function chat(page,request,question='媒体演示，请推荐一首歌并发表情'){
   const response=await request.post('/api/personas',{data:{name:`媒体验证${Date.now()}`,systemPrompt:'简洁回应。'}});const {persona}=await response.json();
   await page.goto(`/?media=${persona.id}#chat`);await page.getByLabel('选择聊天角色',{exact:true}).selectOption(persona.id);
   await page.getByLabel('发送给当前角色的消息',{exact:true}).fill(question);await page.getByRole('button',{name:'发送',exact:true}).click();

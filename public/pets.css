@@ -10,6 +10,9 @@
 .pet-portrait[data-phase="feed"] img { animation: pet-pat .9s ease-in-out 2; }
 .pet-portrait[data-phase="play"] img, .pet-portrait[data-phase="reply"] img { animation: pet-hop .65s ease-out 2; }
 .pet-portrait[data-phase="quiet"] img, .pet-portrait[data-phase="error"] img { animation: none; }
+.pet-portrait[data-phase="comfort"] img { animation: pet-breathe 6.5s ease-in-out infinite; }
+.pet-portrait[data-phase="focus"] img { animation: pet-think 4.5s ease-in-out infinite; }
+.pet-portrait[data-phase="celebrate"] img { animation: pet-hop .65s ease-out; }
 .pet-sparkle { position: absolute; top: 12%; right: 8%; color: #b99c62; opacity: 0; font-size: 21px; pointer-events: none; }
 .pet-portrait[data-phase="pet"] .pet-sparkle, .pet-portrait[data-phase="feed"] .pet-sparkle, .pet-portrait[data-phase="play"] .pet-sparkle, .pet-portrait[data-phase="reply"] .pet-sparkle { animation: pet-sparkle 1.2s ease-out; }
 .pet-image-fallback { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 8px; color: #79916c; }

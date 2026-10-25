@@ -138,7 +138,7 @@ test('switching music service mid-search cannot register songs against the wrong
 
 test('chat persists attachments and excludes protocol from the next model history',async t=>{
   const {api,store,personaId,calls}=fixture(t,['好耶！\n<qiyi-media>{"stickerId":"leaf-cheer","songQuery":"安静的歌"}</qiyi-media>','第二次回复']);
-  const id=addConversation(api,personaId);const first=await api.sendMessage(id,{content:'庆祝一下'});
+  const id=addConversation(api,personaId);const first=await api.sendMessage(id,{content:'庆祝一下，请推荐一首歌并发表情'});
   assert.equal(first.message.content,'好耶！');assert.equal(first.message.attachments.length,2);
   assert.deepEqual(api.getConversation(id).messages[1].attachments,first.message.attachments);
   assert.equal(store.get('SELECT content FROM messages WHERE role=?','assistant').content,'好耶！');

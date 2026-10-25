@@ -1,9 +1,10 @@
 import { mountMemoryGraph } from './memory-graph.js';
-import { createMediaUI, renderAttachments } from './media.js';
+import { createMediaUI } from './media.js';
 import { createMailUI } from './mail.js';
 import { createGuidesUI } from './guides.js';
 import { createPetsUI } from './pets.js';
 import { createChatStateUI } from './chat-state.js';
+import { createResponseUI } from './response-policy.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -107,6 +108,13 @@ const mailUI = createMailUI({ request: api, toast, redraw: () => renderPage() })
 const guidesUI = createGuidesUI({ request: api, askInChat: beginGuideQuestion });
 const petsUI = createPetsUI({ request: api, toast, redraw: () => renderPage() });
 const chatStateUI = createChatStateUI({ request: api, redraw: () => { if (state.page === 'chat') renderPage(); }, onSaved: acceptStateSave });
+const responseUI = createResponseUI({ request:api, redraw:() => renderPage(), toast,
+  onSettings:info => { state.data.responseSettings=info; },
+  onFeedback:result => {
+    if (result.message) { const messages=state.messages.get(result.conversationId); if(messages)state.messages.set(result.conversationId,messages.map(message=>message.id===result.message.id?result.message:message)); }
+    if (result.chatState) chatStateUI.receive(result.chatState);
+  },
+});
 const mobileLayout = window.matchMedia('(max-width: 700px)');
 let layoutFrame = null;
 
@@ -263,6 +271,7 @@ async function refreshData({ silent = false, draw = true } = {}) {
     mailUI.sync(data.mail);
     guidesUI.sync(data.guides, Boolean(data.settings.model));
     petsUI.sync(data.pets);
+    responseUI.sync(data.responseSettings);
     state.bootstrapError = '';
     state.lastSync = new Date().toISOString();
     if (!data.personas.some(p => p.id === state.personaId)) {
@@ -310,9 +319,10 @@ function renderPage({ toBottom = false } = {}) {
   if (state.page === 'chat') {
     chatStateUI.setContext({ personaId: state.personaId, conversationId: state.conversationId, roleName: currentPersona()?.name, canEdit: !(state.sending && !state.conversationId) }, state.lastSync);
     const currentState = chatStateUI.current();
-    petsUI.setConversationQuiet(Boolean(currentState && currentState.mode !== 'off' && (currentState.fields.energy.value === 'low' || currentState.fields.need.value === 'listen')));
+    responseUI.setContext({conversationId:state.conversationId},currentState);
+    petsUI.setResponseBehavior(currentState,responseUI.settings().petLinked);
   }
-  main.innerHTML = `${state.bootstrapError ? notice('最近一次数据同步失败，以下显示上次成功读取的数据。可使用右上角刷新重试。', 'warning') : ''}${views[state.page]()}${state.page === 'settings' ? mediaUI.renderSettings() + mailUI.renderSettings() + petsUI.renderSettings() : ''}`;
+  main.innerHTML = `${state.bootstrapError ? notice('最近一次数据同步失败，以下显示上次成功读取的数据。可使用右上角刷新重试。', 'warning') : ''}${views[state.page]()}${state.page === 'settings' ? responseUI.renderSettings() + mediaUI.renderSettings() + mailUI.renderSettings() + petsUI.renderSettings() : ''}`;
   const graphContainer = $('#memory-graph-container');
   if (graphContainer && state.graph.data && !state.graph.loading) {
     disposeGraph = mountMemoryGraph(graphContainer, { data: state.graph.data, onOpenMemory: id => {
@@ -356,7 +366,7 @@ function renderMessage(message, persona) {
   const isUser = message.role === 'user';
   const sources = Array.isArray(message.sources) ? message.sources : [];
   const memories = Array.isArray(message.recalledMemories) ? message.recalledMemories : [];
-  return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time></div><div class="message-content plain-text">${e(message.content)}</div>${!isUser ? renderAttachments(message.attachments) + '<div class="message-mail-action"><button type="button" data-mail-action="from-reply">写成邮件</button></div>' : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
+  return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time></div><div class="message-content plain-text">${e(message.content)}</div>${!isUser ? responseUI.renderMessage(message) + '<div class="message-mail-action"><button type="button" data-mail-action="from-reply">写成邮件</button></div>' : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
 }
 function renderSetupPrompt(key) {
   if (!state.setupPrompts.has(key)) return '';
@@ -380,6 +390,7 @@ function renderChat() {
     <div class="chat-grid"><section class="card chat-panel" aria-label="与角色对话">${petsUI.renderCompanion(true)}
       <div class="chat-toolbar"><div class="persona-control"><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><div><label class="sr-only" for="chat-persona">选择聊天角色</label><select id="chat-persona"${disabled(!persona)}>${personaOptions(state.personaId)}${!persona ? '<option value="">请先创建角色</option>' : ''}</select><div class="micro muted truncate" title="${e(title || '尚未开始的新对话')}">${e(title || '尚未开始的新对话')}</div></div></div><div class="chat-toolbar-note">${icon('lock')}角色记忆独立保存</div></div>
       ${chatStateUI.renderBar()}
+      ${responseUI.renderSession()}
       <div id="chat-messages" class="chat-messages" data-conversation="${e(key)}" role="log" aria-live="polite" aria-relevant="additions text" aria-label="聊天消息" aria-busy="${Boolean(loading || sendingHere)}">
         ${loadError ? `${errorHTML(loadError)}${button('重新读取会话', 'reload-conversation', { iconName: 'refresh', busy: loading })}` : ''}
         ${messages.length ? messages.map(m => renderMessage(m, persona)).join('') : setupPrompt ? '' : loading ? '<div class="loading-state" role="status"><span class="spinner"></span>正在读取对话…</div>' : `<div class="chat-welcome"><div class="orbit-mark" aria-hidden="true">${icon('leaf')}</div><h2>${persona ? '把此刻的想法，轻轻放下。' : '从一个角色开始'}</h2><div class="welcome-rule"></div>${persona ? `<span class="greeting-label">${e(persona.name)} · 开场白</span><p class="plain-text">${e(persona.greeting || '你可以分享近况、整理思路，或向已导入的资料提问。')}</p><span class="micro muted">发送后才会生成回复，不会自动调用模型</span>` : `<p>本地服务尚未提供角色。创建一位属于你的对话伙伴。</p>${button('创建角色', 'create-persona', { kind: 'primary', iconName: 'plus' })}`}</div>`}
@@ -1038,7 +1049,7 @@ main.addEventListener('drop', event => {
 });
 // Only local reads are automatic. No model tests, analysis, or external requests run on load.
 setInterval(() => {
-  if (document.visibilityState === 'visible' && state.data && !state.refreshing && !dialogSaving && !state.sending && !state.newConversationBusy && !state.settingsSaving && !state.knowledge.uploading && state.busy.size === 0 && !mediaUI.isBusy() && !mailUI.isBusy() && !guidesUI.isBusy() && !petsUI.isBusy() && !chatStateUI.isBusy()) void refreshData({ silent: true });
+  if (document.visibilityState === 'visible' && state.data && !state.refreshing && !dialogSaving && !state.sending && !state.newConversationBusy && !state.settingsSaving && !state.knowledge.uploading && state.busy.size === 0 && !mediaUI.isBusy() && !mailUI.isBusy() && !guidesUI.isBusy() && !petsUI.isBusy() && !chatStateUI.isBusy() && !responseUI.isBusy()) void refreshData({ silent: true });
 }, 60_000);
 renderPage();
 void refreshData({ silent: true });

@@ -8,7 +8,7 @@ import { startServer } from '../server.mjs';
 import { fixture, addConversation } from './helpers.mjs';
 
 const original = JSON.parse(readFileSync(new URL('../docs/configuration/guide-bundle.json', import.meta.url), 'utf8'));
-const newer = () => ({ ...structuredClone(original), revision: '2026-10-26.1' });
+const newer = () => ({ ...structuredClone(original), revision: '2026-10-27.1' });
 function local(t, options = {}) { const store = createStore(); t.after(() => store.close()); return { store, guides: createGuides(store, options) }; }
 
 test('generated docs and llms.txt match the source Markdown; all default guides work offline', t => {
@@ -34,6 +34,8 @@ test('configuration retrieval selects topic documents, caps context and leaves n
   assert.ok(guides.search('熟悉程度怎么改').some(row => row.guideId === 'start' && row.content.includes('手动设定熟悉程度')));
   assert.ok(guides.search('怎么改情绪状态').some(row => row.guideId === 'start' && row.content.includes('由我指定')));
   assert.deepEqual(guides.search('今天有点疲惫，想静静待一会儿'), []);
+  assert.ok(guides.search('怎么暂停主动推歌').some(row => row.guideId === 'music' && row.content.includes('本会话不再主动推荐')));
+  assert.ok(guides.search('回应联动怎么关').some(row => row.guideId === 'start' && row.content.includes('独立控制')));
   assert.throws(() => guides.get('../../.env'), /不存在/);
 });
 
@@ -46,7 +48,7 @@ test('GitHub update uses one fixed anonymous GET, persists a validated bundle an
   await guides.sync(); assert.equal(calls.length, 1); assert.equal(calls[0].url, GUIDE_REMOTE_URL);
   assert.equal(calls[0].init.redirect, 'error'); assert.equal(calls[0].init.headers.Accept, 'application/vnd.github.raw+json');
   assert.equal(calls[0].init.headers.Authorization, undefined); assert.equal(calls[0].init.body, undefined);
-  assert.equal(guides.bootstrap().source, 'github'); assert.equal(guides.bootstrap().revision, '2026-10-26.1');
+  assert.equal(guides.bootstrap().source, 'github'); assert.equal(guides.bootstrap().revision, '2026-10-27.1');
   assert.ok(guides.search('音乐地址在哪里填').every(row => row.origin === 'github'));
   const restarted = createGuides(store); assert.equal(restarted.bootstrap().source, 'github');
   await assert.rejects(guides.sync(), error => error.status === 429); assert.equal(calls.length, 1);
@@ -81,7 +83,7 @@ test('a later failed update keeps the successful cache across restart', async t 
   let clock = Date.now(), first = true;
   const { guides, store } = local(t, { guideClock: () => clock, guideFetchImpl: async () => { if (!first) throw new Error('offline'); first = false; return new Response(JSON.stringify(newer())); } });
   await guides.sync(); clock += 61_000; await assert.rejects(guides.sync());
-  assert.equal(guides.bootstrap().source, 'github'); assert.equal(guides.bootstrap().revision, '2026-10-26.1');
+  assert.equal(guides.bootstrap().source, 'github'); assert.equal(guides.bootstrap().revision, '2026-10-27.1');
   assert.equal(createGuides(store).bootstrap().source, 'github');
 });
 
