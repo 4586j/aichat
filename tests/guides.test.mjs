@@ -30,6 +30,7 @@ test('configuration retrieval selects topic documents, caps context and leaves n
   assert.deepEqual(guides.search('今天适合听什么音乐'), []);
   assert.match(guideQuery('那授权码在哪里填', [{ role: 'user', content: '栖忆的邮件怎么配置' }]), /邮件/);
   assert.equal(guideQuery('今天吃什么', [{ role: 'user', content: '栖忆的邮件怎么配置' }]), '');
+  assert.ok(guides.search('宠物怎么改名字').some(row => row.guideId === 'start' && row.content.includes('宠物')));
   assert.throws(() => guides.get('../../.env'), /不存在/);
 });
 

@@ -26,7 +26,9 @@ const fetchImpl = async (_url, options) => {
   return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { headers: { 'content-type': 'application/json' } });
 };
 
+let petTestTime = Date.now();
 const app = await startServer({ port: 4318, dbPath: ':memory:', modelOptions: { fetchImpl, apiKey: '', musicApiKey:'', stickerApiKey:'', mediaFetchImpl:mockMediaFetch,
+  petClock: () => (petTestTime += 1100),
   guideFetchImpl: async () => {
     const bundle = JSON.parse(readFileSync(new URL('../docs/configuration/guide-bundle.json', import.meta.url), 'utf8'));
     bundle.revision = '2026-10-26.1';

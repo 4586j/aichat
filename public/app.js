@@ -2,6 +2,7 @@ import { mountMemoryGraph } from './memory-graph.js';
 import { createMediaUI, renderAttachments } from './media.js';
 import { createMailUI } from './mail.js';
 import { createGuidesUI } from './guides.js';
+import { createPetsUI } from './pets.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -103,6 +104,7 @@ let disposeGraph = null;
 const mediaUI = createMediaUI({ request: api, toast, redraw: () => renderPage() });
 const mailUI = createMailUI({ request: api, toast, redraw: () => renderPage() });
 const guidesUI = createGuidesUI({ request: api, askInChat: beginGuideQuestion });
+const petsUI = createPetsUI({ request: api, toast, redraw: () => renderPage() });
 const mobileLayout = window.matchMedia('(max-width: 700px)');
 let layoutFrame = null;
 
@@ -247,6 +249,7 @@ async function refreshData({ silent = false, draw = true } = {}) {
     mediaUI.sync(data.media);
     mailUI.sync(data.mail);
     guidesUI.sync(data.guides, Boolean(data.settings.model));
+    petsUI.sync(data.pets);
     state.bootstrapError = '';
     state.lastSync = new Date().toISOString();
     if (!data.personas.some(p => p.id === state.personaId)) {
@@ -290,7 +293,8 @@ function renderPage({ toBottom = false } = {}) {
   }
   const views = { chat: renderChat, personas: renderPersonas, knowledge: renderKnowledge, memories: renderMemories, tasks: renderTasks, settings: renderSettings };
   guidesUI.setModelConfigured(Boolean(state.data.settings.model));
-  main.innerHTML = `${state.bootstrapError ? notice('最近一次数据同步失败，以下显示上次成功读取的数据。可使用右上角刷新重试。', 'warning') : ''}${views[state.page]()}${state.page === 'settings' ? mediaUI.renderSettings() + mailUI.renderSettings() : ''}`;
+  petsUI.setChatState(Boolean(state.sending));
+  main.innerHTML = `${state.bootstrapError ? notice('最近一次数据同步失败，以下显示上次成功读取的数据。可使用右上角刷新重试。', 'warning') : ''}${views[state.page]()}${state.page === 'settings' ? mediaUI.renderSettings() + mailUI.renderSettings() + petsUI.renderSettings() : ''}`;
   const graphContainer = $('#memory-graph-container');
   if (graphContainer && state.graph.data && !state.graph.loading) {
     disposeGraph = mountMemoryGraph(graphContainer, { data: state.graph.data, onOpenMemory: id => {
@@ -355,7 +359,7 @@ function renderChat() {
   const title = state.data.conversations.find(c => c.id === state.conversationId)?.title;
   const loadError = state.loadErrors.get(state.conversationId);
   return `${heading('让思绪，有处栖息。', '从一次对话开始，慢慢积累只属于你的理解与记忆。', 'A SPACE TO THINK & REMEMBER', button(state.newConversationBusy ? '正在新建…' : '开启新对话', 'new-conversation', { iconName: 'plus', busy: !persona || state.newConversationBusy }))}
-    <div class="chat-grid"><section class="card chat-panel" aria-label="与角色对话">
+    <div class="chat-grid"><section class="card chat-panel" aria-label="与角色对话">${petsUI.renderCompanion(true)}
       <div class="chat-toolbar"><div class="persona-control"><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><div><label class="sr-only" for="chat-persona">选择聊天角色</label><select id="chat-persona"${disabled(!persona)}>${personaOptions(state.personaId)}${!persona ? '<option value="">请先创建角色</option>' : ''}</select><div class="micro muted truncate" title="${e(title || '尚未开始的新对话')}">${e(title || '尚未开始的新对话')}</div></div></div><div class="chat-toolbar-note">${icon('lock')}角色记忆独立保存</div></div>
       <div id="chat-messages" class="chat-messages" data-conversation="${e(key)}" role="log" aria-live="polite" aria-relevant="additions text" aria-label="聊天消息" aria-busy="${Boolean(loading || sendingHere)}">
         ${loadError ? `${errorHTML(loadError)}${button('重新读取会话', 'reload-conversation', { iconName: 'refresh', busy: loading })}` : ''}
@@ -366,6 +370,7 @@ function renderChat() {
       <div class="composer-wrap">${errorHTML(state.chatErrors.get(key))}<form id="chat-form" class="composer"><label class="sr-only" for="chat-input">发送给当前角色的消息</label><textarea id="chat-input" name="content" rows="2" maxlength="8000" placeholder="说说今天，或者问一个你在意的问题…"${disabled(!persona || loading)}>${e(state.drafts.get(key) || '')}</textarea><div class="composer-bottom"><span class="keyboard-hint">Enter 发送 · Shift + Enter 换行</span><span class="touch-hint">换行继续写，轻触发送</span><button class="button primary small" type="submit"${disabled(!persona || loading || Boolean(loadError) || Boolean(state.sending))}>${sendingHere ? '<span class="spinner" aria-hidden="true"></span>' : icon('send')}${state.sending ? '等待回复' : '发送'}</button></div></form><div class="composer-note">${icon('shield')}<span>发送后，聊天内容、相关知识片段和角色记忆会传至已配置的模型服务。模型回答请自行核实。</span></div></div>
     </section><details class="chat-context" data-detail="chat-context"${mobileLayout.matches ? '' : ' open'}><summary>${icon('book')}<span>会话与记忆</span><span class="context-hint">查看对话手记</span>${icon('chevron')}</summary><aside class="chat-aside" aria-label="当前角色与会话信息">
       <section class="card persona-summary"><div class="eyebrow">YOUR COMPANION</div><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><h2>${e(persona?.name || '等待一个名字')}</h2><p class="plain-text">${e(persona?.description || '给角色写下一段简介，让陪伴拥有自己的模样。')}</p>${persona?.tone ? `<span class="pill">${e(persona.tone)}</span>` : ''}${persona ? `<div>${button('了解与编辑人设', 'edit-persona', { id: persona.id, kind: 'subtle small', iconName: 'arrow' })}</div>` : ''}</section>
+      ${petsUI.renderCompanion()}
       <section class="card aside-card"><div class="card-header"><h3>正在生长的记忆</h3>${icon('leaf')}</div><div class="stat-line"><span>当前角色 · 活跃记忆</span><strong>${number(activeMemories)}</strong></div><div class="stat-line"><span>其中固定保留</span><strong>${number(pinnedMemories)}</strong></div><div class="stat-line"><span>共享知识文档</span><strong>${number(state.data.documents.length)}</strong></div><p class="aside-footnote">只有相关的资料才会被检索。回复下方可展开查看实际引用。</p></section>
       <section class="card aside-card"><div class="card-header"><h3>对话手记</h3><span class="small-label">${history.length} CONVERSATIONS</span></div><div class="history-list">${history.length ? history.map(c => `<button type="button" class="history-item${c.id === state.conversationId ? ' active' : ''}" data-action="open-conversation" data-id="${e(c.id)}"${c.id === state.conversationId ? ' aria-current="true"' : ''}>${icon('chat')}<span><strong class="truncate">${e(c.title || '未命名对话')}</strong><small>${e(date(c.updatedAt || c.createdAt))}</small></span></button>`).join('') : '<p class="small muted">还没有对话手记。<br>第一句，就从今天开始。</p>'}</div></section>
     </aside></details></div>`;
@@ -446,6 +451,7 @@ async function sendMessage() {
       renderPage({ toBottom: true });
     }
     const result = await api(`/conversations/${endpointId(conversationId)}/messages`, 'POST', { content });
+    petsUI.react('reply', '回复来啦，陪你慢慢看。');
     const assistant = { ...result.message, sources: result.sources ?? result.message?.sources ?? [], recalledMemories: result.recalledMemories ?? result.message?.recalledMemories ?? [] };
     const messages = state.messages.get(conversationId) || [];
     for (const message of [result.userMessage, assistant]) {
@@ -458,6 +464,7 @@ async function sendMessage() {
     await refreshData({ silent: true, draw: false });
   } catch (error) {
     // No optimistic messages: a failed model request leaves the draft, not a fake transcript.
+    petsUI.react('error', '先慢慢来，我们可以再试一次。');
     state.chatErrors.set(key, error.message);
     if (state.page !== 'chat' || currentDraftKey() !== key) toast(error.message, 'error');
   } finally {
@@ -1010,7 +1017,7 @@ main.addEventListener('drop', event => {
 });
 // Only local reads are automatic. No model tests, analysis, or external requests run on load.
 setInterval(() => {
-  if (document.visibilityState === 'visible' && state.data && !state.refreshing && !dialogSaving && !state.sending && !state.newConversationBusy && !state.settingsSaving && !state.knowledge.uploading && state.busy.size === 0 && !mediaUI.isBusy() && !mailUI.isBusy() && !guidesUI.isBusy()) void refreshData({ silent: true });
+  if (document.visibilityState === 'visible' && state.data && !state.refreshing && !dialogSaving && !state.sending && !state.newConversationBusy && !state.settingsSaving && !state.knowledge.uploading && state.busy.size === 0 && !mediaUI.isBusy() && !mailUI.isBusy() && !guidesUI.isBusy() && !petsUI.isBusy()) void refreshData({ silent: true });
 }, 60_000);
 renderPage();
 void refreshData({ silent: true });

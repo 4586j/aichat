@@ -7,6 +7,7 @@ import { pipeline } from 'node:stream/promises';
 import { createStore } from './lib/store.mjs';
 import { createService } from './lib/service.mjs';
 import { AppError } from './lib/model.mjs';
+import { PET_CATALOG } from './lib/pets.mjs';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const STATIC = new Map([
@@ -20,11 +21,14 @@ const STATIC = new Map([
   ['/mail.css', ['mail.css', 'text/css; charset=utf-8']],
   ['/guides.js', ['guides.js', 'text/javascript; charset=utf-8']],
   ['/guides.css', ['guides.css', 'text/css; charset=utf-8']],
+  ['/pets.js', ['pets.js', 'text/javascript; charset=utf-8']],
+  ['/pets.css', ['pets.css', 'text/css; charset=utf-8']],
   ['/llms.txt', ['../llms.txt', 'text/plain; charset=utf-8']],
   ['/memory-graph.js', ['memory-graph.js', 'text/javascript; charset=utf-8']],
   ['/memory-graph.css', ['memory-graph.css', 'text/css; charset=utf-8']],
   ['/vendor/cytoscape.esm.min.mjs', ['../node_modules/cytoscape/dist/cytoscape.esm.min.mjs', 'text/javascript; charset=utf-8']],
 ]);
+for (const pet of PET_CATALOG) STATIC.set(pet.image, [pet.image.slice(1), 'image/png']);
 const MAX_BODY = 12 * 1024 * 1024;
 
 async function readJson(request) {
@@ -49,6 +53,10 @@ async function route(api, method, pathname, input, query) {
   const [, resource, itemId, action] = parts;
   if (parts.length > 4) throw new AppError('接口不存在。', 404);
   if (method === 'GET' && pathname === '/api/bootstrap') return api.bootstrap();
+  if (method === 'GET' && pathname === '/api/pets') return api.pets.bootstrap();
+  if (method === 'PUT' && pathname === '/api/pets/settings') return api.pets.update(input);
+  if (method === 'POST' && pathname === '/api/pets/interact') return api.pets.interact(input);
+  if (method === 'PUT' && resource === 'pets' && itemId && !action) return api.pets.rename(itemId, input);
   if (method === 'GET' && pathname === '/api/guides') return { guides: api.guides.bootstrap() };
   if (method === 'GET' && resource === 'guides' && itemId && !action) return { document: api.guides.get(itemId) };
   if (method === 'POST' && pathname === '/api/guides/sync') return api.guides.sync();
@@ -174,6 +182,7 @@ export async function startServer({ port = 4317, dbPath = join(ROOT, 'data', 'ag
       const asset = STATIC.get(url.pathname);
       if (!asset || !['GET', 'HEAD'].includes(request.method)) throw new AppError('页面不存在。', 404);
       const contents = await readFile(join(ROOT, 'public', asset[0]));
+      if (url.pathname.startsWith('/assets/pets/')) response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
       response.writeHead(200, { 'Content-Type': asset[1], 'Content-Length': contents.length });
       response.end(request.method === 'HEAD' ? undefined : contents);
     } catch (error) {
