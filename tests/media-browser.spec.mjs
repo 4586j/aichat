@@ -40,7 +40,7 @@ test('local uploads can be edited and disabled; AI stickers and pending songs su
   const edited=page.locator('.sticker-tile').filter({has:page.locator('strong',{hasText:'更新测试'})});await edited.getByRole('button',{name:'停用更新测试',exact:true}).click();await expect(edited).toHaveClass(/is-disabled/);
   const persona=await chat(page,request);await expect(page.locator('.reply-sticker img')).toHaveAttribute('alt','好耶');await expect(page.getByRole('region',{name:'待查询的歌曲推荐'})).toContainText('未配置');
   await expect(page.locator('.message.assistant')).not.toContainText('<qiyi-media>');
-  await page.reload();await page.getByLabel('选择聊天角色',{exact:true}).selectOption(persona.id);await page.locator('.history-item').filter({hasText:'媒体演示'}).click();
+  await page.reload();await page.getByLabel('选择聊天角色',{exact:true}).selectOption(persona.id);await page.getByRole('button', { name: '历史对话', exact: true }).click(); await page.locator('.history-item').filter({hasText:'媒体演示'}).click();
   await expect(page.locator('.reply-sticker img')).toHaveAttribute('alt','好耶');await expect(page.locator('.song-pending')).toContainText('安静片刻');
   const info=await(await request.get('/api/media/settings')).json();const upload=info.stickers.find(s=>s.name==='更新测试');await request.delete(`/api/media/stickers/${upload.id}`,{data:{}});
 });
@@ -51,7 +51,7 @@ test('real audio element plays the service stream, seeks, queues and survives pa
   const audio=page.locator('#background-audio');await expect(async()=>expect(await audio.evaluate(e=>e.currentTime)).toBeGreaterThan(0)).toPass();
   await page.locator('#player-seek').evaluate(e=>{e.value='50';e.dispatchEvent(new Event('input',{bubbles:true}));});await expect(async()=>expect(await audio.evaluate(e=>e.currentTime)).toBeGreaterThan(9)).toPass();
   for(const name of ['知识库','记忆','设置','对话']){await nav(page,name).click();await expect(audio).toHaveJSProperty('paused',false);expect(await page.evaluate(()=>window.savedAudio===document.querySelector('#background-audio'))).toBe(true);}
-  expect((await page.getByRole('button',{name:'发送',exact:true}).boundingBox()).y+44).toBeLessThan((await page.locator('#music-dock').boundingBox()).y);
+  const composer=await page.locator('.composer-wrap').boundingBox(),dock=await page.locator('#music-dock').boundingBox();expect(composer.x+composer.width<=dock.x || composer.y+composer.height<=dock.y).toBe(true);
   await page.getByRole('button',{name:'打开音乐播放器',exact:true}).click();await page.getByLabel('搜索歌曲或歌手',{exact:true}).fill('晚风');await page.getByRole('button',{name:'搜索歌曲',exact:true}).click();
   await page.locator('.music-result').filter({hasText:'晚风练习'}).getByRole('button',{name:'待播',exact:true}).click();await expect(page.locator('#music-queue-list li')).toHaveCount(2);
   await page.getByLabel('播放面板音量',{exact:true}).evaluate(e=>{e.value='.35';e.dispatchEvent(new Event('input',{bubbles:true}));});await expect(audio).toHaveJSProperty('volume',.35);
@@ -100,8 +100,10 @@ test.describe('mobile media',()=>{
   test.use({hasTouch:true,isMobile:true});
   for(const width of [320,390])test(`player and media settings fit ${width}px`,async({page,request},testInfo)=>{
     await configure(request,{musicBaseUrl:'http://music-fixture.invalid'});await page.setViewportSize({width,height:844});await page.goto('/');await localBackground(page);
-    const player=await page.locator('#music-dock').boundingBox(),navigation=await page.locator('#navigation').boundingBox();expect(player.y+player.height).toBeLessThanOrEqual(navigation.y);expect(player.x).toBeGreaterThanOrEqual(0);expect(player.x+player.width).toBeLessThanOrEqual(width);
+    const player=await page.locator('#music-dock').boundingBox(),navigation=await page.locator('#navigation').boundingBox();expect(player.y).toBeGreaterThan(navigation.y+navigation.height);expect(player.y+player.height).toBeLessThanOrEqual(844);expect(player.x).toBeGreaterThanOrEqual(0);expect(player.x+player.width).toBeLessThanOrEqual(width);
     const send=await page.getByRole('button',{name:'发送',exact:true}).boundingBox();expect(send.y+send.height).toBeLessThanOrEqual(player.y);
+    expect((await page.locator('.player-track').boundingBox()).width).toBeGreaterThan(80);
+    await expect(page.locator('#player-loop')).toBeVisible();
     await page.screenshot({path:testInfo.outputPath('mobile-music-player.png')});
     await nav(page,'设置').click();await expect(page.getByLabel('音乐服务地址',{exact:true})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     await page.getByRole('button',{name:'打开音乐播放器',exact:true}).click();await expect(page.getByLabel('播放面板音量',{exact:true})).toBeVisible();expect(await page.locator('#music-browser').evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true);

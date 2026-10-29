@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-garden-theme="spring">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="color-scheme" content="light">
+  <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f5f4ed">
-  <meta name="description" content="栖忆 MEMORY STUDIO — 本地、单用户的 AI 对话与记忆空间。">
-  <title>栖忆 · MEMORY STUDIO</title>
+  <meta name="description" content="栖忆 · 本地 AI 聊天、角色、知识库、记忆与任务工作台。">
+  <title>栖忆 · 园林工作台</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23315c47'/%3E%3Cpath d='M8 23C6 11 13 7 25 7c0 12-6 18-17 16m0 0L21 11' fill='none' stroke='%23f5f4ee' stroke-width='2'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/media.css">
@@ -15,9 +15,287 @@
   <link rel="stylesheet" href="/pets.css">
   <link rel="stylesheet" href="/chat-state.css">
   <link rel="stylesheet" href="/response-policy.css">
+  <link rel="stylesheet" href="/garden.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
+<svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+    <defs>
+      <!-- 泥金与朱漆立体浮雕渐变 -->
+      <linearGradient id="grad-imperial-gold" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#fff4cc"/>
+        <stop offset="35%" stop-color="#ecc774"/>
+        <stop offset="70%" stop-color="#b5832c"/>
+        <stop offset="100%" stop-color="#f5d98e"/>
+      </linearGradient>
+      <linearGradient id="grad-carved-cinnabar" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#852218"/>
+        <stop offset="50%" stop-color="#54130d"/>
+        <stop offset="100%" stop-color="#2e0805"/>
+      </linearGradient>
+      <radialGradient id="grad-hetian-jade" cx="38%" cy="35%" r="65%">
+        <stop offset="0%" stop-color="#ffffff"/>
+        <stop offset="45%" stop-color="#e5f0e6"/>
+        <stop offset="85%" stop-color="#b8d1be"/>
+        <stop offset="100%" stop-color="#88a892"/>
+      </radialGradient>
+
+      <!-- 零形变平铺【清宫一码三箭 · 三交六椀菱花】窗格 Pattern (64x64 无缝拼接 + 双层立体木棱 + 鎏金卡子花) -->
+      <pattern id="pat-sanjiao-linghua" width="64" height="64" patternUnits="userSpaceOnUse">
+        <!-- 底层暗部木影 (营造 3D 浮雕深浅) -->
+        <g stroke="#2c0704" stroke-width="3.2" fill="none" opacity="0.82" transform="translate(1.2, 1.4)">
+          <path d="M0 32 H64 M32 0 V64 M0 0 L64 64 M64 0 L0 64"/>
+          <path d="M0 0 L64 64 M64 0 L0 64"/>
+          <circle cx="32" cy="32" r="11"/>
+        </g>
+        <!-- 朱漆主棂条 -->
+        <g stroke="#6b1a12" stroke-width="2.4" fill="none">
+          <path d="M0 0 H64 M0 32 H64 M0 64 H64"/>
+          <path d="M0 0 V64 M32 0 V64 M64 0 V64"/>
+          <path d="M0 0 L64 64 M64 0 L0 64"/>
+          <path d="M-32 0 L32 64 M32 0 L96 64 M32 0 L-32 64 M96 0 L32 64"/>
+        </g>
+        <!-- 顶层泥金高光脊线与六椀菱花瓣 -->
+        <g stroke="url(#grad-imperial-gold)" stroke-width="1.15" fill="none">
+          <path d="M0 0 H64 M0 32 H64 M32 0 V64"/>
+          <path d="M0 0 L64 64 M64 0 L0 64"/>
+          <circle cx="32" cy="32" r="11.5" fill="#4e120c" fill-opacity="0.32"/>
+          <circle cx="32" cy="32" r="7.5"/>
+          <!-- 六椀菱花放射花瓣 -->
+          <path d="M32 20.5 L35 28 L32 32 L29 28 Z M32 43.5 L35 36 L32 32 L29 36 Z M20.5 32 L28 29 L32 32 L28 35 Z M43.5 32 L36 29 L32 32 L36 35 Z" fill="url(#grad-imperial-gold)" fill-opacity="0.72"/>
+          <!-- 中心与四角交点鎏金宝相卡子花 -->
+          <circle cx="32" cy="32" r="3.2" fill="#fff2c2" stroke="#7d5112" stroke-width="0.8"/>
+          <circle cx="0" cy="0" r="4.5" fill="url(#grad-imperial-gold)"/>
+          <circle cx="64" cy="0" r="4.5" fill="url(#grad-imperial-gold)"/>
+          <circle cx="0" cy="64" r="4.5" fill="url(#grad-imperial-gold)"/>
+          <circle cx="64" cy="64" r="4.5" fill="url(#grad-imperial-gold)"/>
+          <circle cx="32" cy="0" r="3" fill="url(#grad-imperial-gold)"/>
+          <circle cx="0" cy="32" r="3" fill="url(#grad-imperial-gold)"/>
+          <circle cx="64" cy="32" r="3" fill="url(#grad-imperial-gold)"/>
+          <circle cx="32" cy="64" r="3" fill="url(#grad-imperial-gold)"/>
+        </g>
+      </pattern>
+
+      <!-- 格心中央【八角海棠泥金开光 · 松鹤延年寒梅团花】 -->
+      <symbol id="sym-begonia-medallion" viewBox="0 0 160 160">
+        <!-- 外层八角海棠曲弧泥金重框 -->
+        <path d="M46 10 H114 Q122 26 138 34 L150 46 V114 Q134 122 126 138 L114 150 H46 Q38 134 22 126 L10 114 V46 Q26 38 34 22 Z" fill="url(#grad-carved-cinnabar)" stroke="url(#grad-imperial-gold)" stroke-width="3"/>
+        <path d="M50 17 H110 Q117 31 131 38 L143 50 V110 Q129 117 122 131 L110 143 H50 Q43 129 29 122 L17 110 V50 Q31 43 38 29 Z" fill="none" stroke="#ffeab5" stroke-width="1" stroke-dasharray="3 2"/>
+        <!-- 内层透空圆光与松竹梅岁寒三友 + 双鹤捧寿浮雕 -->
+        <circle cx="80" cy="80" r="48" fill="#2c0906" fill-opacity="0.72" stroke="url(#grad-imperial-gold)" stroke-width="2.2"/>
+        <circle cx="80" cy="80" r="42" fill="none" stroke="#f3d285" stroke-width="0.8" stroke-opacity="0.65"/>
+        <!-- 盘曲梅枝与松针 -->
+        <path d="M42 98 Q62 76 80 82 Q98 88 118 62 M62 79 Q70 60 88 54 M84 84 Q96 98 112 96" stroke="url(#grad-imperial-gold)" stroke-width="2" stroke-linecap="round" fill="none"/>
+        <!-- 五瓣宮梅与花蕊 -->
+        <g fill="#ffe9b0" stroke="#9e6b1e" stroke-width="0.8">
+          <circle cx="58" cy="66" r="5.5"/><circle cx="88" cy="52" r="6"/><circle cx="112" cy="64" r="5"/><circle cx="104" cy="96" r="5.5"/><circle cx="54" cy="96" r="4.5"/>
+        </g>
+        <!-- 中央团寿字纹 -->
+        <circle cx="80" cy="80" r="14" fill="url(#grad-imperial-gold)" stroke="#4a120c" stroke-width="1.5"/>
+        <path d="M73 75 H87 M80 71 V89 M74 81 H86 M75 86 Q80 90 85 86" stroke="#42100b" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+      </symbol>
+
+      <!-- 格心四角【鎏金夔龙拐子如意角花】 -->
+      <symbol id="sym-kuilong-corner" viewBox="0 0 48 48">
+        <g fill="none" stroke="url(#grad-imperial-gold)" stroke-width="2" stroke-linecap="square">
+          <path d="M3 44 V3 H44"/>
+          <path d="M9 36 V9 H36 V18 H22 V14" stroke-width="1.6"/>
+          <path d="M15 30 V15 H30" stroke-width="1.3"/>
+          <circle cx="10" cy="10" r="3" fill="url(#grad-imperial-gold)"/>
+          <path d="M3 26 H12 V34" stroke-width="1.5"/>
+          <path d="M26 3 V12 H34" stroke-width="1.5"/>
+        </g>
+      </symbol>
+
+      <!-- 上/中绦环板【流云五福捧寿 · 博古如意横楣】 -->
+      <symbol id="sym-taohuan-frieze" viewBox="0 0 360 54">
+        <g fill="none" stroke="url(#grad-imperial-gold)">
+          <rect x="6" y="6" width="348" height="42" rx="4" stroke-width="1.5" stroke-opacity="0.75"/>
+          <!-- 左右对称回纹卡子 -->
+          <path d="M14 14 H36 V24 H22 V32 H42 M346 14 H324 V24 H338 V32 H318" stroke-width="1.4" stroke-opacity="0.8"/>
+          <!-- 中央海棠开光与团寿如意云 -->
+          <path d="M135 12 H225 Q234 20 242 27 Q234 34 225 42 H135 Q126 34 118 27 Q126 20 135 12 Z" fill="url(#grad-carved-cinnabar)" stroke-width="1.8"/>
+          <circle cx="180" cy="27" r="10" fill="url(#grad-imperial-gold)" fill-opacity="0.25" stroke-width="1.5"/>
+          <path d="M154 27 Q166 17 180 27 T206 27" stroke-width="1.5"/>
+          <!-- 两侧展翼祥蝠与流云纹 -->
+          <path d="M62 28 Q78 14 94 26 Q104 18 112 27 Q96 36 78 30 Z" fill="url(#grad-imperial-gold)" fill-opacity="0.32" stroke-width="1.3"/>
+          <path d="M298 28 Q282 14 266 26 Q256 18 248 27 Q264 36 282 30 Z" fill="url(#grad-imperial-gold)" fill-opacity="0.32" stroke-width="1.3"/>
+        </g>
+      </symbol>
+
+      <!-- 竹帘底轴挂件【双喜盘长结 + 和田白玉平安扣 + 朱丝流苏坠】 -->
+      <symbol id="sym-tassel-jade" viewBox="0 0 44 120">
+        <!-- 顶绳与鎏金珠 -->
+        <line x1="22" y1="0" x2="22" y2="14" stroke="#f5d386" stroke-width="2"/>
+        <circle cx="22" cy="10" r="3.5" fill="url(#grad-imperial-gold)"/>
+        <!-- 盘长中国结 -->
+        <polygon points="22,14 33,25 22,36 11,25" fill="#b32419" stroke="#f5d386" stroke-width="1.3"/>
+        <polygon points="22,18 29,25 22,32 15,25" fill="none" stroke="#ffdf94" stroke-width="0.9"/>
+        <!-- 和田羊脂白玉平安双环 -->
+        <circle cx="22" cy="48" r="10.5" fill="url(#grad-hetian-jade)" stroke="#d4ae66" stroke-width="1"/>
+        <circle cx="22" cy="48" r="3.8" fill="#2b0e08" stroke="#e2bc6b" stroke-width="0.9"/>
+        <!-- 鎏金流苏冠座 -->
+        <path d="M14 61 H30 L32 68 H12 Z" fill="url(#grad-imperial-gold)" stroke="#593a0c" stroke-width="0.9"/>
+        <!-- 密排朱红丝绦流苏 -->
+        <path d="M14 68 L11 114 M17 68 L15 116 M20 68 L19 118 M22 68 V118 M24 68 L25 118 M27 68 L29 116 M30 68 L33 114" stroke="#c92c1d" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M16 68 L14 115 M22 68 V118 M28 68 L30 115" stroke="#f5d386" stroke-width="0.7" stroke-opacity="0.75"/>
+      </symbol>
+
+      <!-- 竹帘中央挂件【鎏金如意云头风铎玉坠】 -->
+      <symbol id="sym-curtain-chime" viewBox="0 0 54 96">
+        <line x1="27" y1="0" x2="27" y2="12" stroke="#f5d386" stroke-width="2"/>
+        <path d="M27 10 C39 10, 48 20, 44 30 C39 38, 33 42, 27 46 C21 42, 15 38, 10 30 C6 20, 15 10, 27 10 Z" fill="url(#grad-carved-cinnabar)" stroke="url(#grad-imperial-gold)" stroke-width="2"/>
+        <circle cx="27" cy="27" r="7" fill="url(#grad-hetian-jade)" stroke="url(#grad-imperial-gold)" stroke-width="1.2"/>
+        <path d="M19 50 H35 L39 68 H15 Z" fill="url(#grad-imperial-gold)" stroke="#5c3809" stroke-width="1.1"/>
+        <circle cx="27" cy="72" r="3" fill="#ffe8a3"/>
+        <path d="M21 68 L19 92 M27 68 V94 M33 68 L35 92" stroke="#d43525" stroke-width="1.7" stroke-linecap="round"/>
+      </symbol>
+
+      <!-- 三交六椀菱花隔扇格心 (供侧栏与微缩组件复用) -->
+      <symbol id="sym-door-lattice" viewBox="0 0 120 200">
+        <g stroke="currentColor" stroke-width="1.2" fill="none">
+          <rect x="4" y="4" width="112" height="192" stroke-width="2"/>
+          <path d="M4 36 H116 M4 68 H116 M4 100 H116 M4 132 H116 M4 164 H116"/>
+          <path d="M32 4 V196 M60 4 V196 M88 4 V196"/>
+          <path d="M4 4 L116 196 M116 4 L4 196 M4 68 L88 196 M32 4 L116 132 M116 68 L32 196 M88 4 L4 132"/>
+          <circle cx="60" cy="36" r="8"/><circle cx="60" cy="68" r="9"/><circle cx="60" cy="100" r="10"/><circle cx="60" cy="132" r="9"/><circle cx="60" cy="164" r="8"/>
+          <circle cx="32" cy="68" r="6"/><circle cx="88" cy="68" r="6"/><circle cx="32" cy="132" r="6"/><circle cx="88" cy="132" r="6"/>
+          <path d="M54 100 L60 91 L66 100 L60 109 Z M60 60 L64 68 L60 76 L56 68 Z M60 124 L64 132 L60 140 L56 132 Z" fill="currentColor" fill-opacity="0.35"/>
+        </g>
+      </symbol>
+
+      <!-- 裙板剔红描金海水江崖纹 (Upgraded Lishui & Cliff-and-Sea Waves with Sun & Auspicious Clouds) -->
+      <symbol id="sym-lishui-waves" viewBox="0 0 240 80">
+        <g stroke="url(#grad-imperial-gold)" stroke-width="1.4" fill="none">
+          <!-- 四角回纹金框 -->
+          <rect x="3" y="3" width="234" height="74" stroke-width="1.2" stroke-opacity="0.7"/>
+          <!-- 立水纹 (Lishui columns) -->
+          <path d="M0 78 L20 50 L40 78 M28 78 L48 46 L68 78 M56 78 L76 50 L96 78 M144 78 L164 50 L184 78 M172 78 L192 46 L212 78 M200 78 L220 50 L240 78" stroke-opacity="0.65"/>
+          <!-- 寿山福海中央宝峰 (Sacred Cliff) -->
+          <path d="M94 78 L104 28 L120 10 L136 28 L146 78 Z" fill="url(#grad-imperial-gold)" fill-opacity="0.28" stroke-width="2"/>
+          <path d="M108 78 L120 22 L132 78 M115 78 L120 36 L125 78" stroke-width="1.2"/>
+          <!-- 翻滚浪花 (Rolling Sea Waves) -->
+          <path d="M4 62 Q24 44 44 62 T84 62 T124 62 T164 62 T204 62 T236 62" stroke-width="1.8" fill="url(#grad-carved-cinnabar)" fill-opacity="0.5"/>
+          <path d="M0 72 Q24 54 48 72 T96 72 T144 72 T192 72 T240 72" fill="url(#grad-imperial-gold)" fill-opacity="0.24" stroke-width="1.5"/>
+          <!-- 祥云托日与火珠 -->
+          <circle cx="62" cy="24" r="7.5" fill="url(#grad-imperial-gold)" fill-opacity="0.35"/>
+          <circle cx="178" cy="24" r="7.5" fill="url(#grad-imperial-gold)" fill-opacity="0.35"/>
+          <path d="M42 28 Q52 18 62 24 T84 24 M156 24 Q168 18 178 24 T198 28" stroke-width="1.3"/>
+        </g>
+      </symbol>
+
+      <!-- 宫廷八角掐丝珐琅琉璃宫灯 (Upgraded Imperial Cloisonne & Silk-Painted Palace Lantern) -->
+      <symbol id="sym-palace-lantern" viewBox="0 0 72 126">
+        <g fill="none">
+          <!-- 顶部鎏金链钩与宝珠 -->
+          <line x1="36" y1="0" x2="36" y2="14" stroke="url(#grad-imperial-gold)" stroke-width="2.2"/>
+          <circle cx="36" cy="9" r="3" fill="url(#grad-imperial-gold)"/>
+          <!-- 重檐宝盖顶与四角龙头挑钩 -->
+          <path d="M18 20 Q36 8 54 20 L60 25 H12 Z" fill="#46130d" stroke="url(#grad-imperial-gold)" stroke-width="1.6"/>
+          <path d="M12 25 Q6 21 4 17 M60 25 Q66 21 68 17" stroke="url(#grad-imperial-gold)" stroke-width="1.5" stroke-linecap="round"/>
+          <circle cx="4" cy="19" r="1.6" fill="#e25544"/><circle cx="68" cy="19" r="1.6" fill="#e25544"/>
+          <path d="M10 25 H62 L65 29 H7 Z" fill="url(#grad-imperial-gold)" stroke="#5c3809" stroke-width="1"/>
+          <!-- 八角宫灯纱面与夹层金骨 -->
+          <path d="M13 29 L7 57 L13 85 H59 L65 57 L59 29 Z" fill="#a82c1e" fill-opacity="0.9" stroke="url(#grad-imperial-gold)" stroke-width="2"/>
+          <!-- 灯腹蝉翼纱透光晕与微缩远山寒梅灯画 -->
+          <ellipse cx="36" cy="57" rx="18" ry="23" fill="#ffe9ad" fill-opacity="0.88" stroke="#ffd275" stroke-width="1.1"/>
+          <circle cx="36" cy="54" r="9" fill="#fffdf0" fill-opacity="0.92"/>
+          <path d="M21 67 Q30 58 38 64 T51 61" stroke="#8c3222" stroke-width="1.1" stroke-opacity="0.55"/>
+          <path d="M27 52 Q34 46 42 49" stroke="#5c2216" stroke-width="1" stroke-opacity="0.6"/>
+          <circle cx="34" cy="48" r="1.8" fill="#c93b2b" fill-opacity="0.7"/>
+          <circle cx="40" cy="49" r="1.5" fill="#c93b2b" fill-opacity="0.7"/>
+          <!-- 纵向鎏金灯骨与雕花卡口 -->
+          <path d="M24 29 L19 57 L24 85 M48 29 L53 57 L48 85" stroke="url(#grad-imperial-gold)" stroke-width="1.3"/>
+          <!-- 底部须弥莲座与双喜盘长结三穗流苏 -->
+          <rect x="18" y="85" width="36" height="6" rx="2" fill="#4f150f" stroke="url(#grad-imperial-gold)" stroke-width="1.4"/>
+          <path d="M24 91 H48 L44 96 H28 Z" fill="url(#grad-imperial-gold)"/>
+          <polygon points="36,96 41,101 36,106 31,101" fill="#c92c1d" stroke="#f5d386" stroke-width="0.9"/>
+          <path d="M24 92 V115 M27 92 V114 M34 106 L32 124 M36 106 V125 M38 106 L40 124 M45 92 V114 M48 92 V115" stroke="#e03c2b" stroke-width="1.5" stroke-linecap="round"/>
+          <circle cx="25.5" cy="98" r="1.8" fill="#f5d386"/><circle cx="46.5" cy="98" r="1.8" fill="#f5d386"/>
+        </g>
+      </symbol>
+
+      <!-- 鎏金椒图铺首衔环底座 (Upgraded Gilded Taotie/Jiaotu Beast-Head Knocker) -->
+      <symbol id="sym-beast-knocker" viewBox="0 0 68 88">
+        <g fill="none">
+          <!-- 八角葵花鎏金底座 -->
+          <polygon points="34,2 54,10 64,28 56,50 34,62 12,50 4,28 14,10" fill="url(#grad-imperial-gold)" stroke="#fff3c4" stroke-width="1.6"/>
+          <polygon points="34,7 50,14 58,28 51,46 34,56 17,46 10,28 18,14" fill="#6b4410" stroke="#ffe5a3" stroke-width="1"/>
+          <!-- 椒图瑞兽双角与卷云眉目 -->
+          <path d="M16 20 Q25 10 34 18 Q43 10 52 20 M16 34 Q34 24 52 34" stroke="#fff0bd" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="24" cy="26" r="3.5" fill="#2d0906" stroke="#ffe5a3" stroke-width="1.1"/>
+          <circle cx="44" cy="26" r="3.5" fill="#2d0906" stroke="#ffe5a3" stroke-width="1.1"/>
+          <!-- 兽鼻衔环扣 -->
+          <rect x="26" y="36" width="16" height="12" rx="4" fill="url(#grad-imperial-gold)" stroke="#472b05" stroke-width="1.4"/>
+        </g>
+      </symbol>
+
+      <!-- 云肩如意角花与五福捧寿蝠纹 (Cloud-Collar & Fortune Bat) -->
+      <symbol id="sym-cloud-collar" viewBox="0 0 36 36">
+        <path d="M2 2 H28 Q20 10 26 18 Q18 18 18 26 Q10 20 2 28 Z" fill="currentColor" fill-opacity="0.18" stroke="currentColor" stroke-width="1.4"/>
+        <path d="M6 6 H18 V10 H10 V18 H6 Z" stroke="currentColor" stroke-width="1.1" fill="none"/>
+      </symbol>
+
+      <!-- 汉白玉仰覆莲望柱与宝相云龙雕花栏杆 (Upgraded Imperial White-Marble Lotus Balustrade) -->
+      <symbol id="sym-marble-balustrade" viewBox="0 0 600 44">
+        <g stroke="currentColor" fill="none" stroke-width="1.2">
+          <!-- 寻杖上扶手与地栿底座 -->
+          <line x1="0" y1="13" x2="600" y2="13" stroke-width="2.2"/>
+          <line x1="0" y1="16" x2="600" y2="16" stroke-width="0.9" stroke-opacity="0.65"/>
+          <line x1="0" y1="35" x2="600" y2="35" stroke-width="2.4"/>
+          <line x1="0" y1="39" x2="600" y2="39" stroke-width="3.2" stroke-opacity="0.45"/>
+          <!-- 六根汉白玉仰覆莲石榴头望柱 -->
+          <g fill="currentColor" fill-opacity="0.22">
+            <path d="M17 11 H27 V38 H17 Z"/><path d="M15 9 Q22 12 29 9 Q26 6 22 6 Q18 6 15 9 Z"/><ellipse cx="22" cy="3.8" rx="3.8" ry="3.2"/>
+            <path d="M117 11 H127 V38 H117 Z"/><path d="M115 9 Q122 12 129 9 Q126 6 122 6 Q118 6 115 9 Z"/><ellipse cx="122" cy="3.8" rx="3.8" ry="3.2"/>
+            <path d="M217 11 H227 V38 H217 Z"/><path d="M215 9 Q222 12 229 9 Q226 6 222 6 Q218 6 215 9 Z"/><ellipse cx="222" cy="3.8" rx="3.8" ry="3.2"/>
+            <path d="M317 11 H327 V38 H317 Z"/><path d="M315 9 Q322 12 329 9 Q326 6 322 6 Q318 6 315 9 Z"/><ellipse cx="322" cy="3.8" rx="3.8" ry="3.2"/>
+            <path d="M417 11 H427 V38 H417 Z"/><path d="M415 9 Q422 12 429 9 Q426 6 422 6 Q418 6 415 9 Z"/><ellipse cx="422" cy="3.8" rx="3.8" ry="3.2"/>
+            <path d="M517 11 H527 V38 H517 Z"/><path d="M515 9 Q522 12 529 9 Q526 6 522 6 Q518 6 515 9 Z"/><ellipse cx="522" cy="3.8" rx="3.8" ry="3.2"/>
+          </g>
+          <!-- 雕花华板海棠开光与卷云如意浮雕 -->
+          <path d="M32 18 H112 V32 H32 Z M132 18 H212 V32 H132 Z M232 18 H312 V32 H232 Z M332 18 H412 V32 H332 Z M432 18 H512 V32 H432 Z M532 18 H594 V32 H532 Z" fill="currentColor" fill-opacity="0.08" stroke-opacity="0.72"/>
+          <path d="M44 25 Q58 19 72 25 T100 25 M144 25 Q158 19 172 25 T200 25 M244 25 Q258 19 272 25 T300 25 M344 25 Q358 19 372 25 T400 25 M444 25 Q458 19 472 25 T500 25 M542 25 Q556 19 570 25 T588 25" stroke-opacity="0.58"/>
+          <circle cx="72" cy="25" r="2.5"/><circle cx="172" cy="25" r="2.5"/><circle cx="272" cy="25" r="2.5"/><circle cx="372" cy="25" r="2.5"/><circle cx="472" cy="25" r="2.5"/>
+        </g>
+      </symbol>
+
+      <!-- 太湖石瘦皱漏透 (Upgraded Organic Eroded Taihu Scholar's Rock with Caverns & Cunfa Facets) -->
+      <symbol id="sym-taihu-rock" viewBox="0 0 90 110">
+        <!-- 底层暗部山石体块 -->
+        <path d="M20 106 C12 88, 8 68, 18 52 C11 36, 19 18, 36 12 C48 4, 68 8, 74 24 C83 36, 76 52, 82 68 C85 84, 76 96, 68 106 Z" fill="currentColor" fill-opacity="0.34" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+        <!-- 受光面折带皴与石脊层理 -->
+        <path d="M24 104 C18 86, 16 68, 25 54 C20 38, 28 22, 44 16 C58 11, 68 22, 64 38 C72 48, 70 68, 60 104 Z" fill="currentColor" fill-opacity="0.18"/>
+        <!-- 天然瘦·皱·漏·透溶蚀孔窍 (非正圆几何孔，呈有机流云太湖石眼) -->
+        <path d="M38 26 C46 21, 57 25, 55 35 C53 43, 41 45, 36 38 C33 33, 34 29, 38 26 Z" fill="var(--paper-card, #fcfaf4)" stroke="currentColor" stroke-width="1.2"/>
+        <path d="M27 58 C34 53, 44 57, 42 66 C40 73, 30 74, 25 68 C22 64, 23 60, 27 58 Z" fill="var(--paper-card, #fcfaf4)" stroke="currentColor" stroke-width="1.1"/>
+        <path d="M51 64 C57 60, 65 64, 63 72 C61 78, 52 79, 49 73 C47 69, 48 66, 51 64 Z" fill="var(--paper-card, #fcfaf4)" stroke="currentColor" stroke-width="1.1"/>
+        <path d="M38 82 C43 79, 50 82, 48 88 C46 93, 39 93, 36 89 Z" fill="var(--paper-card, #fcfaf4)" stroke="currentColor" stroke-width="0.9"/>
+        <!-- 皴法石脉纹理与青苔点染 -->
+        <path d="M20 48 Q34 42 48 50 T72 46 M22 78 Q38 72 54 82 T70 78 M32 22 Q44 16 58 20" stroke="currentColor" stroke-width="1.1" stroke-opacity="0.7" fill="none" stroke-linecap="round"/>
+        <circle cx="32" cy="18" r="1.4" fill="currentColor"/><circle cx="62" cy="28" r="1.3" fill="currentColor"/><circle cx="22" cy="52" r="1.4" fill="currentColor"/>
+      </symbol>
+
+      <!-- 宋徽宗《瑞鹤图》仙鹤凌云 (Upgraded Song-Court Flying Crane with Layered Primaries & Trailing Legs) -->
+      <symbol id="sym-crane" viewBox="0 0 80 48">
+        <g fill="none">
+          <!-- 修长双足后曳 -->
+          <path d="M24 31 L6 37 M26 33 L9 40" stroke="#3c4f44" stroke-width="1.1" stroke-linecap="round"/>
+          <!-- 后翼墨羽与白翮 -->
+          <path d="M34 23 C28 11, 16 6, 6 12 C16 14, 24 19, 30 25 Z" fill="#f7f4eb" stroke="#284d3b" stroke-width="1.1"/>
+          <path d="M6 12 C11 10, 17 11, 22 15" stroke="#1b2622" stroke-width="2.2" stroke-linecap="round"/>
+          <!-- 鹤身与引颈展喙 -->
+          <path d="M18 30 C26 24, 38 22, 48 24 C56 24, 62 17, 66 13 C63 20, 56 29, 44 31 C34 33, 24 33, 18 30 Z" fill="#fffdf9" stroke="#284d3b" stroke-width="1.2"/>
+          <!-- 前翼舒展层次与墨黑羽尖 -->
+          <path d="M36 25 C40 12, 52 4, 66 7 C58 13, 50 20, 44 27 Z" fill="#fffdf9" stroke="#284d3b" stroke-width="1.2"/>
+          <path d="M52 7 C57 6, 62 6, 66 7 M47 10 C53 9, 58 9, 62 10 M20 30 C15 31, 11 30, 14 27" stroke="#18221e" stroke-width="2.2" stroke-linecap="round"/>
+          <!-- 丹顶与修长金喙 -->
+          <ellipse cx="66" cy="12.5" rx="2.4" ry="1.6" fill="#c93223"/>
+          <path d="M68 12.8 L78 11.2" stroke="#b58834" stroke-width="1.3" stroke-linecap="round"/>
+        </g>
+      </symbol>
+    </defs>
+  </svg>
   <a class="skip-link" href="#main">跳至主要内容</a>
   <div id="startup-screen" class="startup-screen" aria-hidden="true">
     <div class="startup-content">
@@ -32,26 +310,84 @@
       <span class="startup-rule"></span>
     </div>
   </div>
+  <div class="garden-controls preview-inspector" aria-label="外观设置">
+    <div class="inspector-brand"><span class="inspector-seal">栖忆</span><span>你的私人 AI 伙伴</span></div>
+    <div class="inspector-controls">
+      <button type="button" class="inspector-btn" data-garden-action="scenes" aria-pressed="true">场景动画</button>
+      <button type="button" class="inspector-btn" data-garden-action="entrance">重播入场</button>
+      <span class="inspector-divider" aria-hidden="true"></span>
+      <div class="theme-options" role="group" aria-label="界面主题">
+        <button type="button" class="inspector-btn" data-garden-theme-select="spring" aria-pressed="true">春园</button>
+        <button type="button" class="inspector-btn" data-garden-theme-select="autumn" aria-pressed="false">秋庭</button>
+        <button type="button" class="inspector-btn" data-garden-theme-select="night" aria-pressed="false">夜雨</button>
+      </div>
+    </div>
+  </div>
   <div class="app-shell">
     <aside class="sidebar" aria-label="应用导航">
-      <a class="brand" href="#chat" aria-label="栖忆，返回对话">
-        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40" fill="none"><path d="M20 5v30M7 13c13-1 13 10 13 10S7 24 7 13Zm26-5c-13 0-13 12-13 12S33 21 33 8Zm0 16c-13-1-13 11-13 11s13 1 13-11Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></span>
-        <span><strong>栖忆</strong><small>MEMORY STUDIO</small></span>
+      <a class="brand brand-plaque" href="#chat" id="sidebar-brand-plaque" aria-label="栖忆，返回对话">
+        <span class="plaque-light-sweep" aria-hidden="true"></span>
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 40" fill="none">
+            <path d="M20 6v28M9 14c11-1 11 9 11 9S9 24 9 14Zm22-4c-11 0-11 10-11 10s11 0 11-10Zm0 14c-11-1-11 9-11 9s11 1 11-9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="brand-text">
+          <strong>栖忆</strong>
+          <small>你的 AI 伙伴</small>
+        </span>
+        <span class="brand-seal" aria-hidden="true">私园</span>
       </a>
-      <div class="sidebar-caption">你的私人思绪空间</div>
-      <nav id="navigation" aria-label="主导航"></nav>
+
+      <div class="sidebar-caption">功能导航</div>
+      <div class="leak-window-strip" aria-label="游廊四式漏窗">
+        <div class="leak-window-cell" title="海棠什锦漏窗">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.15">
+            <rect x="2.5" y="2.5" width="27" height="27" rx="3" stroke-opacity="0.45"/>
+            <path d="M16 5 C20 5, 22 8, 20 12 C24 10, 27 12, 27 16 C27 20, 24 22, 20 20 C22 24, 20 27, 16 27 C12 27, 10 24, 12 20 C8 22, 5 20, 5 16 C5 12, 8 10, 12 12 C10 8, 12 5, 16 5 Z" fill="currentColor" fill-opacity="0.1"/>
+            <circle cx="16" cy="16" r="3.2"/>
+          </svg>
+          <span>海棠</span>
+        </div>
+        <div class="leak-window-cell" title="冰裂梅影漏窗">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.15">
+            <circle cx="16" cy="16" r="13.5" fill="currentColor" fill-opacity="0.08"/>
+            <path d="M5 12 L15 8 L28 13 M15 8 L18 21 L5 22 M18 21 L28 23 M10 10 L9 22 M22 11 L23 22"/>
+            <circle cx="15" cy="15" r="2" fill="var(--cinnabar)" stroke="none"/>
+          </svg>
+          <span>冰裂</span>
+        </div>
+        <div class="leak-window-cell" title="步步锦直棂漏窗">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.15">
+            <rect x="3" y="3" width="26" height="26" fill="currentColor" fill-opacity="0.08"/>
+            <path d="M11 3 V21 H29 M21 29 V11 H3 M11 11 H21 V21 H11 Z M14 14 H18 V18 H14 Z"/>
+          </svg>
+          <span>步步锦</span>
+        </div>
+        <div class="leak-window-cell" title="盘长万字不到头漏窗">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.15">
+            <polygon points="16,2.5 29.5,16 16,29.5 2.5,16" fill="currentColor" fill-opacity="0.08"/>
+            <path d="M10 10 H16 V22 H22 M22 10 V16 H10 V22"/>
+          </svg>
+          <span>万字纹</span>
+        </div>
+      </div>
+
+      <nav id="navigation" class="garden-nav" aria-label="主导航"></nav>
+      <div id="garden-companion"></div>
       <div class="sidebar-bottom">
-        <div class="local-note"><span class="small-label">MADE FOR YOUR INNER WORLD</span><p>让对话生长，<br>让值得的被记住。</p></div>
+<div class="sidebar-bonsai" aria-hidden="true"><svg viewBox="0 0 92 72" fill="none"><use href="#sym-taihu-rock" x="12" y="6" width="42" height="50" style="color:var(--celadon)"/><path d="M48 54Q60 25 80 16M55 42Q72 35 84 26" stroke="var(--bamboo)" stroke-width="2"/><circle cx="70" cy="24" r="3" fill="var(--cinnabar)"/><path d="M8 56H84L78 65H14Z" fill="var(--bamboo)"/></svg><div class="sidebar-bonsai-text"><strong>园林盆景</strong><span>竹、梅与太湖石</span></div></div>
         <div id="connection-status" class="connection-status" role="status" aria-live="polite"></div>
       </div>
     </aside>
     <div class="workspace">
       <header class="topbar">
-        <div class="breadcrumb"><span>私人工作室</span><span aria-hidden="true">/</span><strong id="current-page">对话</strong></div>
-        <div class="topbar-tools"><button type="button" class="icon-button" data-mail-action="open" aria-label="写一封邮件" title="邮件"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 6 9 7 9-7"/></svg></button><button class="icon-button" type="button" data-media-action="open-music" aria-label="打开音乐播放器" title="音乐与背景播放"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M9 18V5l12-2v13M9 8l12-2"/><ellipse cx="6" cy="18" rx="3" ry="3"/><ellipse cx="18" cy="16" rx="3" ry="3"/></svg></button><span class="local-badge"><span class="tiny-dot"></span>单用户 · 本地存储</span><button id="refresh-button" class="icon-button" type="button" aria-label="刷新本地数据" title="刷新本地数据"></button></div>
+        <div class="breadcrumb"><span>工作台</span><span aria-hidden="true">/</span><strong id="current-page">对话</strong></div><div id="garden-connection-slot"></div>
+        <div class="topbar-tools"><button type="button" class="icon-button" data-mail-action="open" aria-label="写一封邮件" title="邮件"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 6 9 7 9-7"/></svg></button><button class="icon-button" type="button" data-media-action="open-music" aria-label="打开音乐播放器" title="音乐与背景播放"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M9 18V5l12-2v13M9 8l12-2"/><ellipse cx="6" cy="18" rx="3" ry="3"/><ellipse cx="18" cy="16" rx="3" ry="3"/></svg></button><span class="local-badge seal-badge"><span class="seal-stamp-red">私密</span>本地存储</span><button id="refresh-button" class="icon-button" type="button" aria-label="刷新本地数据" title="刷新本地数据"></button></div>
       </header>
       <main id="main" tabindex="-1" aria-busy="true"></main>
-      <footer class="app-footer"><span>栖忆 · 留一处空间，安放你的思绪</span><span id="sync-status">正在读取本地数据</span></footer>
+      <div id="garden-player-host" hidden></div>
+      <footer class="app-footer"><span>栖忆 · 本地 AI 工作台</span><span id="sync-status">正在读取本地数据</span></footer>
     </div>
   </div>
   <dialog id="editor-dialog" aria-labelledby="dialog-title"></dialog>

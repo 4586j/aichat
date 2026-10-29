@@ -75,7 +75,7 @@ for (const width of [320, 390]) test(`pet home and compact chat companion fit ${
   await page.setViewportSize({ width, height: 844 }); await page.goto('/'); await expect(page.locator('.pet-mobile-companion')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect((await page.locator('.pet-mobile-companion').boundingBox()).height).toBeLessThan(70);
-  const send = await page.getByRole('button', { name: '发送', exact: true }).boundingBox(), nav = await page.locator('#navigation').boundingBox(); expect(send.y + send.height).toBeLessThan(nav.y);
+  const send = await page.getByRole('button', { name: '发送', exact: true }).boundingBox(), nav = await page.locator('#navigation').boundingBox(); expect(send.y).toBeGreaterThan(nav.y + nav.height); expect(send.y + send.height).toBeLessThanOrEqual(844);
   await open(page); await expect(page.locator('#pet-home')).toBeVisible(); expect(await page.locator('#pet-home').evaluate(e => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
   await choose(page, '柴犬').scrollIntoViewIfNeeded(); await choose(page, '柴犬').click(); await expect(choose(page, '柴犬')).toHaveAttribute('aria-pressed', 'true');
   await page.screenshot({ path: info.outputPath(`pets-mobile-${width}.png`) });

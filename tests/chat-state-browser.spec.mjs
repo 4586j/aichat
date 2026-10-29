@@ -33,7 +33,7 @@ test('a grounded reply updates the bar and evidence, hides metadata and calms pe
   await expect(page.locator('.message.assistant')).not.toContainText('qiyi-state'); await page.screenshot({ path: info.outputPath('state-desktop-chat.png') }); await open(page);
   await modal(page).locator('.state-field').filter({ has: page.getByRole('heading', { name: '精力状态', exact: true }) }).locator('summary').click();
   await expect(modal(page).locator('.state-field').filter({ has: page.getByRole('heading', { name: '精力状态', exact: true }) }).locator('blockquote')).toHaveText('今天好累'); await page.screenshot({ path: info.outputPath('state-desktop-detail.png') }); await close(page); await page.reload();
-  await page.getByLabel('选择聊天角色', { exact: true }).selectOption(persona.id); await page.locator('.history-item').filter({ hasText: '状态演示' }).click();
+  await page.getByLabel('选择聊天角色', { exact: true }).selectOption(persona.id); await page.getByRole('button', { name: '历史对话', exact: true }).click(); await page.locator('.history-item').filter({ hasText: '状态演示' }).click();
   await expect(bar(page)).toContainText('精力疲惫'); expect(chats).toBe(1);
 });
 
@@ -86,7 +86,7 @@ test('conflicting edits preserve the open form and require an explicit reload', 
 for (const width of [320, 390]) test(`state bar, evidence and editing fit ${width}px and the visible keyboard area`, async ({ page, request }, info) => {
   await page.setViewportSize({ width, height: 844 }); await fresh(page, request); await send(page);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  const sendBox = await page.getByRole('button', { name: '发送', exact: true }).boundingBox(), nav = await page.locator('#navigation').boundingBox(); expect(sendBox.y + sendBox.height).toBeLessThan(nav.y);
+  const sendBox = await page.getByRole('button', { name: '发送', exact: true }).boundingBox(), nav = await page.locator('#navigation').boundingBox(); expect(sendBox.y).toBeGreaterThan(nav.y + nav.height); expect(sendBox.y + sendBox.height).toBeLessThanOrEqual(844);
   await page.screenshot({ path: info.outputPath(`state-chat-${width}.png`) }); await open(page); expect(await modal(page).evaluate(e => e.scrollWidth <= e.clientWidth + 1)).toBe(true); await page.screenshot({ path: info.outputPath(`state-detail-${width}.png`) }); await manual(page, 'energy').check(); await page.locator('#state-note-energy').fill('移动端保留输入');
   await page.evaluate(() => { Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 450 }); window.visualViewport.dispatchEvent(new Event('resize')); });
   await expect(async () => { const box = await modal(page).boundingBox(); expect(box.y + box.height).toBeLessThanOrEqual(450); }).toPass(); await expect(page.locator('#state-note-energy')).toHaveValue('移动端保留输入');

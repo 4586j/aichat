@@ -8,6 +8,8 @@ import { createStore } from './lib/store.mjs';
 import { createService } from './lib/service.mjs';
 import { AppError } from './lib/model.mjs';
 import { PET_CATALOG } from './lib/pets.mjs';
+import { petSprite } from './public/pet-motion.js';
+import { petClipSprite } from './public/pet-clips.js';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const STATIC = new Map([
@@ -15,6 +17,8 @@ const STATIC = new Map([
   ['/index.html', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
+  ['/garden.css', ['garden.css', 'text/css; charset=utf-8']],
+  ['/garden-ui.js', ['garden-ui.js', 'text/javascript; charset=utf-8']],
   ['/media.js', ['media.js', 'text/javascript; charset=utf-8']],
   ['/media.css', ['media.css', 'text/css; charset=utf-8']],
   ['/mail.js', ['mail.js', 'text/javascript; charset=utf-8']],
@@ -23,6 +27,9 @@ const STATIC = new Map([
   ['/guides.css', ['guides.css', 'text/css; charset=utf-8']],
   ['/pets.js', ['pets.js', 'text/javascript; charset=utf-8']],
   ['/pets.css', ['pets.css', 'text/css; charset=utf-8']],
+  ['/pet-motion.js', ['pet-motion.js', 'text/javascript; charset=utf-8']],
+  ['/pet-clips.js', ['pet-clips.js', 'text/javascript; charset=utf-8']],
+  ['/pet-framing.js', ['pet-framing.js', 'text/javascript; charset=utf-8']],
   ['/chat-state.js', ['chat-state.js', 'text/javascript; charset=utf-8']],
   ['/chat-state.css', ['chat-state.css', 'text/css; charset=utf-8']],
   ['/response-scenes.js', ['response-scenes.js', 'text/javascript; charset=utf-8']],
@@ -33,7 +40,11 @@ const STATIC = new Map([
   ['/memory-graph.css', ['memory-graph.css', 'text/css; charset=utf-8']],
   ['/vendor/cytoscape.esm.min.mjs', ['../node_modules/cytoscape/dist/cytoscape.esm.min.mjs', 'text/javascript; charset=utf-8']],
 ]);
-for (const pet of PET_CATALOG) STATIC.set(pet.image, [pet.image.slice(1), 'image/png']);
+for (const pet of PET_CATALOG) {
+  STATIC.set(pet.image, [pet.image.slice(1), 'image/png']);
+  STATIC.set(petSprite(pet.id), [petSprite(pet.id).slice(1), 'image/webp']);
+  STATIC.set(petClipSprite(pet.id), [petClipSprite(pet.id).slice(1), 'image/webp']);
+}
 const MAX_BODY = 12 * 1024 * 1024;
 
 async function readJson(request) {

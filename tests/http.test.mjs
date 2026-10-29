@@ -64,6 +64,11 @@ test('HTTP serves bootstrap and static assets with defensive headers', async t =
   const head = await request(app, '/', { method: 'HEAD' });
   assert.equal(head.status, 200);
   assert.equal(head.text, '');
+  for (const [path, type] of [['/garden.css', 'text/css'], ['/garden-ui.js', 'text/javascript']]) {
+    const asset = await request(app, path);
+    assert.equal(asset.status, 200, path);
+    assert.ok(asset.headers['content-type'].startsWith(type), path);
+  }
   assert.equal(head.headers['content-length'], page.headers['content-length']);
   assertHttpError(await request(app, '/server.mjs'), 404);
   assertHttpError(await request(app, '/api/does-not-exist'), 404);

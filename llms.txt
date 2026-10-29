@@ -1,12 +1,12 @@
 # 栖忆配置指南
 
-> 本地单用户 AI 对话应用的配置参考，适用于 1.0.0；文档修订 2026-10-26.1。
+> 本地单用户 AI 对话应用的配置参考，适用于 1.0.0；文档修订 2026-10-27.1。
 
 模型连接、表情包、音乐和邮件均在应用设置中填写。凭据由使用者自己输入，本文档不包含真实密码。
 
 ## 配置文档
 
-- [首次启动与配置顺序](https://raw.githubusercontent.com/4586j/aichat/main/docs/configuration/start.md): 栖忆、安装、启动、环境变量、本地、设置、入门、宠物、小窝、摸摸、喂点心、安静模式、对话状态、情绪、精力、熟悉程度、手动修改、判断依据、回应联动、独立开关
+- [首次启动与配置顺序](https://raw.githubusercontent.com/4586j/aichat/main/docs/configuration/start.md): 安装、启动、环境变量、宠物、小窝、摸摸、喂点心、安静模式、眨眼、宠物表情、轻动效、减少动态效果、对话状态、情绪、精力、熟悉程度、手动修改、判断依据、回应联动、独立开关
 - [模型连接与 API Key](https://raw.githubusercontent.com/4586j/aichat/main/docs/configuration/model.md): 模型、AI、Base URL、API Key、OpenAI兼容、连接、401、404、429
 - [本地表情包与联网补充](https://raw.githubusercontent.com/4586j/aichat/main/docs/configuration/stickers.md): 表情包、贴纸、图库、图片、动图、GIF、上传、图源、联动场景、表达强度
 - [音乐平台与背景播放](https://raw.githubusercontent.com/4586j/aichat/main/docs/configuration/music.md): 音乐、歌曲、QQ、网易云、曲库、播放、音量、音乐服务、背景音乐、推歌、推荐间隔、反馈

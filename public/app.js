@@ -1,3 +1,4 @@
+import { gardenPanorama, gardenLattice, gardenPond, initGardenUI, placeGardenPlayer } from './garden-ui.js';
 import { mountMemoryGraph } from './memory-graph.js';
 import { createMediaUI } from './media.js';
 import { createMailUI } from './mail.js';
@@ -17,9 +18,9 @@ const selected = (a, b) => String(a ?? '') === String(b ?? '') ? ' selected' : '
 const endpointId = value => encodeURIComponent(String(value));
 const MAX_FILE_SIZE = 8 * 1024 * 1024;
 const PAGES = {
-  chat: ['对话', 'chat', '01'], personas: ['人设工坊', 'personas', '02'],
+  chat: ['对话', 'chat', '01'], personas: ['人设', 'personas', '02'],
   knowledge: ['知识库', 'book', '03'], memories: ['记忆', 'leaf', '04'],
-  tasks: ['定时任务', 'clock', '05'], settings: ['设置', 'settings', '06']
+  tasks: ['任务', 'clock', '05'], settings: ['设置', 'settings', '06']
 };
 const CATEGORIES = { fact: '事实', preference: '偏好', goal: '目标', constraint: '约束', summary: '摘要' };
 const TASK_TYPES = { reminder: '应用内提醒', summarize: '角色上下文总结', prompt: 'AI 提问' };
@@ -71,7 +72,7 @@ function number(value) { return value == null || !Number.isFinite(Number(value))
 function decimal(value) { return value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toFixed(2); }
 function initial(name) { return [...String(name || '栖')][0]; }
 function heading(title, subtitle, eyebrow, actions = '') {
-  return `<div class="page-heading"><div><div class="eyebrow">${e(eyebrow)}</div><h1>${e(title)}</h1><p>${e(subtitle)}</p></div>${actions ? `<div class="heading-actions">${actions}</div>` : ''}</div>`;
+  return `<div class="page-heading">${gardenPanorama}<div><div class="eyebrow">${e(PAGES[state.page]?.[0] || eyebrow)}</div><h1>${e(title)}</h1><p>${e(subtitle)}</p></div>${actions ? `<div class="heading-actions">${actions}</div>` : ''}</div>`;
 }
 function notice(content, variant = '', iconName = 'info') { return `<div class="notice ${e(variant)}">${icon(iconName)}<p>${e(content)}</p></div>`; }
 function errorHTML(error) { return error ? `<div class="inline-error" role="alert">${e(error)}</div>` : ''; }
@@ -137,28 +138,17 @@ function scheduleMobileLayout() {
   layoutFrame = requestAnimationFrame(() => {
     layoutFrame = null;
     const viewport = window.visualViewport;
-    const editing = document.activeElement?.matches('input:not([type="checkbox"]), textarea, select');
-    const keyboardOpen = mobileLayout.matches && editing && (!viewport || viewport.scale === 1)
-      && window.innerHeight - (viewport?.height || window.innerHeight) > 120;
-    document.body.dataset.keyboardOpen = String(Boolean(keyboardOpen));
-    // Pinch zoom must not resize the conversation or reflow an active form.
     if (viewport && viewport.scale !== 1) return;
-    document.documentElement.style.setProperty('--visible-height', `${viewport?.height || window.innerHeight}px`);
+    const editing = document.activeElement?.matches('input:not([type="checkbox"]), textarea, select');
+    const height = viewport?.height || innerHeight;
+    document.body.dataset.keyboardOpen = String(Boolean(mobileLayout.matches && editing && innerHeight - height > 120));
+    document.documentElement.style.setProperty('--visible-height', `${height}px`);
     document.documentElement.style.setProperty('--visible-top', `${viewport?.offsetTop || 0}px`);
-    const panel = $('.chat-panel');
-    if (!mobileLayout.matches || !panel) return;
-    const navigationHeight = (keyboardOpen ? 0 : $('#navigation').getBoundingClientRect().height) + ($('#music-dock')?.getBoundingClientRect().height || 0);
-    const panelTop = panel.getBoundingClientRect().top + window.scrollY;
-    const available = (viewport?.height || window.innerHeight) - panelTop - navigationHeight - 12;
-    panel.style.setProperty('--chat-height', `${Math.max(320, available)}px`);
-    if (keyboardOpen && document.activeElement?.id === 'chat-input') {
-      const bottom = $('.composer-wrap').getBoundingClientRect().bottom;
-      const viewportBottom = (viewport?.offsetTop || 0) + (viewport?.height || window.innerHeight);
-      if (bottom > viewportBottom - 8) window.scrollBy({ top: bottom - viewportBottom + 8, behavior: 'instant' });
-    }
+    placeGardenPlayer();
   });
 }
 
+initGardenUI(startEntrance);
 startEntrance();
 window.addEventListener('resize', scheduleMobileLayout);
 window.addEventListener('qiyi-player-layout', scheduleMobileLayout);
@@ -166,8 +156,6 @@ window.visualViewport?.addEventListener('resize', scheduleMobileLayout);
 document.addEventListener('focusin', scheduleMobileLayout);
 document.addEventListener('focusout', scheduleMobileLayout);
 mobileLayout.addEventListener('change', () => {
-  const context = $('.chat-context');
-  if (context) context.open = !mobileLayout.matches;
   scheduleMobileLayout();
 });
 
@@ -306,11 +294,16 @@ function renderPage({ toBottom = false } = {}) {
   const scroll = previousMessages ? { key: previousMessages.dataset.conversation, top: previousMessages.scrollTop, nearBottom: previousMessages.scrollHeight - previousMessages.scrollTop - previousMessages.clientHeight < 70 } : null;
   const opened = new Set($$('details[open][data-detail]', main).map(d => d.dataset.detail));
   updateShell();
+  // Keep the real player node and all its listeners alive while the view is replaced.
+  const player = $('#music-dock');
+  if (player && main.contains(player)) $('#garden-player-host').append(player);
+  $('#garden-companion').innerHTML = state.data ? petsUI.renderCompanion() : '';
   main.setAttribute('aria-busy', String(!state.data && !state.bootstrapError));
   if (!state.data) {
     main.innerHTML = state.bootstrapError
-      ? `${heading('等待与你重逢', '页面已就绪，请连接本地服务以读取你的资料。', 'YOUR LOCAL SPACE')}${errorHTML(state.bootstrapError)}<div class="card">${empty('leaf', '暂时无法读取工作室', '没有使用演示数据。启动本地服务后，点击重试。', button('重新连接', 'refresh', { kind: 'primary', iconName: 'refresh' }))}</div>`
-      : `<div class="loading-state" role="status"><span class="spinner" aria-hidden="true"></span>正在打开你的私人工作室…</div>`;
+      ? `${heading('连接本地服务', '页面已就绪，请连接本地服务以读取你的资料。', 'YOUR LOCAL SPACE')}${errorHTML(state.bootstrapError)}<div class="card">${empty('leaf', '暂时无法读取数据', '没有使用演示数据。启动本地服务后，点击重试。', button('重新连接', 'refresh', { kind: 'primary', iconName: 'refresh' }))}</div>`
+      : `<div class="loading-state" role="status"><span class="spinner" aria-hidden="true"></span>正在读取本地数据…</div>`;
+    placeGardenPlayer();
     return;
   }
   const views = { chat: renderChat, personas: renderPersonas, knowledge: renderKnowledge, memories: renderMemories, tasks: renderTasks, settings: renderSettings };
@@ -323,6 +316,7 @@ function renderPage({ toBottom = false } = {}) {
     petsUI.setResponseBehavior(currentState,responseUI.settings().petLinked);
   }
   main.innerHTML = `${state.bootstrapError ? notice('最近一次数据同步失败，以下显示上次成功读取的数据。可使用右上角刷新重试。', 'warning') : ''}${views[state.page]()}${state.page === 'settings' ? responseUI.renderSettings() + mediaUI.renderSettings() + mailUI.renderSettings() + petsUI.renderSettings() : ''}`;
+  placeGardenPlayer();
   const graphContainer = $('#memory-graph-container');
   if (graphContainer && state.graph.data && !state.graph.loading) {
     disposeGraph = mountMemoryGraph(graphContainer, { data: state.graph.data, onOpenMemory: id => {
@@ -366,7 +360,7 @@ function renderMessage(message, persona) {
   const isUser = message.role === 'user';
   const sources = Array.isArray(message.sources) ? message.sources : [];
   const memories = Array.isArray(message.recalledMemories) ? message.recalledMemories : [];
-  return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time></div><div class="message-content plain-text">${e(message.content)}</div>${!isUser ? responseUI.renderMessage(message) + '<div class="message-mail-action"><button type="button" data-mail-action="from-reply">写成邮件</button></div>' : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
+  return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time></div><div class="message-content plain-text">${e(message.content)}</div>${!isUser ? responseUI.renderMessage(message) + `<div class="message-mail-action"><button type="button" class="button small btn-fan" data-mail-action="from-reply">写成邮件</button>${button('保存记忆','remember-reply',{id:message.id,kind:'small btn-leaf'})}</div>` : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
 }
 function renderSetupPrompt(key) {
   if (!state.setupPrompts.has(key)) return '';
@@ -386,24 +380,41 @@ function renderChat() {
   const pinnedMemories = state.data.memories.filter(m => m.personaId === state.personaId && m.status === 'active' && m.pinned).length;
   const title = state.data.conversations.find(c => c.id === state.conversationId)?.title;
   const loadError = state.loadErrors.get(state.conversationId);
-  return `${heading('让思绪，有处栖息。', '从一次对话开始，慢慢积累只属于你的理解与记忆。', 'A SPACE TO THINK & REMEMBER', button(state.newConversationBusy ? '正在新建…' : '开启新对话', 'new-conversation', { iconName: 'plus', busy: !persona || state.newConversationBusy }))}
-    <div class="chat-grid"><section class="card chat-panel" aria-label="与角色对话">${petsUI.renderCompanion(true)}
-      <div class="chat-toolbar"><div class="persona-control"><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><div><label class="sr-only" for="chat-persona">选择聊天角色</label><select id="chat-persona"${disabled(!persona)}>${personaOptions(state.personaId)}${!persona ? '<option value="">请先创建角色</option>' : ''}</select><div class="micro muted truncate" title="${e(title || '尚未开始的新对话')}">${e(title || '尚未开始的新对话')}</div></div></div><div class="chat-toolbar-note">${icon('lock')}角色记忆独立保存</div></div>
+  const description = persona?.description || '创建和编辑角色，让对话更符合你的习惯。';
+  const linked = responseUI.settings();
+  return `${heading('今天，聊点什么？', '和伙伴聊聊天，记录想法与日常。', '对话工作台',
+    button('历史对话', 'conversation-history', { kind: 'btn-scroll', iconName: 'book' }) +
+    button(state.newConversationBusy ? '正在新建…' : '新建对话', 'new-conversation', { kind: 'primary', iconName: 'plus', busy: !persona || state.newConversationBusy }))}
+    <div class="marble-balustrade-bar" aria-hidden="true"><svg viewBox="0 0 1200 22" preserveAspectRatio="none"><use href="#sym-marble-balustrade" x="0" y="-10" width="600" height="32"/><use href="#sym-marble-balustrade" x="600" y="-10" width="600" height="32"/></svg></div>
+    <div class="chat-grid"><section class="card card-begonia chat-panel" aria-label="与角色对话">${petsUI.renderCompanion(true)}
+      <div class="chat-toolbar"><div class="persona-control"><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><div class="persona-select-wrap"><label class="sr-only" for="chat-persona">选择聊天角色</label><select id="chat-persona"${disabled(!persona)}>${personaOptions(state.personaId)}${!persona ? '<option value="">请先创建角色</option>' : ''}</select><div class="persona-subtitle truncate" title="${e(title || '新对话')}">${e(title || '新对话')} · 记忆独立保存</div></div></div><span class="seal-stamp-red">当前对话</span></div>
       ${chatStateUI.renderBar()}
+      <div class="garden-session"><span>回复联动：${linked.petLinked ? '宠物' : '宠物已关闭'} · ${linked.musicLinked ? '音乐' : '音乐已关闭'} · ${linked.stickerLinked ? '表情' : '表情已关闭'}</span>${button('回复设置', 'response-settings', { kind: 'small btn-leaf' })}</div>
       ${responseUI.renderSession()}
-      <div id="chat-messages" class="chat-messages" data-conversation="${e(key)}" role="log" aria-live="polite" aria-relevant="additions text" aria-label="聊天消息" aria-busy="${Boolean(loading || sendingHere)}">
+      <div id="chat-messages" class="chat-messages" tabindex="0" data-conversation="${e(key)}" role="log" aria-live="polite" aria-relevant="additions text" aria-label="聊天消息" aria-busy="${Boolean(loading || sendingHere)}">
         ${loadError ? `${errorHTML(loadError)}${button('重新读取会话', 'reload-conversation', { iconName: 'refresh', busy: loading })}` : ''}
-        ${messages.length ? messages.map(m => renderMessage(m, persona)).join('') : setupPrompt ? '' : loading ? '<div class="loading-state" role="status"><span class="spinner"></span>正在读取对话…</div>' : `<div class="chat-welcome"><div class="orbit-mark" aria-hidden="true">${icon('leaf')}</div><h2>${persona ? '把此刻的想法，轻轻放下。' : '从一个角色开始'}</h2><div class="welcome-rule"></div>${persona ? `<span class="greeting-label">${e(persona.name)} · 开场白</span><p class="plain-text">${e(persona.greeting || '你可以分享近况、整理思路，或向已导入的资料提问。')}</p><span class="micro muted">发送后才会生成回复，不会自动调用模型</span>` : `<p>本地服务尚未提供角色。创建一位属于你的对话伙伴。</p>${button('创建角色', 'create-persona', { kind: 'primary', iconName: 'plus' })}`}</div>`}
+        ${messages.length ? messages.map(m => renderMessage(m, persona)).join('') : setupPrompt ? '' : loading ? '<div class="loading-state" role="status"><span class="spinner"></span>正在读取对话…</div>' : `<div class="chat-welcome"><div class="orbit-mark" aria-hidden="true">${icon('leaf')}</div><h2>${persona ? '从这里开始聊天' : '先创建一个角色'}</h2><div class="welcome-rule"></div>${persona ? `<span class="greeting-label">${e(persona.name)} · 开场白</span><p class="plain-text">${e(persona.greeting || '可以聊聊近况、整理想法，或向已导入的资料提问。')}</p><span class="micro muted">发送消息后才会调用模型</span>` : `<p>创建角色后即可开始对话。</p>${button('创建角色', 'create-persona', { kind: 'primary', iconName: 'plus' })}`}</div>`}
         ${setupPrompt}
-        ${sendingHere ? '<div class="waiting-line" role="status"><span class="spinner" aria-hidden="true"></span>正在等待模型完整回复，请稍候…</div>' : ''}
+        ${sendingHere ? '<div class="waiting-line" role="status"><span class="spinner" aria-hidden="true"></span>正在等待模型回复…</div>' : ''}
       </div>
-      <div class="composer-wrap">${errorHTML(state.chatErrors.get(key))}<form id="chat-form" class="composer"><label class="sr-only" for="chat-input">发送给当前角色的消息</label><textarea id="chat-input" name="content" rows="2" maxlength="8000" placeholder="说说今天，或者问一个你在意的问题…"${disabled(!persona || loading)}>${e(state.drafts.get(key) || '')}</textarea><div class="composer-bottom"><span class="keyboard-hint">Enter 发送 · Shift + Enter 换行</span><span class="touch-hint">换行继续写，轻触发送</span><button class="button primary small" type="submit"${disabled(!persona || loading || Boolean(loadError) || Boolean(state.sending))}>${sendingHere ? '<span class="spinner" aria-hidden="true"></span>' : icon('send')}${state.sending ? '等待回复' : '发送'}</button></div></form><div class="composer-note">${icon('shield')}<span>发送后，聊天内容、相关知识片段和角色记忆会传至已配置的模型服务。模型回答请自行核实。</span></div></div>
-    </section><details class="chat-context" data-detail="chat-context"${mobileLayout.matches ? '' : ' open'}><summary>${icon('book')}<span>会话与记忆</span><span class="context-hint">查看对话手记</span>${icon('chevron')}</summary><aside class="chat-aside" aria-label="当前角色与会话信息">
-      <section class="card persona-summary"><div class="eyebrow">YOUR COMPANION</div><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><h2>${e(persona?.name || '等待一个名字')}</h2><p class="plain-text">${e(persona?.description || '给角色写下一段简介，让陪伴拥有自己的模样。')}</p>${persona?.tone ? `<span class="pill">${e(persona.tone)}</span>` : ''}${persona ? `<div>${button('了解与编辑人设', 'edit-persona', { id: persona.id, kind: 'subtle small', iconName: 'arrow' })}</div>` : ''}</section>
-      ${petsUI.renderCompanion()}
-      <section class="card aside-card"><div class="card-header"><h3>正在生长的记忆</h3>${icon('leaf')}</div><div class="stat-line"><span>当前角色 · 活跃记忆</span><strong>${number(activeMemories)}</strong></div><div class="stat-line"><span>其中固定保留</span><strong>${number(pinnedMemories)}</strong></div><div class="stat-line"><span>共享知识文档</span><strong>${number(state.data.documents.length)}</strong></div><p class="aside-footnote">只有相关的资料才会被检索。回复下方可展开查看实际引用。</p></section>
-      <section class="card aside-card"><div class="card-header"><h3>对话手记</h3><span class="small-label">${history.length} CONVERSATIONS</span></div><div class="history-list">${history.length ? history.map(c => `<button type="button" class="history-item${c.id === state.conversationId ? ' active' : ''}" data-action="open-conversation" data-id="${e(c.id)}"${c.id === state.conversationId ? ' aria-current="true"' : ''}>${icon('chat')}<span><strong class="truncate">${e(c.title || '未命名对话')}</strong><small>${e(date(c.updatedAt || c.createdAt))}</small></span></button>`).join('') : '<p class="small muted">还没有对话手记。<br>第一句，就从今天开始。</p>'}</div></section>
-    </aside></details></div>`;
+      <div class="composer-wrap">${errorHTML(state.chatErrors.get(key))}<div class="composer-paperweight"><span>发送消息</span><span class="keyboard-hint">Enter 发送 · Shift + Enter 换行</span><span class="touch-hint">换行继续写，轻触发送</span></div><form id="chat-form" class="composer"><label class="sr-only" for="chat-input">发送给当前角色的消息</label><textarea id="chat-input" name="content" rows="2" maxlength="8000" placeholder="和${e(persona?.name || '伙伴')}聊聊今天的想法…"${disabled(!persona || loading)}>${e(state.drafts.get(key) || '')}</textarea><div class="composer-bottom"><span class="composer-hint">对话保存在本地，发送时调用所选模型</span><button class="button primary small" type="submit"${disabled(!persona || loading || Boolean(loadError) || Boolean(state.sending))}>${sendingHere ? '<span class="spinner" aria-hidden="true"></span>' : icon('send')}${state.sending ? '等待回复' : '发送'}</button></div></form></div>
+    </section><aside class="chat-aside" aria-label="当前角色与会话信息">
+      <section class="card card-begonia persona-summary">${gardenLattice}<div class="eyebrow">当前角色</div><div class="persona-head-row"><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><div><h2>${e(persona?.name || '未选择角色')}</h2>${persona?.tone ? `<span class="seal-stamp-red persona-tone" title="${e(persona.tone)}">${e(persona.tone)}</span>` : ''}</div></div><p class="plain-text" title="${e(description)}">${e(description.length > 90 ? description.slice(0,90) + '…' : description)}</p>${persona ? `<div>${button('查看人设', 'edit-persona', { id: persona.id, kind: 'small btn-scroll' })}</div>` : button('创建角色','create-persona',{kind:'small'})}</section>
+      <section class="card card-begonia aside-card garden-memory"><h3><span>记忆</span><span class="seal-stamp-red">当前角色</span></h3>${gardenPond}<div class="memory-stats"><a class="stat-line" href="#memories"><span>活跃记忆</span><strong data-memory-count="active">${number(activeMemories)}</strong></a><a class="stat-line" href="#memories"><span>固定记忆</span><strong data-memory-count="pinned">${number(pinnedMemories)}</strong></a><a class="stat-line" href="#knowledge"><span>知识库文档</span><strong data-memory-count="documents">${number(state.data.documents.length)}</strong></a></div><div class="garden-memory-links"><a href="#memories">管理记忆</a><span>·</span><a href="#knowledge">查看知识库</a></div><div class="switch-demo-row"><span>场景动画</span><button type="button" class="bamboo-switch" data-garden-action="scenes" role="switch" aria-checked="true"><span class="bamboo-track"><span class="bamboo-knob"></span></span><span data-garden-scenes-label>开启</span></button></div></section>
+      <section id="garden-music-slot" class="garden-music-slot" aria-label="音乐"><div class="card music-empty"><div class="music-empty-heading">${icon('play')}<div><strong>背景音乐</strong><small>${state.data.media?.settings?.musicBaseUrl ? '选一首喜欢的歌，陪你聊天' : '配置音乐服务后，可搜索和播放'}</small></div></div><button type="button" class="button small bamboo-primary" data-media-action="open-music">选择音乐</button></div></section>
+    </aside></div>`;
+}
+
+let historyPage = 0;
+function showConversationHistory(reset = false) {
+  if (dialogSaving) return;
+  if (reset) historyPage = 0;
+  const history = state.data.conversations.filter(c => c.personaId === state.personaId).sort((a,b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  const pages = Math.max(1, Math.ceil(history.length / 8));
+  historyPage = Math.min(Math.max(0, historyPage), pages - 1);
+  dialogState = { type: 'history' };
+  dialog.innerHTML = `<div class="dialog-header"><h2 id="dialog-title">历史对话</h2><button type="button" class="icon-button" data-action="close-dialog" aria-label="关闭对话框">${icon('close')}</button></div><div class="dialog-body"><p class="small muted">${e(currentPersona()?.name)} · ${history.length} 个对话</p><div class="history-list">${history.length ? history.slice(historyPage * 8, (historyPage + 1) * 8).map(c => `<button type="button" class="history-item${c.id === state.conversationId ? ' active' : ''}" data-action="open-conversation" data-id="${e(c.id)}">${icon('chat')}<span><strong>${e(c.title || '未命名对话')}</strong><small>${e(date(c.updatedAt || c.createdAt))}</small></span></button>`).join('') : '<p class="small muted">还没有历史对话。发送第一条消息即可开始。</p>'}</div><div class="history-pagination">${button('上一页','history-previous',{kind:'small',busy:historyPage===0})}<span>${historyPage+1} / ${pages}</span>${button('下一页','history-next',{kind:'small',busy:historyPage===pages-1})}</div></div>`;
+  if (!dialog.open) dialog.showModal();
 }
 async function loadConversation(id) {
   if (!id || state.loadingConversations.has(id)) return;
@@ -508,8 +519,8 @@ async function sendMessage() {
 function renderPersonas() {
   const a = state.analysis;
   const analysisFields = [ ['overview', '整体观察'], ['traits', '特征与互动偏好'], ['speakingStyle', '表达与说话风格'], ['boundaries', '可能的边界'], ['evidence', '引用证据与推测依据'] ];
-  return `${heading('让陪伴，拥有自己的模样。', '亲手定义一位伙伴，或从真实对话中提炼一份可编辑的人设。', 'PERSONA ATELIER', button('创建角色', 'create-persona', { kind: 'primary', iconName: 'plus' }))}
-    <div class="studio-grid"><section aria-label="我的角色"><div class="card-header"><h2>我的角色</h2><span class="small-label">${state.data.personas.length} PERSONAS</span></div><div class="stack persona-list">${state.data.personas.length ? state.data.personas.map(p => `<article class="card persona-card"><div class="persona-card-head"><span class="avatar" aria-hidden="true">${e(initial(p.name))}</span><div><h3>${e(p.name)}</h3><span class="micro muted">创建于 ${e(date(p.createdAt, false))}</span></div></div><p class="plain-text">${e(p.description || '还没有简介，可以在编辑中写下角色的故事。')}</p>${p.tone ? `<span class="pill">${e(p.tone)}</span>` : ''}<div class="card-actions">${button('开始对话', 'chat-as-persona', { id: p.id, kind: 'small', iconName: 'chat' })}${button('编辑', 'edit-persona', { id: p.id, kind: 'subtle small', iconName: 'edit' })}</div></article>`).join('') : `<div class="card">${empty('personas', '一个名字，一种陪伴', '创建角色后即可开始对话，每个角色拥有独立的长期记忆。')}</div>`}</div></section>
+  return `${heading('人设', '创建、编辑角色，或从聊天记录生成草稿。', 'PERSONA ATELIER', button('创建角色', 'create-persona', { kind: 'primary', iconName: 'plus' }))}
+    <div class="studio-grid"><section aria-label="我的角色"><div class="card-header"><h2>我的角色</h2><span class="small-label">${state.data.personas.length} 个角色</span></div><div class="stack persona-list">${state.data.personas.length ? state.data.personas.map(p => `<article class="card persona-card"><div class="persona-card-head"><span class="avatar" aria-hidden="true">${e(initial(p.name))}</span><div><h3>${e(p.name)}</h3><span class="micro muted">创建于 ${e(date(p.createdAt, false))}</span></div></div><p class="plain-text">${e(p.description || '还没有简介，可以在编辑中写下角色的故事。')}</p>${p.tone ? `<span class="pill">${e(p.tone)}</span>` : ''}<div class="card-actions">${button('开始对话', 'chat-as-persona', { id: p.id, kind: 'small', iconName: 'chat' })}${button('编辑', 'edit-persona', { id: p.id, kind: 'subtle small', iconName: 'edit' })}</div></article>`).join('') : `<div class="card">${empty('personas', '一个名字，一种陪伴', '创建角色后即可开始对话，每个角色拥有独立的长期记忆。')}</div>`}</div></section>
     <section class="card card-pad"><div class="card-header"><h2>从对话中认识一个人</h2><span class="pill">人物分析</span></div><p class="small muted">粘贴聊天记录，或选择 UTF-8 文本文件，生成有证据的人设草稿。</p>${notice('点击「分析聊天记录」后，所选文件或粘贴的聊天内容与目标人物会发送至你配置的模型服务。请先获得相关人员授权。', '', 'shield')}
       <form id="analysis-form"><div class="field" style="margin-top:20px"><label for="analysis-target">目标人物 <span>填写记录中的名称或昵称</span></label><input id="analysis-target" name="target" required maxlength="120" placeholder="例如：聊天记录中的「小林」" value="${e(a.target)}"></div><div class="field"><label for="analysis-text">聊天记录</label><textarea id="analysis-text" name="text" rows="9" required maxlength="60000" placeholder="在这里粘贴对话，保留说话者名称，以便区分观察与引用证据。">${e(a.text)}</textarea></div><label class="button small file-select">${icon('upload')}选择 TXT / MD / JSON<input id="analysis-file" type="file" accept=".txt,.md,.json,text/plain,text/markdown,application/json" aria-label="选择待分析的聊天记录文件"${disabled(a.busy)}></label>${a.fileName ? `<p class="file-name">已载入：${e(a.fileName)} · 可继续编辑上方文本</p>` : '<p class="file-name">文件最大 8 MiB；单次分析最多 60,000 字符。选择文件仅载入文本，不会自动分析。</p>'}${errorHTML(a.error)}<div class="form-actions"><button type="submit" class="button primary"${disabled(a.busy)}>${a.busy ? '<span class="spinner"></span>' : icon('spark')}${a.busy ? '正在分析，请稍候…' : '分析聊天记录'}</button></div></form>
       ${a.result ? `<section class="analysis-result" aria-label="人物分析预览"><div class="card-header"><h2>分析预览 · ${e(a.resultTarget)}</h2><span class="pill">尚未创建角色</span></div>${notice('以下为模型基于本次记录的观察与推测，不是确定的人格结论或心理诊断。请核对原文证据，再决定哪些内容值得保留。', 'warning')}${analysisFields.map(([key, label]) => `<div class="analysis-section"><h3>${e(label)}</h3>${analysisContent(a.result[key])}</div>`).join('')}<div class="analysis-section"><h3>人设提示词草稿</h3><pre class="plain-text">${e(text(a.result.personaPrompt) || '模型未提供提示词，可在下一步手动填写。')}</pre></div>${button('编辑草稿并确认创建', 'use-analysis', { kind: 'primary', iconName: 'edit' })}<p class="micro muted" style="margin:10px 0 0">下一步仍可修改；只有点击「确认创建角色」才会保存。</p></section>` : ''}
@@ -552,9 +563,9 @@ async function analyze() {
 
 function renderKnowledge() {
   const k = state.knowledge;
-  return `${heading('把资料，变成可对话的知识。', '一份文档，一些线索。让回答有据可循，而不只凭空想象。', 'YOUR LIVING LIBRARY')}
+  return `${heading('知识库', '导入文档，检索资料，查看回答引用的来源。', 'YOUR LIVING LIBRARY')}
     <div class="two-column"><div class="stack"><section class="card card-pad"><div class="card-header"><h2>导入文档</h2><span class="pill">全角色共享</span></div><div id="document-drop" class="drop-zone" aria-label="拖放知识库文档">${k.uploading ? '<span class="spinner" aria-hidden="true"></span>' : icon('upload')}<h3>${k.uploading ? '正在本地解析文档…' : '把值得保留的资料放在这里'}</h3><p>拖入文件，或点击选择 · 每个文件最大 8 MiB<br>TXT · Markdown · JSON · 文字型 PDF · DOCX</p><label class="button file-select">${icon('plus')}选择文件<input id="document-files" type="file" multiple accept=".txt,.md,.json,.pdf,.docx" aria-label="选择导入知识库的文件"${disabled(k.uploading)}></label></div>${errorHTML(k.uploadError)}<div style="margin-top:16px">${notice('导入在本地提取文字，不调用模型；对话引用的相关片段会发送至已配置的模型。原文件不保留。扫描型 PDF 不支持 OCR，请先转为文字。', '', 'lock')}</div></section>
-      <section class="card card-pad"><div class="card-header"><h2>我的文档</h2><span class="small-label">${state.data.documents.length} DOCUMENTS</span></div><div class="document-list">${state.data.documents.length ? state.data.documents.map(d => `<article class="document-row"><span class="file-badge" aria-hidden="true">${e(d.format || d.name?.split('.').pop() || 'FILE')}</span><div class="document-info"><strong>${e(d.name)}</strong><small>${number(d.charCount)} 字符 · ${number(d.chunkCount)} 分块 · ${e(date(d.createdAt, false))}</small></div><button type="button" class="icon-button" data-action="delete-document" data-id="${e(d.id)}" aria-label="删除文档 ${e(d.name)}" title="删除文档">${icon('trash')}</button></article>`).join('') : empty('book', '知识，从第一份资料开始', '导入常用笔记、项目资料或个人记录，之后可以直接在对话里提问。')}</div></section></div>
+      <section class="card card-pad"><div class="card-header"><h2>我的文档</h2><span class="small-label">${state.data.documents.length} 份文档</span></div><div class="document-list">${state.data.documents.length ? state.data.documents.map(d => `<article class="document-row"><span class="file-badge" aria-hidden="true">${e(d.format || d.name?.split('.').pop() || 'FILE')}</span><div class="document-info"><strong>${e(d.name)}</strong><small>${number(d.charCount)} 字符 · ${number(d.chunkCount)} 分块 · ${e(date(d.createdAt, false))}</small></div><button type="button" class="icon-button" data-action="delete-document" data-id="${e(d.id)}" aria-label="删除文档 ${e(d.name)}" title="删除文档">${icon('trash')}</button></article>`).join('') : empty('book', '知识，从第一份资料开始', '导入常用笔记、项目资料或个人记录，之后可以直接在对话里提问。')}</div></section></div>
     <section class="card card-pad"><div class="card-header"><h2>试着寻找一个答案</h2>${icon('search')}</div><p class="small muted">本地关键词检索，不调用模型。预览哪些原文片段可能用于回答。</p><form id="knowledge-form"><div class="field"><label for="knowledge-query">你想查找什么？</label><input id="knowledge-query" name="query" required maxlength="1000" value="${e(k.query)}" placeholder="输入一个主题、问题或关键词"></div><button type="submit" class="button primary"${disabled(k.busy)}>${k.busy ? '<span class="spinner"></span>' : icon('search')}${k.busy ? '检索中…' : '检索资料'}</button></form>${errorHTML(k.error)}<div class="search-result" aria-live="polite">${k.result !== null ? `<div class="card-header"><h3>「${e(k.resultQuery)}」的结果</h3><span class="pill">${k.result.length} 个片段</span></div>${k.result.length ? sourceItems(k.result) : empty('search', '暂未找到相关片段', '尝试使用更具体的关键词，或先导入与这个问题相关的文档。')}` : empty('search', '让每一处引用都可查', '检索后会显示原文、文件名与块序号。检索结果不是模型生成的答案。')}</div></section></div>`;
 }
 function fileToBase64(file) {
@@ -606,7 +617,7 @@ function memoryViewSwitch() {
 }
 function renderGraphPage() {
   const g = state.graph;
-  return `${heading('让记忆，连成理解的网络。', '实体之间的每一条关系，都有原始记忆作为依据。', 'MEMORY CONSTELLATION', button('添加记忆', 'create-memory', { kind: 'primary', iconName: 'plus' }))}${memoryViewSwitch()}
+  return `${heading('记忆图谱', '查看记忆中的实体关系及其原始依据。', 'MEMORY CONSTELLATION', button('添加记忆', 'create-memory', { kind: 'primary', iconName: 'plus' }))}${memoryViewSwitch()}
     <div class="card filter-bar"><div class="field"><label for="graph-persona">图谱所属角色</label><select id="graph-persona">${personaOptions(g.personaId)}</select></div><label class="checkbox-label"><input id="graph-archived" type="checkbox"${checked(g.includeArchived)}>包含归档记忆</label>${button('提取待处理关系', 'extract-graph', { iconName: 'spark', busy: g.loading || !g.data?.stats.pendingCount })}${button('刷新图谱', 'refresh-graph', { iconName: 'refresh', busy: g.loading })}</div>
     <div style="margin-bottom:20px">${notice('图谱查看、拖拽和搜索均在本地完成。点击提取并确认后，每批最多 20 条待处理活跃记忆会发送至已配置的模型；模型关系需自行核实。也可编辑记忆，手动填写关系。')}</div>
     ${errorHTML(g.error)}${g.loading ? '<div class="loading-state" role="status"><span class="spinner"></span>正在读取记忆网络…</div>' : '<section id="memory-graph-container" aria-label="记忆知识图谱"></section>'}`;
@@ -635,7 +646,7 @@ function openGraphExtraction() {
 function renderMemories() {
   if (state.memoryView === 'graph') return renderGraphPage();
   const memories = state.data.memories.filter(m => (state.memoryRole === 'all' || m.personaId === state.memoryRole) && (state.memoryStatus === 'all' || m.status === state.memoryStatus)).sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || String(b.reinforcedAt || b.createdAt).localeCompare(String(a.reinforcedAt || a.createdAt)));
-  return `${heading('记住重要的，也允许淡忘。', '长期记忆不是无限堆积，而是可查看、可纠正、可恢复的理解。', 'MEMORY GARDEN', `${button('整理维护', 'maintain-memories', { iconName: 'leaf', busy: state.busy.has('maintain') })}${button('手动总结', 'summarize-memories', { iconName: 'spark', busy: !state.data.personas.length })}${button('添加记忆', 'create-memory', { kind: 'primary', iconName: 'plus', busy: !state.data.personas.length })}`)}
+  return `${heading('记忆', '查看、编辑和整理每个角色保存的记忆。', 'MEMORY GARDEN', `${button('整理维护', 'maintain-memories', { iconName: 'leaf', busy: state.busy.has('maintain') })}${button('手动总结', 'summarize-memories', { iconName: 'spark', busy: !state.data.personas.length })}${button('添加记忆', 'create-memory', { kind: 'primary', iconName: 'plus', busy: !state.data.personas.length })}`)}
     ${memoryViewSwitch()}
     <div class="notice memory-note">${icon('info')}<p>固定记忆不参与自动遗忘；新建或最近确认不足 7 天的条目受保护。低保留分数的旧记忆可被归档，而非删除。归档后不再注入对话，恢复或编辑会刷新确认时间。</p></div>
     ${errorHTML(state.data.settings.lastMemoryError ? `最近一次自动总结未完成：${state.data.settings.lastMemoryError}` : '')}
@@ -682,7 +693,7 @@ function renderRun(run) {
 }
 function renderTasks() {
   const runs = [...state.data.runs].sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
-  return `${heading('把需要记挂的事，轻轻托付。', '设一个提醒，整理一段记忆，或在合适的时候问一个问题。', 'RHYTHMS & REMINDERS', button('创建任务', 'create-task', { kind: 'primary', iconName: 'plus' }))}
+  return `${heading('任务', '设置提醒、记忆总结或定时 AI 提问。', 'RHYTHMS & REMINDERS', button('创建任务', 'create-task', { kind: 'primary', iconName: 'plus' }))}
     <div style="margin-bottom:21px">${notice('任务仅在本地服务运行时执行；服务关闭或电脑休眠时不会推送，重启后过期任务补跑一次。提醒无需模型；总结与 AI 提问会发送相关内容到已配置的模型。', '', 'clock')}</div>
     <div class="two-column"><section aria-label="任务列表"><div class="card-header"><h2>我的任务</h2><span class="small-label">${state.data.tasks.filter(t => t.enabled).length} ENABLED / ${state.data.tasks.length} TOTAL</span></div><div class="task-list">${state.data.tasks.length ? state.data.tasks.map(t => {
       const busy = state.busy.has(`task:${t.id}`) || t.running;
@@ -690,7 +701,7 @@ function renderTasks() {
       const latestStatus = latest ? runStatus(latest.status) : null;
       return `<article class="card task-card"><div class="task-top"><span class="task-icon">${icon(t.type === 'reminder' ? 'clock' : t.type === 'summarize' ? 'leaf' : 'spark')}</span><div class="task-name"><h3>${e(t.name)}</h3><span class="pill">${e(TASK_TYPES[t.type] || t.type)}</span>${t.running ? '<span class="pill warning">正在执行</span>' : ''}</div><button type="button" class="switch" role="switch" aria-checked="${Boolean(t.enabled)}" aria-label="启用任务 ${e(t.name)}" data-action="toggle-task" data-id="${e(t.id)}"${disabled(busy)}><span class="switch-track" aria-hidden="true"></span>${t.enabled ? '已启用' : '已停用'}</button></div><div class="task-details"><span>${t.scheduleType === 'interval' ? `每 ${e(number(t.intervalMinutes))} 分钟` : '一次性任务'}</span><span>${t.enabled ? '下次执行' : '计划时间'}：${e(date(t.nextRunAt))}</span>${t.personaId ? `<span>角色：${e(personaName(t.personaId))}</span>` : ''}</div>${t.prompt ? `<p class="task-prompt plain-text">${e(t.prompt)}</p>` : ''}${latest ? `<p class="micro muted" style="margin:13px 0 0">最近执行：${e(date(latest.startedAt))} <span class="pill ${e(latestStatus[1])}">${e(latestStatus[0])}</span> · 结果见右侧执行记录</p>` : '<p class="micro muted" style="margin:13px 0 0">尚无执行记录</p>'}<div class="card-actions">${button(busy ? '执行处理中' : '立即运行', 'run-task', { id: t.id, kind: 'small', iconName: 'play', busy })}${button('编辑', 'edit-task', { id: t.id, kind: 'subtle small', iconName: 'edit', busy })}<span class="spacer"></span><button type="button" class="icon-button" data-action="delete-task" data-id="${e(t.id)}" aria-label="删除任务 ${e(t.name)}"${disabled(busy)}>${icon('trash')}</button></div></article>`;
     }).join('') : `<div class="card">${empty('clock', '给未来留一张便笺', '先创建一个应用内提醒吧，无需配置模型即可使用。', button('创建第一个任务', 'create-task', { kind: 'primary', iconName: 'plus' }))}</div>`}</div></section>
-    <section class="card card-pad"><div class="card-header"><h2>执行记录</h2><span class="small-label">${runs.length} RUNS</span></div><p class="micro muted">展开查看真实结果或错误。页面每分钟同步本地任务状态，也可手动刷新。</p>${runs.length ? runs.map(renderRun).join('') : empty('clock', '还没有发生的事', '任务运行后，开始时间、完成状态和结果会保存在这里。')}</section></div>`;
+    <section class="card card-pad"><div class="card-header"><h2>执行记录</h2><span class="small-label">${runs.length} 条记录</span></div><p class="micro muted">展开查看真实结果或错误。页面每分钟同步本地任务状态，也可手动刷新。</p>${runs.length ? runs.map(renderRun).join('') : empty('clock', '还没有发生的事', '任务运行后，开始时间、完成状态和结果会保存在这里。')}</section></div>`;
 }
 async function taskAction(id, operation) {
   const task = state.data.tasks.find(t => t.id === id);
@@ -717,9 +728,9 @@ function renderSettings() {
   initializeSettingsDraft();
   const s = state.settingsDraft;
   const apiKeySet = Boolean(state.data.settings.hasApiKey);
-  return `${heading('把连接与边界，交还给你。', '选择你的模型服务，让记忆按适合自己的节奏生长。', 'SETTINGS & BOUNDARIES', '<button type="button" class="button" data-guide-action="open">配置指南</button>')}${guidesUI.renderEntry()}
+  return `${heading('设置', '配置模型、记忆、回复、媒体与邮件服务。', 'SETTINGS & BOUNDARIES', '<button type="button" class="button" data-guide-action="open">配置指南</button>')}${guidesUI.renderEntry()}
     <div class="settings-grid"><form id="settings-form"><section class="card settings-card"><h2><span class="section-number">01</span>模型连接</h2><div class="field"><label for="settings-baseUrl">Base URL <span>OpenAI 兼容服务地址</span></label><input id="settings-baseUrl" type="url" name="baseUrl" required maxlength="500" value="${e(s.baseUrl)}" placeholder="例如：https://api.openai.com/v1" autocomplete="off" spellcheck="false"><small>填写服务文档指定的基础地址，通常以 /v1 结尾。也支持本机部署的兼容服务。</small></div><div class="field"><label for="settings-model">模型名称</label><input id="settings-model" name="model" maxlength="160" value="${e(s.model)}" placeholder="填写服务商提供的模型 ID" autocomplete="off" spellcheck="false"></div><div class="field"><label for="settings-apiKey">API Key <span>${apiKeySet ? '服务端已有密钥，不会下发到页面' : '服务端尚无密钥，本地模型可不需要'}</span></label><input id="settings-apiKey" type="password" name="apiKey" maxlength="2000" value="${e(s.apiKey)}" placeholder="留空保留当前密钥" autocomplete="new-password" spellcheck="false"${disabled(s.clearApiKey)}><small>界面输入的密钥仅在当前服务进程内保留，不写入长期配置。重启后可能需要重新输入。</small></div><label class="checkbox-label"><input id="settings-clearApiKey" name="clearApiKey" type="checkbox"${checked(s.clearApiKey)}>清除当前运行期密钥（保存后生效）</label>${notice('空白密钥表示保持原值。环境变量配置不由此页面修改。不要将这个单用户本地应用直接暴露到公网。', '', 'lock')}<div class="card-actions">${button(state.testBusy ? '正在测试…' : '测试已保存的连接', 'test-settings', { iconName: 'play', busy: state.testBusy || state.settingsSaving })}<span class="micro muted">不会自动测试；测试将发送一条请求到已保存的模型服务。</span></div>${state.testResult ? `<div class="${state.testResult.ok ? 'inline-success' : 'inline-error'}" role="status">${e(state.testResult.message || (state.testResult.ok ? '连接测试成功。' : '连接测试失败。'))}</div>` : ''}</section>
-      <section class="card settings-card"><h2><span class="section-number">02</span>记忆的生长节奏</h2><div class="field-row"><div class="field"><label for="settings-memoryMessageThreshold">总结消息阈值 <span>条</span></label><input id="settings-memoryMessageThreshold" type="number" name="memoryMessageThreshold" required min="2" max="200" step="1" value="${e(s.memoryMessageThreshold)}"><small>会话中未总结的新消息达到该值时触发。</small></div><div class="field"><label for="settings-memoryIntervalHours">总结时间间隔 <span>小时</span></label><input id="settings-memoryIntervalHours" type="number" name="memoryIntervalHours" required min="1" max="720" step="1" value="${e(s.memoryIntervalHours)}"><small>有新消息且距上次总结达到该间隔时触发。</small></div></div><div class="field"><label for="settings-memoryBudget">每个角色的活跃记忆预算 <span>条</span></label><input id="settings-memoryBudget" type="number" name="memoryBudget" required min="10" max="5000" step="1" value="${e(s.memoryBudget)}"><small>超过预算时优先归档低分记忆。固定或处于保护期的条目可能使数量暂时超出预算，不会强制删除。</small></div></section>
+      <section class="card settings-card"><h2><span class="section-number">02</span>记忆设置</h2><div class="field-row"><div class="field"><label for="settings-memoryMessageThreshold">总结消息阈值 <span>条</span></label><input id="settings-memoryMessageThreshold" type="number" name="memoryMessageThreshold" required min="2" max="200" step="1" value="${e(s.memoryMessageThreshold)}"><small>会话中未总结的新消息达到该值时触发。</small></div><div class="field"><label for="settings-memoryIntervalHours">总结时间间隔 <span>小时</span></label><input id="settings-memoryIntervalHours" type="number" name="memoryIntervalHours" required min="1" max="720" step="1" value="${e(s.memoryIntervalHours)}"><small>有新消息且距上次总结达到该间隔时触发。</small></div></div><div class="field"><label for="settings-memoryBudget">每个角色的活跃记忆预算 <span>条</span></label><input id="settings-memoryBudget" type="number" name="memoryBudget" required min="10" max="5000" step="1" value="${e(s.memoryBudget)}"><small>超过预算时优先归档低分记忆。固定或处于保护期的条目可能使数量暂时超出预算，不会强制删除。</small></div></section>
       ${errorHTML(state.settingsError)}<div class="settings-actions"><span class="muted">${state.settingsDirty ? '有尚未保存的修改' : '配置来自本地服务'} · 连接测试只使用已保存配置</span><button type="submit" class="button primary"${disabled(state.settingsSaving || state.testBusy)}>${state.settingsSaving ? '<span class="spinner"></span>' : icon('check')}${state.settingsSaving ? '正在保存…' : '保存设置'}</button></div></form>
     <aside class="card settings-aside"><div class="eyebrow">YOUR DATA, YOUR CHOICE</div><h3>安心，来自清楚的边界。</h3><div class="boundary-item"><strong>${icon('lock')}留在这台设备</strong><p>角色、会话、提取后的文档、记忆与任务保存在本地 SQLite 中。本地存储不等于加密，请自行做好磁盘保护与备份。</p></div><div class="boundary-item"><strong>${icon('arrow')}何时发送到模型</strong><p>聊天、人物分析、记忆总结与 AI 任务会发送相应文本。聊天还可能携带相关知识片段和长期记忆，请只选择获准使用的内容。</p></div><div class="boundary-item"><strong>${icon('shield')}没有隐形的动作</strong><p>邮件由你填写收件人、预览并确认后才通过已配置的 SMTP 服务发送。AI 与定时任务不会自动发信。定时任务仅在本地服务运行时执行。</p></div><div class="boundary-item"><strong>${icon('leaf')}随时修正与遗忘</strong><p>模型可能误解你的意思。你可以查看记忆来源、修改、归档、恢复，或在明确确认后永久删除。</p></div></aside></div>`;
 }
@@ -960,7 +971,12 @@ document.addEventListener('click', async event => {
     if (!state.data) return;
     switch (action) {
       case 'new-conversation': await newConversation(); break;
-      case 'open-conversation': await openConversation(id); break;
+      case 'conversation-history': showConversationHistory(true); break;
+      case 'history-previous': historyPage--; showConversationHistory(); break;
+      case 'history-next': historyPage++; showConversationHistory(); break;
+      case 'open-conversation': if (dialogState?.type === 'history') dialog.close(); await openConversation(id); break;
+      case 'response-settings': location.hash = 'settings'; requestAnimationFrame(() => $('.response-settings')?.scrollIntoView({ block: 'start' })); break;
+      case 'remember-reply': { const message = (state.messages.get(state.conversationId) || []).find(m => String(m.id) === id); if (message) { openMemoryEditor(); $('#memory-content').value = message.content.slice(0,1000); } break; }
       case 'reload-conversation': await loadConversation(state.conversationId); break;
       case 'create-persona': openPersonaEditor(); break;
       case 'edit-persona': openPersonaEditor(state.data.personas.find(p => p.id === id)); break;

@@ -15,7 +15,7 @@ async function seed(page,request,persona,n=4){
   }
   const{conversation}=await(await request.post('/api/conversations',{data:{personaId:persona.id,title:'联动间隔测试'}})).json();
   for(let i=0;i<n;i++)await request.post(`/api/conversations/${conversation.id}/messages`,{data:{content:'普通闲聊。'}});
-  await page.getByRole('button',{name:'刷新本地数据',exact:true}).click();await page.locator(`.history-item[data-id="${conversation.id}"]`).click();await expect(page.locator('.message.assistant')).toHaveCount(n);return conversation;
+  await page.getByRole('button',{name:'刷新本地数据',exact:true}).click();await page.getByRole('button', { name: '历史对话', exact: true }).click(); await page.locator(`.history-item[data-id="${conversation.id}"]`).click();await expect(page.locator('.message.assistant')).toHaveCount(n);return conversation;
 }
 
 test('same-turn fatigue selects gentle local sticker, quiet pet and visible original evidence',async({page,request},info)=>{
@@ -35,7 +35,7 @@ test('skip, restore, conversation mute, explicit request and unmute persist acro
   const persona=await fresh(page,request);const conversation=await seed(page,request,persona);let reply=await send(page,happy);
   await reply.getByRole('button',{name:'这次不需要',exact:true}).click();await expect(reply.locator('.song-recommendation')).toHaveCount(0);await reply.getByRole('button',{name:'重新显示这首歌',exact:true}).click();await expect(reply.locator('.song-recommendation')).toHaveCount(1);
   await reply.getByRole('button',{name:'本会话不再主动推荐',exact:true}).click();await expect(page.locator('.response-session')).toContainText('暂停主动推歌');await expect(page.locator('#background-audio')).toHaveJSProperty('paused',true);
-  await page.reload();await page.getByLabel('选择聊天角色',{exact:true}).selectOption(persona.id);await page.locator(`.history-item[data-id="${conversation.id}"]`).click();await expect(page.locator('.response-session')).toContainText('暂停主动推歌');
+  await page.reload();await page.getByLabel('选择聊天角色',{exact:true}).selectOption(persona.id);await page.getByRole('button', { name: '历史对话', exact: true }).click(); await page.locator(`.history-item[data-id="${conversation.id}"]`).click();await expect(page.locator('.response-session')).toContainText('暂停主动推歌');
   reply=await send(page,`${happy}请推荐一首歌。`);await expect(reply.locator('.song-recommendation')).toHaveCount(1);await page.getByRole('button',{name:'恢复本会话推荐',exact:true}).click();await expect(page.locator('.response-session')).toHaveCount(0);
 });
 

@@ -40,7 +40,7 @@ test('guide question enters an editable chat draft, sends on user action, and re
   await expect(page.locator('.guide-document')).toContainText('邮件、SMTP 与授权码');
   await page.getByRole('button', { name: '关闭配置指南', exact: true }).click();
   await page.reload(); await page.getByLabel('选择聊天角色', { exact: true }).selectOption(persona.id);
-  await page.locator('.history-item').filter({ hasText: '请根据栖忆配置指南' }).click();
+  await page.getByRole('button', { name: '历史对话', exact: true }).click(); await page.locator('.history-item').filter({ hasText: '请根据栖忆配置指南' }).click();
   await expect(page.locator('.message.assistant')).toContainText('根据栖忆配置指南');
   await page.locator('.message.assistant .evidence-group summary').first().click(); await expect(page.locator('.guide-source-label').first()).toContainText('修订');
 });

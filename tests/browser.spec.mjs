@@ -7,11 +7,11 @@ test('six pages complete the offline AI, knowledge, memory and task workflow', a
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '让思绪，有处栖息。' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '今天，聊点什么？' })).toBeVisible();
   await expect(page.getByText('本地服务已连接', { exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('desktop-welcome.png'), fullPage: true });
 
-  await nav(page, '人设工坊').click();
+  await nav(page, '人设').click();
   await page.getByRole('button', { name: '创建角色', exact: true }).click();
   await page.getByLabel('角色名称', { exact: true }).fill('测试搭档');
   await page.getByLabel('简介', { exact: true }).fill('一位清晰可靠的项目助手');
@@ -84,7 +84,7 @@ test('six pages complete the offline AI, knowledge, memory and task workflow', a
   await page.getByRole('button', { name: '整理维护', exact: true }).click();
   await expect(page.getByText(/维护完成：归档/)).toBeVisible();
 
-  await nav(page, '定时任务').click();
+  await nav(page, '任务').click();
   await page.getByRole('button', { name: '创建任务', exact: true }).click();
   await page.getByLabel('任务名称', { exact: true }).fill('午后喝茶提醒');
   await page.locator('#task-prompt').fill('休息一下，喝一杯茉莉茶。');
@@ -131,7 +131,7 @@ test('mobile pages do not overflow; empty search and invalid uploads are clear',
   page.on('pageerror', error => errors.push(error.message));
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
-  for (const name of ['对话', '人设工坊', '知识库', '记忆', '定时任务', '设置']) {
+  for (const name of ['对话', '人设', '知识库', '记忆', '任务', '设置']) {
     await nav(page, name).click();
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

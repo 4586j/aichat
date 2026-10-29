@@ -1,4 +1,6 @@
+import { gardenMoon } from './garden-ui.js';
 import { RESPONSE_SCENES, responseScene } from './response-scenes.js';
+import { createPetMotion, petPresentation, PET_ACTIONS, PET_MOTION_PROFILES, isPetInteraction } from './pet-motion.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const off = value => value ? ' disabled' : '';
@@ -9,13 +11,15 @@ const paw = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-w
 const action = (label, name, extra = '', busy = false) => `<button type="button" class="button small" data-pet-action="${name}" ${extra}${off(busy)}>${label}</button>`;
 
 export function createPetsUI({ request, toast, redraw }) {
-  const state = { info: null, busy: false, feedback: '', error: false, chatting: false, music: false, scene:'normal', reaction: '', reactionText: '', timer: null, nameDrafts: new Map() };
+  const state = { info: null, busy: false, feedback: '', error: false, chatting: false, music: false, scene:'normal', reaction: '', reactionText: '', reactionUntil: 0, timer: null, nameDrafts: new Map() };
+  const motion = createPetMotion();
   const dialog = document.createElement('dialog'); dialog.id = 'pet-home'; dialog.className = 'pet-home'; dialog.setAttribute('aria-labelledby', 'pet-home-title'); document.body.append(dialog);
   const trigger = document.createElement('button'); trigger.type = 'button'; trigger.className = 'icon-button pet-trigger'; trigger.dataset.petAction = 'open'; trigger.setAttribute('aria-label', '打开宠物小窝'); trigger.title = '宠物小窝'; trigger.innerHTML = paw;
   $('.topbar-tools').prepend(trigger);
   const current = () => state.info?.pets.find(pet => pet.id === state.info.settings.selectedId);
-  const phase = () => !state.info?.settings.animations ? 'quiet' : ['pet','feed','play'].includes(state.reaction) ? state.reaction : state.scene === 'rest' ? 'quiet' : ['comfort','focus'].includes(state.scene) ? state.scene : state.chatting ? 'thinking' : state.reaction === 'reply' && state.scene === 'celebrate' ? 'celebrate' : state.reaction || (state.music ? 'music' : 'idle');
-  const caption = () => state.scene !== 'normal' ? RESPONSE_SCENES[state.scene].caption : state.reactionText || (state.chatting ? '陪你等一等，回复正在路上。' : state.music ? '听着音乐，轻轻晃一晃。' : !state.info?.settings.animations ? '安静地陪你待着。' : '点点我，给我一个摸摸。');
+  const presentation = () => petPresentation({ ...state, animations: state.info?.settings.animations });
+  const phase = () => presentation().phase;
+  const caption = () => isPetInteraction(state.reaction) ? state.reactionText : state.scene !== 'normal' ? RESPONSE_SCENES[state.scene].caption : state.reactionText || (state.chatting ? '陪你等一等，回复正在路上。' : state.music ? '听着音乐，陪你待一会儿。' : !state.info?.settings.animations ? '安静地陪你待着。' : '点点我，给我一个摸摸。');
   function portrait(pet, extra = '') {
     return `<span class="pet-portrait ${extra}" data-pet-portrait data-phase="${phase()}"><img src="${image(pet.id)}" alt="${esc(pet.name)}，${esc(pet.species)}" data-pet-image draggable="false" width="192" height="192"><span class="pet-image-fallback" hidden>${paw}<small>形象暂时无法加载</small></span><span class="pet-sparkle" aria-hidden="true">✦</span></span>`;
   }
@@ -24,17 +28,19 @@ export function createPetsUI({ request, toast, redraw }) {
     if (state.info && info.revision < state.info.revision) return;
     const changed = state.info?.settings.selectedId !== info.settings.selectedId;
     state.info = info;
-    if (changed) { clearTimeout(state.timer); state.reaction = ''; state.reactionText = ''; }
+    if (changed) { clearTimeout(state.timer); state.reaction = ''; state.reactionText = ''; state.reactionUntil = 0; }
     paint();
     if (dialog.open && !state.busy) drawHome();
   }
   function paint() {
+    if (state.reaction && Date.now() >= state.reactionUntil) { clearTimeout(state.timer); state.reaction = ''; state.reactionText = ''; }
     const pet = current();
     trigger.title = pet ? `${pet.name}的宠物小窝` : '宠物小窝';
     if (pet && state.info.settings.enabled) {
       if (!trigger.querySelector('img')) trigger.innerHTML = `<span class="pet-portrait pet-portrait-tiny" data-pet-portrait><img data-pet-image alt="" width="40" height="40"><span class="pet-image-fallback" hidden>${paw}</span></span>`;
     } else if (trigger.querySelector('img')) trigger.innerHTML = paw;
     if (!pet) return;
+    motion.update({ id: pet.id, scene: state.scene, reaction: state.reaction, reactionKey: state.reactionUntil, chatting: state.chatting, music: state.music, animations: state.info.settings.animations });
     for (const stage of document.querySelectorAll('[data-pet-portrait]')) {
       stage.dataset.phase = phase();
       const img = $('img', stage);
@@ -45,21 +51,28 @@ export function createPetsUI({ request, toast, redraw }) {
   }
   function react(kind, text = '') {
     if (!current()) return;
-    clearTimeout(state.timer); state.reaction = kind; state.reactionText = text; paint();
-    state.timer = setTimeout(() => { state.reaction = ''; state.reactionText = ''; paint(); }, 3200);
+    // A completed chat reply must not interrupt the user's active pet/snack/play feedback.
+    if (['reply','error'].includes(kind) && isPetInteraction(state.reaction) && Date.now() < state.reactionUntil) return;
+    const duration=Math.max(2400,(PET_ACTIONS[kind]?.duration || 2800)+350);
+    clearTimeout(state.timer); state.reaction = kind; state.reactionText = text; state.reactionUntil = Date.now() + duration; paint();
+    state.timer = setTimeout(() => { state.reaction = ''; state.reactionText = ''; state.reactionUntil = 0; paint(); }, duration);
   }
   function renderCompanion(compact = false) {
     const pet = current(); if (!pet || !state.info.settings.enabled) return '';
     if (compact) return `<div class="pet-mobile-companion" aria-label="聊天宠物"><button type="button" class="pet-touch" data-pet-action="interact" data-pet-interaction="pet" data-pet-id="${pet.id}" aria-label="摸摸当前宠物"${off(state.busy)}>${portrait(pet, 'pet-portrait-small')}</button><div><strong>${esc(pet.name)}</strong><span data-pet-caption>${esc(caption())}</span></div><button type="button" class="icon-button" data-pet-action="open" aria-label="打开聊天宠物的小窝">${paw}</button></div>`;
-    return `<section class="card pet-companion" aria-label="聊天宠物"><div class="card-header"><h3>陪你待一会儿</h3><span class="pill">${esc(pet.species)}</span></div><button type="button" class="pet-touch" data-pet-action="interact" data-pet-interaction="pet" data-pet-id="${pet.id}" aria-label="摸摸当前宠物"${off(state.busy)}>${portrait(pet)}</button><h3 class="pet-companion-name">${esc(pet.name)}</h3><p class="pet-caption" data-pet-caption>${esc(caption())}</p><div class="pet-companion-actions">${action('摸摸', 'interact', `data-pet-interaction="pet" data-pet-id="${pet.id}"`, state.busy)}${action('小窝', 'open')}</div></section>`;
+    return `<section class="card card-begonia pet-companion" aria-label="聊天宠物"><div class="pet-card-header"><h3>宠物</h3><span class="seal-stamp-gold">${esc(pet.species)}</span></div><div class="pet-switcher" role="group" aria-label="选择宠物">${state.info.pets.map(item => `<button type="button" class="pet-dot-btn" data-pet-action="select" data-pet-id="${item.id}" aria-pressed="${item.id === pet.id}"${off(state.busy)}>${esc(item.species === '小狐狸' ? '狐狸' : item.species)}</button>`).join('')}</div><button type="button" class="pet-touch moon-gate-stage" data-pet-action="interact" data-pet-interaction="pet" data-pet-id="${pet.id}" aria-label="摸摸当前宠物"${off(state.busy)}>${gardenMoon}${portrait(pet)}</button><h3 class="pet-companion-name">${esc(pet.name)}</h3><p class="pet-caption" data-pet-caption>${esc(caption())}</p><div class="pet-companion-actions">${action('摸摸', 'interact', `data-pet-interaction="pet" data-pet-id="${pet.id}"`, state.busy)}${action('喂食', 'interact', `data-pet-interaction="feed" data-pet-id="${pet.id}"`, state.busy)}${action('小窝', 'open')}</div></section>`;
   }
   function renderSettings() {
     const pet = current();
     return `<section class="card pet-settings-entry"><div><h2>留一只小伙伴，陪你聊天</h2><p>${pet ? `正在陪伴你的是${esc(pet.species)}「${esc(pet.name)}」。${state.info.settings.enabled ? '可以摸摸、喂点心，也可以安静待着。' : '当前已隐藏，可随时在小窝中重新显示。'}` : '奶油猫、柴犬、垂耳兔和小狐狸，选一个喜欢的形象。'}</p></div>${action('打开宠物小窝', 'open')}</section>`;
   }
+  function renderMotionPreview(pet) {
+    const profile=PET_MOTION_PROFILES[pet.id], kinds=['wave','stretch','feed','play','look','ears',profile.tail ? 'tail' : 'nuzzle','hop','shake'];
+    return `<section class="pet-motion-preview" aria-label="宠物动作试玩"><h3>看看它的小动作</h3><p>${state.info.settings.animations ? '点一个动作就能看，不增加陪伴点数。平时也会轮换做些小动作。' : '开启“轻动效”后，可以在这里看看它的动作。'}</p><div class="pet-motion-buttons">${kinds.map(kind=>action(PET_ACTIONS[kind].label,'motion',`data-pet-motion="${kind}"`,state.busy || !state.info.settings.animations)).join('')}</div></section>`;
+  }
   function drawHome() {
     const pet = current(), info = state.info;
-    dialog.innerHTML = `<header class="dialog-header"><div><h2 id="pet-home-title">给日常，添一点毛茸茸</h2><p class="small muted">四位原创 Q 版小伙伴，挑一位陪你慢慢聊。</p></div><button type="button" class="icon-button" data-pet-action="close" aria-label="关闭宠物小窝">×</button></header>${!pet ? `<div class="pet-home-body"><p role="status">${esc(state.feedback || '正在打开小窝…')}</p></div>` : `<div class="pet-home-body"><div class="pet-home-current"><section class="pet-home-stage" aria-label="当前宠物"><button type="button" class="pet-touch" data-pet-action="interact" data-pet-interaction="pet" data-pet-id="${pet.id}" aria-label="摸摸小窝里的宠物"${off(state.busy)}>${portrait(pet, 'pet-portrait-large')}</button><h3>${esc(pet.name)}<span>${esc(pet.species)}</span></h3><p class="pet-caption" data-pet-caption>${esc(caption())}</p><div class="pet-points"><strong data-pet-points>${pet.bond}</strong><span>陪伴点数</span></div><div class="pet-interactions">${action('摸摸', 'interact', `data-pet-interaction="pet" data-pet-id="${pet.id}"`, state.busy)}${action('喂点心', 'interact', `data-pet-interaction="feed" data-pet-id="${pet.id}"`, state.busy)}${action('玩一会儿', 'interact', `data-pet-interaction="play" data-pet-id="${pet.id}"`, state.busy)}</div></section><section class="pet-home-options"><h3>一起待着的方式</h3><form id="pet-name-form"><div class="field"><label for="pet-name">给它取个名字</label><input id="pet-name" name="name" value="${esc(state.nameDrafts.get(pet.id) ?? pet.name)}" maxlength="20" required${off(state.busy)}><small>每位小伙伴都有自己的名字和互动记录。</small></div><button type="submit" class="button"${off(state.busy)}>保存宠物名字</button></form><div class="pet-preferences"><label class="checkbox-label"><input type="checkbox" id="pet-enabled"${checked(info.settings.enabled)}${off(state.busy)}>在聊天中显示宠物</label><label class="checkbox-label"><input type="checkbox" id="pet-animations"${checked(info.settings.animations)}${off(state.busy)}>开启轻动效</label><p class="small muted">关闭动效后会安静陪伴；系统开启“减少动态效果”时同样静止显示。</p></div><p class="pet-record small">摸摸 ${pet.petCount} 次 · 点心 ${pet.feedCount} 次 · 玩耍 ${pet.playCount} 次</p><p class="small muted">这是本地虚拟宠物。不用打卡，不会因为你暂时离开而扣分。</p></section></div><p class="pet-feedback${state.error ? ' pet-error' : ''}" role="${state.error ? 'alert' : 'status'}">${esc(state.feedback || '点一下形象就能摸摸。每秒最多记录一次互动。')}</p><section class="pet-collection" aria-label="可选宠物"><div class="card-header"><h3>谁来陪你，自己选</h3><span class="small muted">AI 原创生成形象</span></div><div class="pet-choices">${info.pets.map(item => `<button type="button" class="pet-choice${item.id === pet.id ? ' is-selected' : ''}" data-pet-action="select" data-pet-id="${item.id}" aria-pressed="${item.id === pet.id}"${off(state.busy)}><img src="${image(item.id)}" alt="${esc(item.species)}形象" width="144" height="144" loading="lazy" draggable="false"><strong>${esc(item.name)}</strong><span>${esc(item.species)}</span><small>${esc(item.description)}</small></button>`).join('')}</div></section></div>`}`;
+    dialog.innerHTML = `<header class="dialog-header"><div><h2 id="pet-home-title">给日常，添一点毛茸茸</h2><p class="small muted">四位原创 Q 版小伙伴，挑一位陪你慢慢聊。</p></div><button type="button" class="icon-button" data-pet-action="close" aria-label="关闭宠物小窝">×</button></header>${!pet ? `<div class="pet-home-body"><p role="status">${esc(state.feedback || '正在打开小窝…')}</p></div>` : `<div class="pet-home-body"><div class="pet-home-current"><section class="pet-home-stage" aria-label="当前宠物"><button type="button" class="pet-touch" data-pet-action="interact" data-pet-interaction="pet" data-pet-id="${pet.id}" aria-label="摸摸小窝里的宠物"${off(state.busy)}>${portrait(pet, 'pet-portrait-large')}</button><h3>${esc(pet.name)}<span>${esc(pet.species)}</span></h3><p class="pet-caption" data-pet-caption>${esc(caption())}</p><div class="pet-points"><strong data-pet-points>${pet.bond}</strong><span>陪伴点数</span></div><div class="pet-interactions">${action('摸摸', 'interact', `data-pet-interaction="pet" data-pet-id="${pet.id}"`, state.busy)}${action('喂点心', 'interact', `data-pet-interaction="feed" data-pet-id="${pet.id}"`, state.busy)}${action('玩一会儿', 'interact', `data-pet-interaction="play" data-pet-id="${pet.id}"`, state.busy)}</div></section><section class="pet-home-options"><h3>一起待着的方式</h3>${renderMotionPreview(pet)}<form id="pet-name-form"><div class="field"><label for="pet-name">给它取个名字</label><input id="pet-name" name="name" value="${esc(state.nameDrafts.get(pet.id) ?? pet.name)}" maxlength="20" required${off(state.busy)}><small>每位小伙伴都有自己的名字和互动记录。</small></div><button type="submit" class="button"${off(state.busy)}>保存宠物名字</button></form><div class="pet-preferences"><label class="checkbox-label"><input type="checkbox" id="pet-enabled"${checked(info.settings.enabled)}${off(state.busy)}>在聊天中显示宠物</label><label class="checkbox-label"><input type="checkbox" id="pet-animations"${checked(info.settings.animations)}${off(state.busy)}>开启轻动效</label><p class="small muted">关闭后保留静态表情，停止眨眼和动作；系统开启“减少动态效果”时同样生效。</p></div><p class="pet-record small">摸摸 ${pet.petCount} 次 · 点心 ${pet.feedCount} 次 · 玩耍 ${pet.playCount} 次</p><p class="small muted">这是本地虚拟宠物。不用打卡，不会因为你暂时离开而扣分。</p></section></div><p class="pet-feedback${state.error ? ' pet-error' : ''}" role="${state.error ? 'alert' : 'status'}">${esc(state.feedback || '点一下形象就能摸摸。每秒最多记录一次互动。')}</p><section class="pet-collection" aria-label="可选宠物"><div class="card-header"><h3>谁来陪你，自己选</h3><span class="small muted">AI 原创生成形象</span></div><div class="pet-choices">${info.pets.map(item => `<button type="button" class="pet-choice${item.id === pet.id ? ' is-selected' : ''}" data-pet-action="select" data-pet-id="${item.id}" aria-pressed="${item.id === pet.id}"${off(state.busy)}><img src="${image(item.id)}" alt="${esc(item.species)}形象" width="144" height="144" loading="lazy" draggable="false"><strong>${esc(item.name)}</strong><span>${esc(item.species)}</span><small>${esc(item.description)}</small></button>`).join('')}</div></section></div>`}`;
   }
   async function mutate(operation, success = '') {
     if (state.busy) return;
@@ -82,6 +95,13 @@ export function createPetsUI({ request, toast, redraw }) {
     const name = button.dataset.petAction;
     if (name === 'open') void open();
     else if (name === 'close') dialog.close();
+    else if (name === 'motion') {
+      const kind=button.dataset.petMotion;
+      if (!PET_ACTIONS[kind]?.label || !state.info?.settings.animations) return;
+      react(kind,PET_ACTIONS[kind].caption);
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) toast('系统已开启“减少动态效果”，当前显示静态表情。');
+      $('.pet-home-stage',dialog)?.scrollIntoView({block:'nearest',behavior:'instant'});
+    }
     else if (name === 'select') void mutate(() => request('/pets/settings', 'PUT', { selectedId: button.dataset.petId }), '小伙伴已经换好啦。');
     else if (name === 'interact') void mutate(() => request('/pets/interact', 'POST', { petId: button.dataset.petId, action: button.dataset.petInteraction }));
   });
@@ -102,8 +122,8 @@ export function createPetsUI({ request, toast, redraw }) {
     event.target.hidden = true; $('.pet-image-fallback', stage).hidden = false;
   }, true);
   const audio = $('#background-audio');
-  for (const event of ['playing', 'pause', 'ended', 'emptied']) audio?.addEventListener(event, () => { state.music = !audio.paused && !audio.ended; paint(); });
-  const pauseHidden = () => { document.body.dataset.petSuspended = String(document.hidden); };
+  for (const event of ['playing', 'pause', 'ended', 'emptied', 'error', 'waiting']) audio?.addEventListener(event, () => { state.music = event === 'playing'; paint(); });
+  const pauseHidden = () => { document.body.dataset.petSuspended = String(document.hidden); if (!document.hidden) paint(); };
   document.addEventListener('visibilitychange', pauseHidden); pauseHidden();
   return { sync, renderCompanion, renderSettings, react, setChatState: value => { state.chatting = Boolean(value); paint(); }, setResponseBehavior:(snapshot,linked) => { state.scene=linked?responseScene(snapshot):'normal'; paint(); }, isBusy: () => state.busy || dialog.open };
 }
