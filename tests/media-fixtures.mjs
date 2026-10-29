@@ -1,5 +1,10 @@
 export const PNG=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=','base64');
 
+export function gallerySticker(origin='https://stickers.invalid',overrides={}) {
+  const hash='a'.repeat(64);
+  return {id:`stk_${hash}`,name:'害羞小猫',meaning:'温柔地表达害羞和亲近',description:'小猫捂着脸',tags:['害羞','可爱'],emotions:['affection'],scenes:['general'],excludedContexts:['grief'],examples:['轻松聊天时表达害羞'],intensity:1,url:`${origin}/api/v1/images/${hash}`,alt:'害羞小猫：温柔地表达害羞和亲近',mime:'image/png',width:1,height:1,sizeBytes:PNG.length,animated:false,revision:1,updatedAt:'2026-10-29T00:00:00.000Z',score:2,...overrides};
+}
+
 // Silent PCM, long enough to check navigation and seeking without contacting an audio host.
 export function silentWave(seconds=20) {
   const rate=8000,length=rate*2*seconds,b=Buffer.alloc(44+length);
@@ -11,8 +16,9 @@ const json=data=>new Response(JSON.stringify(data),{headers:{'content-type':'app
 export function mockMediaFetch(url,init={}) {
   url=new URL(url);
   if(url.origin==='http://stickers-fixture.invalid') {
-    if(url.pathname==='/search')return Promise.resolve(json({stickers:[{url:'http://stickers-fixture.invalid/picture.png',alt:'联网演示表情',animated:false}]}));
-    return Promise.resolve(new Response(PNG,{headers:{'content-type':'image/png'}}));
+    if(!['Bearer fixture-sticker-key','Bearer fixture-sticker-key-rotated'].includes(init.headers?.Authorization))return Promise.resolve(new Response(null,{status:401}));
+    if(url.pathname==='/api/v1/stickers/search')return Promise.resolve(json({stickers:[gallerySticker(url.origin)]}));
+    return Promise.resolve(new Response(init.method==='HEAD'?null:PNG,{headers:{'content-type':'image/png','content-length':String(PNG.length)}}));
   }
   if(url.origin!=='http://music-fixture.invalid')return Promise.reject(new Error('Unexpected fixture host'));
   if(url.pathname==='/api/status')return Promise.resolve(json({auth:true,sources:[{key:'qq',name:'QQ 音乐',logged_in:true},{key:'netease',name:'网易云',logged_in:false}]}));

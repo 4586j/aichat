@@ -174,8 +174,8 @@ export async function startServer({ port = 4317, dbPath = join(ROOT, 'data', 'ag
         return response.end(request.method === 'HEAD' ? undefined : content);
       }
       if (['GET','HEAD'].includes(request.method) && url.pathname === '/api/media/sticker-image') {
-        const image = await api.media.image(url.searchParams.get('id'));
-        response.writeHead(200,{'Content-Type':image.mime,'Content-Length':image.data.length});
+        const image = await api.media.image(url.searchParams.get('id'),request.method);
+        response.writeHead(200,{'Content-Type':image.mime,'Content-Length':image.size});
         return response.end(request.method==='HEAD'?undefined:image.data);
       }
       if (['GET','HEAD'].includes(request.method) && ['/api/music/stream','/api/music/cover'].includes(url.pathname)) {

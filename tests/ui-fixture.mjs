@@ -20,7 +20,7 @@ const fetchImpl = async (_url, options) => {
     if (instruction.includes('当前问题命中了栖忆配置指南')) content = '根据栖忆配置指南，请在对应的设置字段填写并保存，随后手动测试连接。[1]\n\n这是离线配置帮助测试回复，没有修改设置或连接外部服务。';
     const question = request.messages.at(-1).content;
     if(question.includes('媒体演示')) content += '\n<qiyi-media>{"stickerId":"leaf-cheer","songQuery":"安静片刻","songReason":"轻轻的旋律，留一点空间给思绪。"}</qiyi-media>';
-    else if(question.includes('联网表情演示')) content += '\n<qiyi-media>{"stickerQuery":"galaxyxrobot"}</qiyi-media>';
+    else if(question.includes('联网表情演示')) { const remote=/"id":"(remote-[a-f0-9]{64})"/u.exec(instruction)?.[1]; content += `\n<qiyi-media>${JSON.stringify(remote?{stickerId:remote}:{stickerQuery:'害羞'})}</qiyi-media>`; }
     else if(question.includes('动图演示')) {const sticker=app.api.media.list().find(s=>s.enabled&&s.animated);if(sticker)content+=`\n<qiyi-media>${JSON.stringify({stickerId:sticker.id})}</qiyi-media>`;}
     if (question.includes('状态演示')) {
       const stateField = (value, quote) => ({ value, confidence: 'high', evidence: [{ messageId: 'current', quote }] });
@@ -42,7 +42,7 @@ const app = await startServer({ port: 4318, dbPath: ':memory:', modelOptions: { 
   petClock: () => (petTestTime += 1100),
   guideFetchImpl: async () => {
     const bundle = JSON.parse(readFileSync(new URL('../docs/configuration/guide-bundle.json', import.meta.url), 'utf8'));
-    bundle.revision = '2026-10-28.1';
+    bundle.revision = '2026-10-29.2';
     return new Response(JSON.stringify(bundle), { headers: { etag: '"offline-guide-update"' } });
   },
   smtpPassword: '', mailTransportFactory: () => ({ close() {}, verify: async () => true, sendMail: async message => {

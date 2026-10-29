@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { createStore } from '../lib/store.mjs';
 import { createMedia, parseMediaReply } from '../lib/media.mjs';
 import { fixture, addConversation, errorStatus, deferred } from './helpers.mjs';
+import { gallerySticker } from './media-fixtures.mjs';
 
 export const PNG=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=','base64');
 const json=value=>new Response(JSON.stringify(value),{headers:{'content-type':'application/json'}});
@@ -81,20 +82,22 @@ test('local sticker takes precedence; disabled and invented ids do not attach',a
 });
 
 test('online fallback uses short query and an allowlisted image, never exposes its token',async t=>{
-  const {media,calls}=local(t,{response:(url)=>url.pathname==='/search'?json({stickers:[{url:'https://stickers.invalid/image.png?signature=private',alt:'自定义表情',animated:false}]}):new Response(PNG)});
+  const {media,calls}=local(t,{response:(url)=>url.pathname==='/search'?json({stickers:[gallerySticker()]}):new Response(PNG,{headers:{'content-type':'image/png'}})});
   media.update({stickerSearchUrl:'https://stickers.invalid/search',stickerApiKey:'private-key'});
-  const result=await media.resolve('正文\n<qiyi-media>{"stickerQuery":"galaxyxrobot"}</qiyi-media>',[]);
+  const plan={stickerAllowed:true,explicitSticker:true,stickerSearch:{q:'害羞',scene:'general',emotion:'affection',maxIntensity:1,contexts:[],limit:8}};
+  const result=await media.resolve('正文\n<qiyi-media>{"stickerQuery":"害羞"}</qiyi-media>',[],[],null,{plan});
   assert.equal(result.attachments[0].origin,'online');
   assert.ok(!JSON.stringify(result).includes('signature'));assert.ok(!JSON.stringify(result).includes('private-key'));
-  assert.equal(calls[0].url.searchParams.get('q'),'galaxyxrobot');assert.equal(calls[0].init.headers.Authorization,'Bearer private-key');
+  assert.equal(calls[0].url.searchParams.get('q'),'害羞');assert.equal(calls[0].init.headers.Authorization,'Bearer private-key');
   assert.deepEqual((await media.image(result.attachments[0].id)).data,PNG);
-  assert.equal(calls[1].init.headers,undefined);
+  assert.equal(calls[1].init.headers.Authorization,'Bearer private-key');
 });
 
 for(const url of ['http://127.0.0.1/private','https://unknown.invalid/file.png','https://user:pass@stickers.invalid/file.png','javascript:alert(1)']) {
   test(`unapproved external sticker image is ignored: ${url}`,async t=>{
-    const {media,calls}=local(t,{response:()=>json({stickers:[{url}]})});media.update({stickerSearchUrl:'https://stickers.invalid/search'});
-    const result=await media.resolve('正文\n<qiyi-media>{"stickerQuery":"galaxyxrobot"}</qiyi-media>',[]);
+    const {media,calls}=local(t,{response:()=>json({stickers:[gallerySticker('https://stickers.invalid',{url})]})});media.update({stickerSearchUrl:'https://stickers.invalid/search'});
+    const plan={stickerAllowed:true,explicitSticker:true,stickerSearch:{q:'害羞',scene:'general',emotion:'affection',maxIntensity:1,contexts:[],limit:8}};
+    const result=await media.resolve('正文\n<qiyi-media>{"stickerQuery":"害羞"}</qiyi-media>',[],[],null,{plan});
     assert.equal(result.content,'正文');assert.equal(result.attachments.length,0);assert.equal(calls.length,1);
   });
 }

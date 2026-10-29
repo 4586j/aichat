@@ -86,7 +86,7 @@ test('a slower earlier track lookup cannot replace the last song the user select
 });
 
 test('online sticker fallback and opt-in animated preview work without raw provider URLs',async({page,request})=>{
-  await configure(request,{stickerSearchUrl:'http://stickers-fixture.invalid/search'});await chat(page,request,'联网表情演示');await expect(page.locator('.reply-sticker figcaption')).toContainText('联网');
+  await configure(request,{stickerSearchUrl:'http://stickers-fixture.invalid/api/v1/stickers/search',stickerApiKey:'fixture-sticker-key'});await chat(page,request,'发一个害羞表情，联网表情演示');await expect(page.locator('.reply-sticker figcaption')).toContainText('联网');
   await expect(page.locator('.reply-sticker img')).toHaveAttribute('src',/^\/api\/media\/sticker-image\?id=remote-/);
   const gif=Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==','base64');
   const upload=await(await request.post('/api/media/stickers',{data:{name:'动图演示',tags:'动图 演示',data:gif.toString('base64')}})).json();
@@ -94,6 +94,29 @@ test('online sticker fallback and opt-in animated preview work without raw provi
   await chat(page,request,'动图演示');await expect(page.locator('.sticker-reveal')).toBeVisible();expect(calls).toHaveLength(0);
   await page.getByRole('button',{name:'查看表情：动图演示',exact:true}).click();await expect(page.locator('.reply-sticker img')).toBeVisible();await expect(async()=>expect(calls.length).toBeGreaterThan(0)).toPass();
   await request.delete(`/api/media/stickers/${upload.sticker.id}`,{data:{}});
+});
+
+test('protected semantic sticker history follows key rotation and shows a fallback after authentication fails',async({page,request},testInfo)=>{
+  await configure(request,{stickerSearchUrl:'http://stickers-fixture.invalid/api/v1/stickers/search',stickerApiKey:'fixture-sticker-key'});
+  const browserRequests=[];page.on('request',r=>browserRequests.push({url:r.url(),headers:r.headers()}));
+  const persona=await chat(page,request,'发一个害羞表情，联网表情演示');
+  const image=page.locator('.reply-sticker img');
+  await expect(image).toHaveAttribute('alt','害羞小猫：温柔地表达害羞和亲近');
+  await expect(image).toHaveJSProperty('naturalWidth',1);
+  const src=await image.getAttribute('src');expect(src).toMatch(/^\/api\/media\/sticker-image\?id=remote-[a-f0-9]{64}$/);
+  const response=await request.put('/api/media/settings',{data:{stickerApiKey:'fixture-sticker-key-rotated'}});expect(response.ok()).toBe(true);
+  await page.reload();await page.getByLabel('选择聊天角色',{exact:true}).selectOption(persona.id);
+  await page.getByRole('button',{name:'历史对话',exact:true}).click();await page.locator('.history-item').filter({hasText:'联网表情演示'}).click();
+  await expect(image).toHaveAttribute('src',src);await expect(image).toHaveJSProperty('naturalWidth',1);
+  expect(browserRequests.some(r=>r.url.includes('stickers-fixture.invalid'))).toBe(false);
+  expect(browserRequests.some(r=>JSON.stringify(r).includes('fixture-sticker-key'))).toBe(false);
+  expect(await page.evaluate(()=>JSON.stringify({...localStorage}).includes('fixture-sticker-key'))).toBe(false);
+  await request.put('/api/media/settings',{data:{stickerApiKey:'invalid-key'}});
+  await page.reload();await page.getByLabel('选择聊天角色',{exact:true}).selectOption(persona.id);await page.getByRole('button',{name:'历史对话',exact:true}).click();await page.locator('.history-item').filter({hasText:'联网表情演示'}).click();
+  await expect(page.locator('.reply-sticker .sticker-fallback')).toBeVisible();await expect(page.locator('.message.assistant')).toContainText('这是离线测试回复');
+  await expect(page.locator('#startup-screen')).toHaveCount(0);await page.waitForLoadState('networkidle');
+  await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:testInfo.outputPath('remote-sticker-failure-mobile.png')});
 });
 
 test.describe('mobile media',()=>{

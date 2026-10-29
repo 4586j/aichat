@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer } from '../server.mjs';
-import { mockMediaFetch, PNG } from './media-fixtures.mjs';
+import { mockMediaFetch, gallerySticker, PNG } from './media-fixtures.mjs';
 
 async function appFixture(t,mediaFetchImpl=mockMediaFetch) {
   const app=await startServer({port:0,dbPath:':memory:',scheduler:false,modelOptions:{musicApiKey:'',stickerApiKey:'',mediaFetchImpl}});
@@ -45,6 +45,37 @@ test('uploaded and remote sticker HTTP routes enforce image types and configured
   assert.equal((await get(`/api/media/stickers/${id}`,{method:'DELETE',headers:{'content-type':'application/json'},body:'{}'})).status,200);
   assert.equal((await get(`/api/media/sticker-image?id=${id}`)).status,404);
   assert.equal((await put('/api/media/settings',{stickerSearchUrl:'javascript:bad'})).status,400);
+});
+
+test('protected sticker proxy authenticates GET, HEAD and Range, rotates keys, and exposes only image headers',async t=>{
+  const calls=[];
+  const {app,get,put}=await appFixture(t,(url,init)=>{
+    calls.push({url:new URL(url),init});
+    const key=init.headers?.Authorization;
+    if(!['Bearer old-key','Bearer new-key','Bearer search-only'].includes(key))return Promise.resolve(new Response(null,{status:401}));
+    if(new URL(url).pathname.endsWith('/search'))return Promise.resolve(new Response(JSON.stringify({stickers:[gallerySticker()]}),{headers:{'content-type':'application/json'}}));
+    if(key==='Bearer search-only')return Promise.resolve(new Response(null,{status:403}));
+    return Promise.resolve(new Response(init.method==='HEAD'?null:PNG,{headers:{'content-type':'image/png','content-length':String(PNG.length),'set-cookie':'admin=private; HttpOnly','x-internal-token':'private'}}));
+  });
+  await put('/api/media/settings',{stickerSearchUrl:'https://stickers.invalid/api/v1/stickers/search',stickerApiKey:'old-key'});
+  const plan={stickerAllowed:true,explicitSticker:true,stickerSearch:{q:'害羞',scene:'general',emotion:'affection',maxIntensity:1,contexts:[],limit:8}};
+  const result=await app.api.media.resolve('正文\n<qiyi-media>{"stickerQuery":"害羞"}</qiyi-media>',[],[],null,{plan});
+  const id=result.attachments[0].id,path=`/api/media/sticker-image?id=${id}`;
+  const image=await get(path,{headers:{Range:'bytes=0-1'}});
+  assert.equal(image.status,200);assert.deepEqual(Buffer.from(await image.arrayBuffer()),PNG);
+  assert.equal(image.headers.get('cache-control'),'no-store');assert.equal(image.headers.get('x-content-type-options'),'nosniff');
+  for(const name of ['authorization','set-cookie','x-internal-token'])assert.equal(image.headers.get(name),null);
+  assert.equal(calls.at(-1).init.headers.Authorization,'Bearer old-key');assert.equal(calls.at(-1).init.headers.Range,undefined);
+  await put('/api/media/settings',{stickerApiKey:'new-key'});
+  const head=await get(path,{method:'HEAD'});assert.equal(head.status,200);assert.equal(await head.text(),'');assert.equal(head.headers.get('content-length'),String(PNG.length));
+  assert.equal(calls.at(-1).init.method,'HEAD');assert.equal(calls.at(-1).init.headers.Authorization,'Bearer new-key');
+  await put('/api/media/settings',{stickerApiKey:'search-only'});
+  assert.equal((await app.api.media.resolve('正文\n<qiyi-media>{"stickerQuery":"害羞"}</qiyi-media>',[],[],null,{plan})).attachments.length,1);
+  assert.equal((await get(path)).status,403);assert.equal((await get(path,{method:'HEAD'})).status,403);
+  await put('/api/media/settings',{clearStickerApiKey:true});
+  assert.equal((await get(path,{headers:{Range:'bytes=0-1'}})).status,401);
+  assert.equal((await get(path,{method:'HEAD'})).status,401);
+  assert.equal((await get('/api/media/sticker-image?id=unknown&url=https://evil.invalid/file')).status,404);
 });
 
 test('closing the browser audio response cancels upstream streaming',async t=>{

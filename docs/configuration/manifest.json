@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "appVersion": "1.0.0",
-  "revision": "2026-10-27.1",
+  "revision": "2026-10-29.1",
   "documents": [
     { "id": "start", "title": "首次启动与配置顺序", "keywords": ["安装", "启动", "环境变量", "宠物", "小窝", "摸摸", "喂点心", "安静模式", "眨眼", "宠物表情", "轻动效", "减少动态效果", "对话状态", "情绪", "精力", "熟悉程度", "手动修改", "判断依据", "回应联动", "独立开关"], "path": "docs/configuration/start.md" },
     { "id": "model", "title": "模型连接与 API Key", "keywords": ["模型", "AI", "Base URL", "API Key", "OpenAI兼容", "连接", "401", "404", "429"], "path": "docs/configuration/model.md" },
-    { "id": "stickers", "title": "本地表情包与联网补充", "keywords": ["表情包", "贴纸", "图库", "图片", "动图", "GIF", "上传", "图源", "联动场景", "表达强度"], "path": "docs/configuration/stickers.md" },
+    { "id": "stickers", "title": "本地表情包与联网补充", "keywords": ["表情包", "贴纸", "图库", "图片", "动图", "GIF", "上传", "图源", "远程表情", "images:read", "catalog:read", "禁用上下文", "联动场景", "表达强度"], "path": "docs/configuration/stickers.md" },
     { "id": "music", "title": "音乐平台与背景播放", "keywords": ["音乐", "歌曲", "QQ", "网易云", "曲库", "播放", "音量", "音乐服务", "背景音乐", "推歌", "推荐间隔", "反馈"], "path": "docs/configuration/music.md" },
     { "id": "email", "title": "邮件、SMTP 与授权码", "keywords": ["邮件", "邮箱", "SMTP", "TLS", "STARTTLS", "授权码", "密送", "退信", "发信"], "path": "docs/configuration/email.md" },
     { "id": "troubleshooting", "title": "常见问题与排查", "keywords": ["报错", "失败", "超时", "重启", "收不到", "没有声音", "无法连接", "忘记", "密码", "排查"], "path": "docs/configuration/troubleshooting.md" }
