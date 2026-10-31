@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './ui-test.mjs';
 
 const defaults = { enabled: true, selectedId: 'cream-cat', animations: true };
 test.beforeEach(async ({ request }) => { await request.put('/api/pets/settings', { data: defaults }); });

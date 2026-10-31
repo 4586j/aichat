@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './ui-test.mjs';
 import { PET_ACTIONS } from '../public/pet-motion.js';
 
 const ids=['cream-cat','shiba','lop-rabbit','little-fox'];

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './ui-test.mjs';
 const defaults={stickerLinked:true,musicLinked:true,petLinked:true};
 const happy='联动演示：今天很开心，想轻松聊天。';
 const tired='联动演示：今天好累，我只想说说。';
@@ -7,7 +7,7 @@ async function settings(request,values=defaults){const current=(await(await requ
 test.beforeEach(async({request})=>{await settings(request);await request.put('/api/media/settings',{data:{musicBaseUrl:'http://music-fixture.invalid',musicEnabled:true,stickersEnabled:true}});await request.put('/api/pets/settings',{data:{enabled:true,animations:true,selectedId:'cream-cat'}});});
 test.afterEach(async({request})=>{await settings(request);await request.put('/api/media/settings',{data:{musicBaseUrl:'',stickerSearchUrl:''}});});
 async function fresh(page,request){const{persona}=await(await request.post('/api/personas',{data:{name:'回应联动测试',systemPrompt:'清晰温和地回答。'}})).json();await page.emulateMedia({reducedMotion:'reduce'});await page.goto(`/?response=${persona.id}#chat`);await page.getByLabel('选择聊天角色',{exact:true}).selectOption(persona.id);await expect(page.locator('#startup-screen')).toHaveCount(0);return persona;}
-async function send(page,content){const count=await page.locator('.message.assistant').count();await page.locator('#chat-input').fill(content);await page.getByRole('button',{name:'发送',exact:true}).click();await expect(page.locator('.message.assistant')).toHaveCount(count+1);return page.locator('.message.assistant').last();}
+async function send(page,content){const count=await page.locator('.message.assistant').count();await page.locator('#chat-input').fill(content);await page.getByRole('button',{name:'发送',exact:true}).click();await expect(page.locator('#live-reply')).toHaveCount(0);await expect(page.locator('.message.assistant')).toHaveCount(count+1);return page.locator('.message.assistant').last();}
 async function seed(page,request,persona,n=4){
   if(page.viewportSize().width<=700){
     for(let i=0;i<n;i++)await send(page,'普通闲聊。');

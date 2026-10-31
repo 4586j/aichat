@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './ui-test.mjs';
 
 const question = '状态演示：今天好累，有点烦躁，先别给我建议。';
 const bar = page => page.getByRole('button', { name: '查看和调整对话状态', exact: true });
@@ -9,7 +9,7 @@ async function fresh(page, request, name = '状态测试') {
   await expect(bar(page)).toContainText('初识'); return persona;
 }
 async function open(page) { await bar(page).click(); await expect(page.locator('#state-mode')).toBeVisible(); }
-async function send(page, content = question) { const n = await page.locator('.message.assistant').count(); await page.locator('#chat-input').fill(content); await page.getByRole('button', { name: '发送', exact: true }).click(); await expect(page.locator('.message.assistant')).toHaveCount(n + 1); }
+async function send(page, content = question) { const n = await page.locator('.message.assistant').count(); await page.locator('#chat-input').fill(content); await page.getByRole('button', { name: '发送', exact: true }).click(); await expect(page.locator('#live-reply')).toHaveCount(0); await expect(page.locator('.message.assistant')).toHaveCount(n + 1); }
 async function close(page) { await page.getByRole('button', { name: '关闭对话状态', exact: true }).click(); }
 async function save(page) { await page.getByRole('button', { name: '保存状态修改', exact: true }).click(); await expect(modal(page)).not.toBeVisible(); }
 const manual = (page, key) => page.locator(`[data-state-manual="${key}"]`);

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './ui-test.mjs';
 
 const createPersona = async (request, name) => (await (await request.post('/api/personas', { data: { name, systemPrompt: '离线图谱验证助手' } })).json()).persona.id;
 const triple = (subject, predicate, object) => ({ subject: { name: subject, type: 'topic' }, predicate, object: { name: object, type: 'topic' } });

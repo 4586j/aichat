@@ -10,15 +10,21 @@ import { AppError } from './lib/model.mjs';
 import { PET_CATALOG } from './lib/pets.mjs';
 import { petSprite } from './public/pet-motion.js';
 import { petClipSprite } from './public/pet-clips.js';
+import { loadLocalEnvironment, readTunnelConfig, createTunnelManager } from './lib/startup.mjs';
+import { createLocalModelKey } from './lib/local-model-key.mjs';
+import { once } from 'node:events';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const STATIC = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/index.html', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
+  ['/streaming.js', ['streaming.js', 'text/javascript; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/garden.css', ['garden.css', 'text/css; charset=utf-8']],
   ['/garden-ui.js', ['garden-ui.js', 'text/javascript; charset=utf-8']],
+  ['/entrance.css', ['entrance.css', 'text/css; charset=utf-8']],
+  ['/entrance.js', ['entrance.js', 'text/javascript; charset=utf-8']],
   ['/media.js', ['media.js', 'text/javascript; charset=utf-8']],
   ['/media.css', ['media.css', 'text/css; charset=utf-8']],
   ['/mail.js', ['mail.js', 'text/javascript; charset=utf-8']],
@@ -198,6 +204,29 @@ export async function startServer({ port = 4317, dbPath = join(ROOT, 'data', 'ag
       if (url.pathname.startsWith('/api/')) {
         const method = request.method;
         const input = ['POST', 'PUT', 'DELETE'].includes(method) ? await readJson(request) : {};
+        const streamPath=/^\/api\/conversations\/([^/]+)\/messages$/u.exec(url.pathname);
+        if(method==='POST'&&streamPath&&request.headers.accept?.includes('text/event-stream')){
+          const conversationId=decodeURIComponent(streamPath[1]);
+          const controller=new AbortController();
+          const abort=()=>controller.abort();response.once('close',abort);
+          response.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','X-Accel-Buffering':'no'});
+          response.flushHeaders();
+          const emit=async({type,...data})=>{
+            controller.signal.throwIfAborted();
+            if(!response.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`))await once(response,'drain',{signal:controller.signal});
+          };
+          const heartbeat=setInterval(()=>{if(!response.destroyed&&!response.writableNeedDrain)response.write(': keepalive\n\n');},15000);
+          try{
+            await emit({type:'status',phase:'thinking'});
+            const result=await api.sendMessage(conversationId,input,{onEvent:emit,signal:controller.signal});
+            await emit({type:'done',...result});
+          }catch(error){
+            if(!controller.signal.aborted)await emit({type:'error',message:error instanceof AppError?error.message:'回复生成失败，请稍后重试。',status:error instanceof AppError?error.status:500});
+          }finally{
+            clearInterval(heartbeat);response.removeListener('close',abort);controller.abort();response.end();
+          }
+          return;
+        }
         return json(200, await route(api, method, url.pathname, input, url.searchParams));
       }
       const asset = STATIC.get(url.pathname);
@@ -234,17 +263,29 @@ export async function startServer({ port = 4317, dbPath = join(ROOT, 'data', 'ag
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  loadLocalEnvironment(join(ROOT,'.env'));
   const port = Number(process.env.PORT || 4317);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT 必须是 1～65535 的整数。');
-  const app = await startServer({ port, ...(process.env.AGENT_DATA_DIR ? { dbPath: join(resolve(process.env.AGENT_DATA_DIR), 'agent.sqlite') } : {}) });
-  console.log(`栖忆 AI Agent 已启动：${app.url}`);
-  console.log('仅本机访问；关闭终端后定时任务暂停。首次使用请在设置中配置模型。');
+  const tunnelConfig=readTunnelConfig();
+  if(tunnelConfig?.forwards.some(pair=>pair.local===port))throw new Error('SSH 转发端口不能占用聊天应用端口。');
+  const tunnels=createTunnelManager(tunnelConfig);
   let closing = false;
+  let app;
   const shutdown = async () => {
     if (closing) return;
     closing = true;
-    await app.close();
+    try { await app?.close(); } finally { await tunnels.close(); }
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  try {
+    await tunnels.start();
+    const dataDir = process.env.AGENT_DATA_DIR ? resolve(process.env.AGENT_DATA_DIR) : join(ROOT, 'data');
+    if(!closing)app=await startServer({ port, dbPath: join(dataDir, 'agent.sqlite'), modelOptions: { modelKeyStore: createLocalModelKey(join(dataDir, 'model-key.local')) } });
+    if(closing)await app?.close();
+    else {
+      console.log(`栖忆 AI Agent 已启动：${app.url}`);
+      console.log('仅本机访问；关闭终端后定时任务暂停。首次使用请在设置中配置模型。');
+    }
+  } catch(error) { await shutdown(); throw error; }
 }

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './ui-test.mjs';
 
 let original;
 test.beforeEach(async ({ request }) => {

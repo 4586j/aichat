@@ -1,4 +1,4 @@
-import {test,expect} from '@playwright/test';
+import {test,expect} from './ui-test.mjs';
 import {PET_ACTIONS} from '../public/pet-motion.js';
 
 async function bounds(page){
@@ -12,10 +12,11 @@ async function bounds(page){
 }
 
 for(const id of ['cream-cat','shiba','lop-rabbit','little-fox'])test(`${id} keeps its displayed resting size when entering and leaving every body action`,async({page},info)=>{
-  await page.clock.install({time:new Date('2026-10-27T02:00:00Z')});await page.emulateMedia({reducedMotion:'no-preference'});
+  await page.clock.install({time:new Date('2026-10-27T00:00:00Z')});
+  await page.clock.pauseAt(new Date('2026-10-27T02:00:00Z'));
+  await page.emulateMedia({reducedMotion:'no-preference'});
   await page.route('**/pet-framing-fixture',route=>route.fulfill({contentType:'text/html; charset=utf-8',body:`<!doctype html><link rel="stylesheet" href="/pets.css"><body style="margin:40px;background:#edf2e7"><span id="portrait" class="pet-portrait pet-portrait-large" data-pet-portrait><img src="/assets/pets/${id}-v1.png" alt="宠物"></span><script type="module">import {createPetMotion} from '/pet-motion.js';let state={id:'${id}',animations:false};const pet=createPetMotion();window.updatePet=next=>{state={...state,...next};pet.update(state)};window.updatePet({});</script>`}));
   await page.goto('/pet-framing-fixture');const portrait=page.locator('#portrait');await expect(portrait).toHaveAttribute('data-pet-renderer','canvas');
-  await page.clock.pauseAt(new Date('2026-10-27T02:00:01Z'));
   const pngReference=await portrait.evaluate(stage=>{
     const image=stage.querySelector('img'),canvas=document.createElement('canvas');canvas.width=canvas.height=384;
     const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0,384,384);const bytes=ctx.getImageData(0,0,384,384).data;
@@ -47,10 +48,11 @@ for(const id of ['cream-cat','shiba','lop-rabbit','little-fox'])test(`${id} keep
 });
 
 test('expanded ears and raised paws stay inside the shared camera with no pixel clipping',async({page})=>{
-  await page.clock.install({time:new Date('2026-10-27T02:00:00Z')});await page.emulateMedia({reducedMotion:'no-preference'});
+  await page.clock.install({time:new Date('2026-10-27T00:00:00Z')});
+  await page.clock.pauseAt(new Date('2026-10-27T02:00:00Z'));
+  await page.emulateMedia({reducedMotion:'no-preference'});
   await page.route('**/pet-framing-limits',route=>route.fulfill({contentType:'text/html; charset=utf-8',body:'<!doctype html><link rel="stylesheet" href="/pets.css"><span id="portrait" class="pet-portrait pet-portrait-large" data-pet-portrait><img src="/assets/pets/lop-rabbit-v1.png" alt="宠物"></span><script type="module">import {createPetMotion} from "/pet-motion.js";window.pet=createPetMotion();window.pet.update({id:"lop-rabbit",animations:false});</script>'}));
   await page.goto('/pet-framing-limits');await expect(page.locator('#portrait')).toHaveAttribute('data-pet-renderer','canvas');
-  await page.clock.pauseAt(new Date('2026-10-27T02:00:01Z'));
   for(const id of ['cream-cat','shiba','lop-rabbit','little-fox'])for(const reaction of ['stretch','play']){
     await page.evaluate(next=>window.pet.update(next),{id,animations:true,reaction,reactionKey:performance.now()});
     await expect(page.locator('#portrait')).toHaveAttribute('data-pet-clip',reaction);

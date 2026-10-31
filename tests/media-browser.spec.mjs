@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './ui-test.mjs';
 import { PNG } from './media-fixtures.mjs';
 
 const nav=(page,name)=>page.getByRole('navigation',{name:'主导航'}).getByRole('link',{name,exact:true});

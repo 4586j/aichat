@@ -35,6 +35,185 @@ test('explicit requests and local declines are distinguished from setup question
   assert.equal(responseRequests('发一个抱抱表情').sticker,true);assert.equal(responseRequests('不要发表情').negativeSticker,true);
 });
 
+const declinedSearchTurns = [
+  '播放《晴天》，别搜歌了', '播放《晴天》，不要搜索歌曲', '播放《晴天》，别找歌',
+  '别搜歌了，播放《晴天》', '不要搜索歌曲；播放《晴天》', '别找歌。播放《晴天》',
+];
+const blockedMusicTurns = [
+  '别放《晴天》', '不要播放', '不要放歌', '别再推歌了', '不用给我推荐音乐',
+  '别放《晴天》，播放《稻香》', '播放《晴天》，但不要放歌', "don't play music; play a song",
+  ...declinedSearchTurns,
+  '“播放《你好，忧愁》”', '“请播放，你好，忧愁”', '示例：播放《你好，忧愁》',
+  '音乐服务怎么设置', '推荐歌曲怎么配置', '我在做音乐平台项目', '聊聊音乐平台',
+  '如何实现放歌功能', '调试播放《晴天》的接口', '帮我检查放歌卡片为什么没有显示',
+  '音乐平台项目已经实现，接下来讨论测试',
+  '```text\n播放《晴天》\n```', '~~~text\n放歌\n~~~', '`播放《晴天》`', '> 播放《晴天》',
+  '“播放《晴天》”', '他说「推荐一首歌」', '"放歌"', "'来首晴天'",
+  '示例：播放《晴天》', '例如，推荐一首歌', '假设用户说：放歌', '引用原话：听《晴天》',
+  '播放视频', '播放一首诗', '来首唐诗', '播放PPT', '播放周杰伦的视频', '播放《静夜思》这首诗',
+];
+
+test('music commands are distinguished from declines, discussions and quoted examples',()=>{
+  for(const content of ['放歌','放首','来首','放首稻香','来首《晴天》','听《晴天》','播放《晴天》','请播放周杰伦的晴天','不想说话，推荐一首歌','播放一首歌 我今天确诊了糖尿病','播放《你好，忧愁》','播放“你好，忧愁”']) {
+    const request=responseRequests(content);
+    assert.equal(request.music,true,content);assert.equal(request.musicBlocked,false,content);
+  }
+  for(const content of blockedMusicTurns) {
+    const request=responseRequests(content);
+    assert.equal(request.music,false,content);assert.equal(request.musicBlocked,true,content);
+  }
+  for(const content of ['别放《晴天》','不要播放','不要放歌','别放《晴天》，播放《稻香》',...declinedSearchTurns])assert.equal(responseRequests(content).negativeMusic,true,content);
+  assert.equal(responseRequests('不想说话，推荐一首歌').negativeMusic,false);
+  assert.equal(responseRequests('轻松聊聊今天的事。').musicBlocked,false);
+});
+
+test('current-turn track queries stay bounded and override a different model song',t=>{
+  const f=fixture(t);const id=addConversation(f.api,f.personaId),policy=f.api.responsePolicy;
+  addMessages(f.store,id,['以前想听《稻香》，PRIVATE_HISTORY。','知道了。']);
+  for(const [content,query] of [
+    ['播放《晴天》','晴天'], ['听《晴天》','晴天'], ['放首稻香吧','稻香'], ['来首《晴天》','晴天'],
+    ['播放周杰伦的晴天','周杰伦的晴天'], ['播放周杰伦的《晴天》','周杰伦的晴天'], ['播放《谢谢》','谢谢'],
+    ['PRIVATE_CONTEXT。请播放《晴天》，然后聊聊PRIVATE_DETAIL。','晴天'],
+    ['今天有很多想说的话。播放周杰伦的晴天，然后聊聊近况。','周杰伦的晴天'],
+    ['播放《你好，忧愁》','你好，忧愁'], ['播放“你好，忧愁”','你好，忧愁'],
+    ['播放「你好，忧愁」','你好，忧愁'], ['播放"Hello, Goodbye"','Hello, Goodbye'],
+    ["播放'Hello, Goodbye'",'Hello, Goodbye'], ['播放《然后，你好》','然后，你好'],
+    ['PRIVATE_CONTEXT。播放一首“你好，忧愁” 我今天确诊了糖尿病','你好，忧愁'],
+  ]) {
+    const plan=policy.plan(snapshot(f,id),id,content);
+    assert.equal(plan.explicitMusic,true,content);assert.equal(plan.requestedMusicQuery,query,content);assert.equal(plan.requestedMusicExact,true,content);
+    const intent=Object.freeze({...musicIntent,stickerQuery:'开心'});
+    for(const options of [{fallback:true},{fallback:false}]) {
+      const filtered=policy.filterIntent(intent,plan,[],options);
+      assert.equal(filtered.songQuery,query,content);assert.equal(filtered.stickerQuery,undefined,content);
+    }
+    assert.equal(policy.filterIntent({},plan,[]).songQuery,query,content);
+    assert.equal(policy.filterIntent({},plan,[],{fallback:false}).songQuery,undefined,content);
+  }
+  assert.equal(f.calls.length,0);
+});
+
+test('generic requests retain model choices and only use the legacy fallback when enabled',t=>{
+  const f=fixture(t);const id=addConversation(f.api,f.personaId),policy=f.api.responsePolicy;
+  for(const content of ['推荐一首歌','推荐一首安静的歌','来首周杰伦的歌','放歌','放首','来首','不想说话，推荐一首歌','recommend a song']) {
+    const plan=policy.plan(snapshot(f,id),id,content);
+    assert.equal(plan.explicitMusic,true,content);assert.equal(plan.requestedMusicExact,false,content);assert.equal(plan.requestedMusicQuery,'轻音乐',content);
+    assert.equal(policy.filterIntent(musicIntent,plan,[]).songQuery,musicIntent.songQuery,content);
+    assert.equal(policy.filterIntent(musicIntent,plan,[],{fallback:false}).songQuery,musicIntent.songQuery,content);
+    assert.equal(policy.filterIntent({},plan,[]).songQuery,'轻音乐',content);
+    assert.equal(policy.filterIntent({},plan,[],{fallback:false}).songQuery,undefined,content);
+  }
+  const ordinary=policy.plan(snapshot(f,id),id,'继续聊。');
+  assert.equal(ordinary.requestedMusicQuery,'');assert.equal(ordinary.requestedMusicExact,false);
+});
+
+const ambiguousMusicTurns = [
+  '播放晴天我今天确诊了糖尿病', '播放晴天我最近生病了',
+  '播放一首歌 我今天确诊了糖尿病', '播放晴天 我今天确诊了糖尿病',
+  '播放周杰伦的晴天 PRIVATE_DETAIL', '播放一首歌\tPRIVATE_DETAIL',
+  '播放一首歌 我想聊聊“PRIVATE_DETAIL”', '播放《晴天 我今天确诊了糖尿病',
+];
+
+test('ambiguous unquoted targets never turn private context into an exact query',t=>{
+  const f=fixture(t);const id=addConversation(f.api,f.personaId),policy=f.api.responsePolicy;
+  addMessages(f.store,id,['PRIVATE_HISTORY。','知道了。']);
+  for(const content of ambiguousMusicTurns) {
+    const plan=policy.plan(snapshot(f,id),id,content);
+    assert.equal(plan.explicitMusic,true,content);assert.equal(plan.requestedMusicQuery,'轻音乐',content);assert.equal(plan.requestedMusicExact,false,content);
+    assert.equal(policy.filterIntent({},plan,[]).songQuery,'轻音乐',content);
+    assert.equal(policy.filterIntent({},plan,[],{fallback:false}).songQuery,undefined,content);
+    for(const options of [{fallback:true},{fallback:false}])assert.equal(policy.filterIntent(musicIntent,plan,[],options).songQuery,'轻音乐',content);
+  }
+  assert.equal(f.calls.length,0);
+});
+
+test('music style requests retain their style when the model supplies no media intent',t=>{
+  const f=fixture(t);const id=addConversation(f.api,f.personaId),policy=f.api.responsePolicy;
+  for(const [content,query] of [['放点摇滚','摇滚'],['来一点爵士吧','爵士'],['听一些民谣','民谣']]) {
+    const plan=policy.plan(snapshot(f,id),id,content);
+    assert.equal(plan.explicitMusic,true,content);assert.equal(plan.requestedMusicQuery,query,content);
+    assert.equal(plan.requestedMusicExact,false,content);assert.equal(policy.filterIntent({},plan,[]).songQuery,query,content);
+  }
+});
+
+test('fallback false still enforces master switches, sticker safety and media exclusivity',t=>{
+  const f=fixture(t);const id=addConversation(f.api,f.personaId),policy=f.api.responsePolicy;
+  const planFor=content=>policy.plan(snapshot(f,id),id,content);
+  const intent={...musicIntent,stickerId:'missing-sticker',stickerQuery:'开心'};
+  let filtered=policy.filterIntent(intent,planFor('播放《晴天》'),[],{fallback:false});
+  assert.equal(filtered.songQuery,'晴天');assert.equal(filtered.stickerId,undefined);assert.equal(filtered.stickerQuery,undefined);
+  filtered=policy.filterIntent(intent,planFor('发一个表情'),[],{fallback:false});
+  assert.equal(filtered.songQuery,undefined);assert.equal(filtered.songReason,undefined);assert.equal(filtered.stickerId,undefined);
+  filtered=policy.filterIntent({...musicIntent,stickerQuery:'开心'},planFor('播放《晴天》，发一个表情'),[],{fallback:false});
+  assert.equal(filtered.songQuery,'晴天');assert.equal(filtered.stickerQuery,'开心');
+  const candidate={id:'allowed-sticker'};
+  const mediaBefore=f.api.pets.bootstrap();
+  f.api.media.update({musicEnabled:false,stickersEnabled:false});
+  const disabled=planFor('播放《晴天》，发一个表情');
+  assert.equal(disabled.musicAllowed,false);assert.equal(disabled.musicConditional,false);
+  assert.deepEqual(policy.filterIntent({...musicIntent,stickerId:candidate.id,stickerQuery:'开心'},disabled,[candidate],{fallback:false}),{});
+  assert.deepEqual(policy.filterIntent({},disabled,[]),{});
+  assert.deepEqual(f.api.pets.bootstrap(),mediaBefore);
+});
+
+test('fifth-turn calm chat discussions and declines block all music paths even with a model query',async t=>{
+  const networks=[];
+  const f=fixture(t,blockedMusicTurns.map(()=>mediaReply(musicIntent)),{mediaFetchImpl:async(...args)=>{networks.push(args);return mockMediaFetch(...args);}});
+  configure(f);
+  for(const content of blockedMusicTurns) {
+    const id=addConversation(f.api,f.personaId);relaxed(f,id);prefill(f,id);
+    const policy=f.api.responsePolicy,plan=policy.plan(snapshot(f,id),id,content);
+    assert.equal(plan.completedReplies,4,content);assert.equal(plan.musicAllowed,false,content);assert.equal(plan.musicConditional,false,content);
+    assert.equal(plan.explicitMusic,false,content);assert.equal(plan.requestedMusicQuery,'',content);assert.equal(plan.requestedMusicExact,false,content);
+    for(const options of [{fallback:true},{fallback:false}]) {
+      const filtered=policy.filterIntent(musicIntent,plan,[],options);
+      assert.equal(filtered.songQuery,undefined,content);assert.equal(filtered.songReason,undefined,content);
+    }
+    assert.deepEqual(policy.filterAttachments([{type:'song-search',query:'晴天'}],plan),[],content);
+    // Unknown assist state uses the conditional path, which must share the same veto.
+    const unknown=policy.plan({mode:'assist',fields:{}},id,content);
+    assert.equal(unknown.musicConditional,false,content);
+    const result=await f.api.sendMessage(id,{content});
+    assert.equal(hasSong(result.message),false,content);assert.equal(networks.length,0,content);
+  }
+  assert.equal(f.calls.length,blockedMusicTurns.length);
+});
+
+test('exact queries reach the stub unchanged and missing model queries still have a fallback',async t=>{
+  const searches=[],turns=[
+    ['PRIVATE_CONTEXT。播放《晴天》，然后聊聊PRIVATE_DETAIL。','晴天'], ['听《晴天》','晴天'],
+    ['播放《你好，忧愁》','你好，忧愁'], ['播放“你好，忧愁”','你好，忧愁'],
+    ['播放周杰伦的晴天','周杰伦的晴天'],
+  ];
+  const f=fixture(t,turns.map((_,i)=>mediaReply(i%2?{}:musicIntent)),{mediaFetchImpl:async(url,init)=>{
+    const parsed=new URL(url);if(parsed.pathname==='/api/search')searches.push([...parsed.searchParams.values()]);
+    return mockMediaFetch(url,init);
+  }});
+  configure(f);const id=addConversation(f.api,f.personaId);
+  for(const [content,query] of turns) {
+    const result=await f.api.sendMessage(id,{content});assert.equal(hasSong(result.message),true,content);
+    assert.ok(searches.at(-1).includes(query),content);
+  }
+  assert.equal(searches.length,turns.length);
+  for(const values of searches)assert.ok(values.every(value=>!value.includes('PRIVATE')&&!value.includes('安静片刻')));
+});
+
+test('ambiguous request fallback sends only safe music queries to the service',async t=>{
+  const searches=[],networks=[];
+  const f=fixture(t,ambiguousMusicTurns.map(()=>mediaReply({})),{mediaFetchImpl:async(url,init)=>{
+    networks.push(decodeURIComponent(String(url)),JSON.stringify(init));
+    const parsed=new URL(url);if(parsed.pathname==='/api/search')searches.push([...parsed.searchParams.values()]);
+    if(parsed.pathname==='/api/library')return new Response(JSON.stringify({count:0,files:[]}),{headers:{'content-type':'application/json'}});
+    return mockMediaFetch(url,init);
+  }});
+  configure(f);const id=addConversation(f.api,f.personaId);
+  addMessages(f.store,id,['PRIVATE_HISTORY。','知道了。']);
+  for(const content of ambiguousMusicTurns)assert.equal(hasSong((await f.api.sendMessage(id,{content})).message),true,content);
+  assert.equal(searches.length,ambiguousMusicTurns.length);
+  for(const values of searches)assert.ok(values.includes('轻音乐'));
+  assert.doesNotMatch(networks.join('\n'),/PRIVATE|糖尿病|确诊/u);
+});
+
 test('current grounded state drives first-turn comfort, rejects celebration and performs no music search',async t=>{
   const networks=[];const f=fixture(t,[mediaReply({stickerId:'leaf-cheer',...musicIntent},{energy:field('low','今天好累'),need:field('listen','先别给建议')})],{mediaFetchImpl:async(...args)=>{networks.push(args);return mockMediaFetch(...args);}});
   configure(f);const id=addConversation(f.api,f.personaId);const result=await f.api.sendMessage(id,{content:'今天好累，先别给建议。'});

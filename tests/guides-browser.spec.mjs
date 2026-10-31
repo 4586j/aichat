@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './ui-test.mjs';
 
 const setupPage = async page => { await page.goto('/#settings'); await expect(page.getByRole('button', { name: '配置指南', exact: true })).toBeVisible(); };
 const topic = (page, title) => page.getByRole('navigation', { name: '配置指南目录' }).getByRole('button', { name: title, exact: true });

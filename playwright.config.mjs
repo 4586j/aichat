@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
+const reportDir = process.env.PLAYWRIGHT_REPORT_DIR || 'test-reports/latest';
+
 export default defineConfig({
   testDir: './tests',
   testMatch: '**/*.spec.mjs',
@@ -7,19 +9,18 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   timeout: 60000,
-  reporter: 'list',
+  outputDir: `${reportDir}/artifacts`,
+  reporter: [
+    ['list'],
+    ['json', { outputFile: `${reportDir}/results.json` }],
+    ['html', { outputFolder: `${reportDir}/html`, open: 'never' }],
+  ],
   use: {
-    baseURL: 'http://127.0.0.1:4318',
     channel: process.env.PLAYWRIGHT_CHANNEL || 'chrome',
     headless: true,
     viewport: { width: 1440, height: 960 },
+    serviceWorkers: 'block',
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
-  },
-  webServer: {
-    command: 'node tests/ui-fixture.mjs',
-    url: 'http://127.0.0.1:4318/api/bootstrap',
-    reuseExistingServer: !process.env.CI,
-    timeout: 30000,
   },
 });

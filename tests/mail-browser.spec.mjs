@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './ui-test.mjs';
 
 const CONFIG = { host: 'smtp-fixture.invalid', port: 587, security: 'starttls', user: 'sender@example.com', password: 'ui-smtp-secret', from: 'sender@example.com', fromName: '测试工作室' };
 async function configure(request, value = CONFIG) { expect((await request.put('/api/mail/settings', { data: value })).ok()).toBe(true); }

@@ -1,4 +1,5 @@
-import { gardenPanorama, gardenLattice, gardenPond, initGardenUI, placeGardenPlayer } from './garden-ui.js';
+import { gardenPanorama, gardenLattice, gardenPond, gardenCenser, initGardenUI, placeGardenPlayer } from './garden-ui.js';
+import { startEntrance } from './entrance.js';
 import { mountMemoryGraph } from './memory-graph.js';
 import { createMediaUI } from './media.js';
 import { createMailUI } from './mail.js';
@@ -89,7 +90,7 @@ const state = {
   connection: 'loading', lastSync: null, bootstrapError: '', refreshing: false,
   personaId: '', conversationId: null, personaConversations: new Map(),
   messages: new Map(), loadingConversations: new Set(), loadErrors: new Map(),
-  drafts: new Map(), chatErrors: new Map(), sending: null, newConversationBusy: false,
+  drafts: new Map(), draftVersions: new Map(), chatErrors: new Map(), streamFailures: new Map(), sending: null, newConversationBusy: false,
   setupPrompts: new Set(),
   analysis: { text: '', target: '', fileName: '', result: null, resultTarget: '', busy: false, error: '' },
   knowledge: { query: '', result: null, resultQuery: '', busy: false, uploading: false, error: '', uploadError: '' },
@@ -119,20 +120,6 @@ const responseUI = createResponseUI({ request:api, redraw:() => renderPage(), to
 const mobileLayout = window.matchMedia('(max-width: 700px)');
 let layoutFrame = null;
 
-function startEntrance() {
-  const screen = $('#startup-screen');
-  if (!screen) return;
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-  const dismiss = () => screen.remove();
-  if (reducedMotion.matches) { dismiss(); return; }
-  screen.addEventListener('animationend', event => {
-    if (event.target === screen && event.animationName === 'startup-exit') dismiss();
-  });
-  reducedMotion.addEventListener('change', event => { if (event.matches) dismiss(); }, { once: true });
-  // Entrance is decorative and never waits for a network response.
-  setTimeout(dismiss, 1800);
-}
-
 function scheduleMobileLayout() {
   if (layoutFrame !== null) return;
   layoutFrame = requestAnimationFrame(() => {
@@ -159,15 +146,16 @@ mobileLayout.addEventListener('change', () => {
   scheduleMobileLayout();
 });
 
-async function api(path, method = 'GET', data) {
+async function api(path, method = 'GET', data, {signal} = {}) {
   let response;
   try {
     response = await fetch(`/api${path}`, {
-      method, credentials: 'same-origin', cache: 'no-store',
+      method, credentials: 'same-origin', cache: 'no-store', signal,
       headers: { Accept: 'application/json', ...(method === 'GET' ? {} : { 'Content-Type': 'application/json' }) },
       ...(method === 'GET' ? {} : { body: JSON.stringify(data ?? {}) })
     });
-  } catch {
+  } catch (error) {
+    if(signal?.aborted) throw error;
     state.connection = 'offline';
     updateShell();
     throw new Error('无法连接本地服务。请确认服务仍在运行，然后重试；当前输入已保留。');
@@ -198,6 +186,12 @@ function toast(message, kind = 'success') {
 function currentPersona() { return state.data?.personas.find(p => p.id === state.personaId); }
 function personaName(id) { return state.data?.personas.find(p => p.id === id)?.name || '未关联角色'; }
 function currentDraftKey() { return state.conversationId || `new:${state.personaId}`; }
+async function requestChat(path,content,onEvent,{signal}={}){
+  let transport;
+  try{transport=await import('./streaming.js');}
+  catch{return api(path,'POST',{content},{signal});} // A newer page can still chat with an older running server during upgrade.
+  return transport.requestChat(path,content,onEvent,{signal});
+}
 function acceptStateSave(result) {
   const conversation = result.conversation;
   if (conversation && !state.data.conversations.some(row => row.id === conversation.id)) state.data.conversations.unshift(conversation);
@@ -240,6 +234,7 @@ function initializeSettingsDraft() {
   const settings = state.data?.settings || {};
   state.settingsDraft = {
     baseUrl: settings.baseUrl || '', model: settings.model || '', apiKey: '', clearApiKey: false,
+    musicToolMode: settings.musicToolMode ?? 'tags', intentMode: settings.intentMode ?? 'legacy',
     memoryMessageThreshold: settings.memoryMessageThreshold ?? 20,
     memoryIntervalHours: settings.memoryIntervalHours ?? 6, memoryBudget: settings.memoryBudget ?? 300
   };
@@ -360,7 +355,22 @@ function renderMessage(message, persona) {
   const isUser = message.role === 'user';
   const sources = Array.isArray(message.sources) ? message.sources : [];
   const memories = Array.isArray(message.recalledMemories) ? message.recalledMemories : [];
-  return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time></div><div class="message-content plain-text">${e(message.content)}</div>${!isUser ? responseUI.renderMessage(message) + `<div class="message-mail-action"><button type="button" class="button small btn-fan" data-mail-action="from-reply">写成邮件</button>${button('保存记忆','remember-reply',{id:message.id,kind:'small btn-leaf'})}</div>` : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
+  return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time></div>${!isUser&&message.reasoning?`<details class="message-reasoning" data-detail="reasoning-${e(message.id)}"><summary>思考过程</summary><div class="reasoning-text plain-text">${e(message.reasoning)}</div></details>`:''}<div class="message-content plain-text">${e(message.content)}</div>${!isUser ? responseUI.renderMessage(message) + `<div class="message-mail-action"><button type="button" class="button small btn-fan" data-mail-action="from-reply">写成邮件</button>${button('保存记忆','remember-reply',{id:message.id,kind:'small btn-leaf'})}</div>` : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
+}
+function livePhase(reply){return reply.failed?'生成中断':reply.stopping?'正在停止…':reply.content?'正在输出…':({understanding:'正在理解…',searching_music:'正在查找歌曲…',searching_sources:'正在查找资料…',finalizing:'正在整理回复…'}[reply.phase]||'正在思考…');}
+function livePlaceholder(reply){return reply.failed?'回复未完成，请重新发送。':reply.reasoning?'正在组织回复…':'正在思考…';}
+function renderLiveReply(reply,persona){
+  return `${renderMessage({role:'user',content:reply.inputContent,createdAt:reply.createdAt},persona)}<article id="live-reply" class="message assistant live-reply ${reply.failed?'is-interrupted':'is-streaming'}" aria-live="off"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><span>${e(persona?.name||'助手')}</span><span class="generation-state" role="status" aria-live="polite"><span class="thinking-dot" aria-hidden="true"></span><span class="generation-label">${livePhase(reply)}</span></span></div><details class="message-reasoning" data-live-reasoning${reply.reasoningOpen?' open':''}${reply.reasoning?'':' hidden'}><summary>思考过程</summary><div class="reasoning-text plain-text">${e(reply.reasoning)}</div></details><div class="message-content plain-text live-body${reply.content?'':' is-waiting'}">${e(reply.content||livePlaceholder(reply))}</div>${reply.failed?'<p class="small muted stream-interrupted-note">这是未完成的临时内容，请重新读取会话确认是否已保存。</p>':''}</article>`;
+}
+function patchLiveReply(reply){
+  const article=$('#live-reply'),list=$('#chat-messages');if(!article||!list)return;
+  const nearBottom=list.scrollHeight-list.scrollTop-list.clientHeight<80;
+  const label=$('.generation-label',article),phase=livePhase(reply);if(label.textContent!==phase)label.textContent=phase;
+  const reasoning=$('[data-live-reasoning]',article);reasoning.hidden=!reply.reasoning;
+  const thinkingText=$('.reasoning-text',reasoning),thinkingAtBottom=thinkingText.scrollHeight-thinkingText.scrollTop-thinkingText.clientHeight<40;
+  thinkingText.textContent=reply.reasoning;if(thinkingAtBottom)thinkingText.scrollTop=thinkingText.scrollHeight;
+  const body=$('.live-body',article);body.classList.toggle('is-waiting',!reply.content);body.textContent=reply.content||livePlaceholder(reply);
+  if(nearBottom)list.scrollTop=list.scrollHeight;
 }
 function renderSetupPrompt(key) {
   if (!state.setupPrompts.has(key)) return '';
@@ -386,21 +396,21 @@ function renderChat() {
     button('历史对话', 'conversation-history', { kind: 'btn-scroll', iconName: 'book' }) +
     button(state.newConversationBusy ? '正在新建…' : '新建对话', 'new-conversation', { kind: 'primary', iconName: 'plus', busy: !persona || state.newConversationBusy }))}
     <div class="marble-balustrade-bar" aria-hidden="true"><svg viewBox="0 0 1200 22" preserveAspectRatio="none"><use href="#sym-marble-balustrade" x="0" y="-10" width="600" height="32"/><use href="#sym-marble-balustrade" x="600" y="-10" width="600" height="32"/></svg></div>
-    <div class="chat-grid"><section class="card card-begonia chat-panel" aria-label="与角色对话">${petsUI.renderCompanion(true)}
+    <div class="chat-grid"><section class="card card-begonia chat-panel" aria-label="与角色对话"><span class="scroll-dowel scroll-dowel-left" aria-hidden="true"></span><span class="scroll-dowel scroll-dowel-right" aria-hidden="true"></span>${petsUI.renderCompanion(true)}
       <div class="chat-toolbar"><div class="persona-control"><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><div class="persona-select-wrap"><label class="sr-only" for="chat-persona">选择聊天角色</label><select id="chat-persona"${disabled(!persona)}>${personaOptions(state.personaId)}${!persona ? '<option value="">请先创建角色</option>' : ''}</select><div class="persona-subtitle truncate" title="${e(title || '新对话')}">${e(title || '新对话')} · 记忆独立保存</div></div></div><span class="seal-stamp-red">当前对话</span></div>
       ${chatStateUI.renderBar()}
       <div class="garden-session"><span>回复联动：${linked.petLinked ? '宠物' : '宠物已关闭'} · ${linked.musicLinked ? '音乐' : '音乐已关闭'} · ${linked.stickerLinked ? '表情' : '表情已关闭'}</span>${button('回复设置', 'response-settings', { kind: 'small btn-leaf' })}</div>
       ${responseUI.renderSession()}
       <div id="chat-messages" class="chat-messages" tabindex="0" data-conversation="${e(key)}" role="log" aria-live="polite" aria-relevant="additions text" aria-label="聊天消息" aria-busy="${Boolean(loading || sendingHere)}">
         ${loadError ? `${errorHTML(loadError)}${button('重新读取会话', 'reload-conversation', { iconName: 'refresh', busy: loading })}` : ''}
-        ${messages.length ? messages.map(m => renderMessage(m, persona)).join('') : setupPrompt ? '' : loading ? '<div class="loading-state" role="status"><span class="spinner"></span>正在读取对话…</div>' : `<div class="chat-welcome"><div class="orbit-mark" aria-hidden="true">${icon('leaf')}</div><h2>${persona ? '从这里开始聊天' : '先创建一个角色'}</h2><div class="welcome-rule"></div>${persona ? `<span class="greeting-label">${e(persona.name)} · 开场白</span><p class="plain-text">${e(persona.greeting || '可以聊聊近况、整理想法，或向已导入的资料提问。')}</p><span class="micro muted">发送消息后才会调用模型</span>` : `<p>创建角色后即可开始对话。</p>${button('创建角色', 'create-persona', { kind: 'primary', iconName: 'plus' })}`}</div>`}
+        ${messages.length ? messages.map(m => renderMessage(m, persona)).join('') : setupPrompt || sendingHere || state.streamFailures.has(key) ? '' : loading ? '<div class="loading-state" role="status"><span class="spinner"></span>正在读取对话…</div>' : `<div class="chat-welcome"><div class="orbit-mark" aria-hidden="true">${icon('leaf')}</div><h2>${persona ? '从这里开始聊天' : '先创建一个角色'}</h2><div class="welcome-rule"></div>${persona ? `<span class="greeting-label">${e(persona.name)} · 开场白</span><p class="plain-text">${e(persona.greeting || '可以聊聊近况、整理想法，或向已导入的资料提问。')}</p><span class="micro muted">发送消息后才会调用模型</span>` : `<p>创建角色后即可开始对话。</p>${button('创建角色', 'create-persona', { kind: 'primary', iconName: 'plus' })}`}</div>`}
         ${setupPrompt}
-        ${sendingHere ? '<div class="waiting-line" role="status"><span class="spinner" aria-hidden="true"></span>正在等待模型回复…</div>' : ''}
+        ${sendingHere&&!state.sending.completed ? renderLiveReply(state.sending,persona) : !sendingHere&&state.streamFailures.has(key) ? renderLiveReply(state.streamFailures.get(key),persona) : ''}
       </div>
-      <div class="composer-wrap">${errorHTML(state.chatErrors.get(key))}<div class="composer-paperweight"><span>发送消息</span><span class="keyboard-hint">Enter 发送 · Shift + Enter 换行</span><span class="touch-hint">换行继续写，轻触发送</span></div><form id="chat-form" class="composer"><label class="sr-only" for="chat-input">发送给当前角色的消息</label><textarea id="chat-input" name="content" rows="2" maxlength="8000" placeholder="和${e(persona?.name || '伙伴')}聊聊今天的想法…"${disabled(!persona || loading)}>${e(state.drafts.get(key) || '')}</textarea><div class="composer-bottom"><span class="composer-hint">对话保存在本地，发送时调用所选模型</span><button class="button primary small" type="submit"${disabled(!persona || loading || Boolean(loadError) || Boolean(state.sending))}>${sendingHere ? '<span class="spinner" aria-hidden="true"></span>' : icon('send')}${state.sending ? '等待回复' : '发送'}</button></div></form></div>
+      <div class="composer-wrap">${errorHTML(state.chatErrors.get(key))}<div class="composer-paperweight"><span>发送消息</span><span class="keyboard-hint">Enter 发送 · Shift + Enter 换行</span><span class="touch-hint">换行继续写，轻触发送</span></div><form id="chat-form" class="composer"><label class="sr-only" for="chat-input">发送给当前角色的消息</label><textarea id="chat-input" name="content" rows="2" maxlength="8000" placeholder="和${e(persona?.name || '伙伴')}聊聊今天的想法…"${disabled(!persona || loading)}>${e(state.drafts.get(key) || '')}</textarea><div class="composer-bottom"><span class="composer-hint">对话保存在本地，发送时调用所选模型</span>${sendingHere ? `<button class="button small" type="button" data-action="stop-chat"${disabled(state.sending.stopping)}>${state.sending.stopping ? '正在停止…' : '停止生成'}</button>` : `<button class="button primary small" type="submit"${disabled(!persona || loading || Boolean(loadError) || Boolean(state.sending))}>${icon('send')}${state.sending ? '等待回复' : '发送'}</button>`}</div></form></div>
     </section><aside class="chat-aside" aria-label="当前角色与会话信息">
       <section class="card card-begonia persona-summary">${gardenLattice}<div class="eyebrow">当前角色</div><div class="persona-head-row"><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><div><h2>${e(persona?.name || '未选择角色')}</h2>${persona?.tone ? `<span class="seal-stamp-red persona-tone" title="${e(persona.tone)}">${e(persona.tone)}</span>` : ''}</div></div><p class="plain-text" title="${e(description)}">${e(description.length > 90 ? description.slice(0,90) + '…' : description)}</p>${persona ? `<div>${button('查看人设', 'edit-persona', { id: persona.id, kind: 'small btn-scroll' })}</div>` : button('创建角色','create-persona',{kind:'small'})}</section>
-      <section class="card card-begonia aside-card garden-memory"><h3><span>记忆</span><span class="seal-stamp-red">当前角色</span></h3>${gardenPond}<div class="memory-stats"><a class="stat-line" href="#memories"><span>活跃记忆</span><strong data-memory-count="active">${number(activeMemories)}</strong></a><a class="stat-line" href="#memories"><span>固定记忆</span><strong data-memory-count="pinned">${number(pinnedMemories)}</strong></a><a class="stat-line" href="#knowledge"><span>知识库文档</span><strong data-memory-count="documents">${number(state.data.documents.length)}</strong></a></div><div class="garden-memory-links"><a href="#memories">管理记忆</a><span>·</span><a href="#knowledge">查看知识库</a></div><div class="switch-demo-row"><span>场景动画</span><button type="button" class="bamboo-switch" data-garden-action="scenes" role="switch" aria-checked="true"><span class="bamboo-track"><span class="bamboo-knob"></span></span><span data-garden-scenes-label>开启</span></button></div></section>
+      <section class="card card-begonia aside-card garden-memory"><h3><span>记忆</span><span class="seal-stamp-red">当前角色</span></h3>${gardenPond}<div class="memory-stats"><a class="stat-line" href="#memories"><span>活跃记忆</span><strong data-memory-count="active">${number(activeMemories)}</strong></a><a class="stat-line" href="#memories"><span>固定记忆</span><strong data-memory-count="pinned">${number(pinnedMemories)}</strong></a><a class="stat-line" href="#knowledge"><span>知识库文档</span><strong data-memory-count="documents">${number(state.data.documents.length)}</strong></a></div><div class="garden-memory-links"><a href="#memories">管理记忆</a><span>·</span><a href="#knowledge">查看知识库</a></div>${gardenCenser}<div class="switch-demo-row"><span>场景动画</span><button type="button" class="bamboo-switch" data-garden-action="scenes" role="switch" aria-checked="true"><span class="bamboo-track"><span class="bamboo-knob"></span></span><span data-garden-scenes-label>开启</span></button></div></section>
       <section id="garden-music-slot" class="garden-music-slot" aria-label="音乐"><div class="card music-empty"><div class="music-empty-heading">${icon('play')}<div><strong>背景音乐</strong><small>${state.data.media?.settings?.musicBaseUrl ? '选一首喜欢的歌，陪你聊天' : '配置音乐服务后，可搜索和播放'}</small></div></div><button type="button" class="button small bamboo-primary" data-media-action="open-music">选择音乐</button></div></section>
     </aside></div>`;
 }
@@ -464,6 +474,7 @@ async function sendMessage() {
   if (state.sending || !state.personaId || state.loadingConversations.has(state.conversationId) || state.loadErrors.has(state.conversationId)) return;
   let key = currentDraftKey();
   const rawDraft = state.drafts.get(key) || '';
+  const draftVersion=state.draftVersions.get(key)||0;
   const content = rawDraft.trim();
   if (!content) { $('#chat-input')?.focus(); return; }
   if (!state.data.settings.model) {
@@ -474,7 +485,9 @@ async function sendMessage() {
   }
   const personaId = state.personaId;
   let conversationId = state.conversationId;
-  state.sending = { personaId, conversationId };
+  state.sending = { personaId, conversationId, inputContent:content, content:'', reasoning:'', reasoningOpen:true, phase:'thinking', controller:new AbortController(), createdAt:new Date().toISOString() };
+  const outgoing=state.sending;
+  state.streamFailures.delete(key);
   state.chatErrors.delete(key);
   renderPage({ toBottom: true });
   try {
@@ -484,6 +497,7 @@ async function sendMessage() {
       state.data.conversations.unshift(conversation);
       state.messages.set(conversationId, []);
       state.drafts.set(conversationId, state.drafts.get(key) || rawDraft);
+      state.draftVersions.set(conversationId,state.draftVersions.get(key)||0);state.draftVersions.delete(key);
       if (state.setupPrompts.delete(key)) state.setupPrompts.add(conversationId);
       state.drafts.delete(key);
       state.personaConversations.set(personaId, conversationId);
@@ -492,7 +506,16 @@ async function sendMessage() {
       state.sending.conversationId = conversationId;
       renderPage({ toBottom: true });
     }
-    const result = await api(`/conversations/${endpointId(conversationId)}/messages`, 'POST', { content });
+    outgoing.controller.signal.throwIfAborted();
+    const result = await requestChat(`/conversations/${endpointId(conversationId)}/messages`,content,event=>{
+      if(outgoing.controller.signal.aborted)return;
+      if(event.type==='status')outgoing.phase=event.phase;
+      if(event.type==='reasoning')outgoing.reasoning+=event.delta||'';
+      if(event.type==='content')outgoing.content=typeof event.content==='string'?event.content:outgoing.content+(event.delta||'');
+      if(state.page==='chat'&&state.conversationId===conversationId)patchLiveReply(outgoing);
+    },{signal:outgoing.controller.signal});
+    outgoing.controller.signal.throwIfAborted();
+    outgoing.completed=true;
     if (result.chatState) chatStateUI.receive(result.chatState);
     petsUI.react('reply', '回复来啦，陪你慢慢看。');
     const assistant = { ...result.message, sources: result.sources ?? result.message?.sources ?? [], recalledMemories: result.recalledMemories ?? result.message?.recalledMemories ?? [] };
@@ -502,14 +525,16 @@ async function sendMessage() {
     }
     state.messages.set(conversationId, messages);
     state.setupPrompts.delete(key);
-    if (state.drafts.get(key) === rawDraft) state.drafts.delete(key);
+    if (state.drafts.get(key) === rawDraft && (state.draftVersions.get(key)||0)===draftVersion) state.drafts.delete(key);
     state.chatErrors.delete(key);
     await refreshData({ silent: true, draw: false });
   } catch (error) {
-    // No optimistic messages: a failed model request leaves the draft, not a fake transcript.
-    petsUI.react('error', '先慢慢来，我们可以再试一次。');
-    state.chatErrors.set(key, error.message);
-    if (state.page !== 'chat' || currentDraftKey() !== key) toast(error.message, 'error');
+    // Partial output stays explicitly temporary; a failed request keeps the editable draft.
+    if(outgoing.content||outgoing.reasoning)state.streamFailures.set(key,{...outgoing,failed:true});
+    const message=outgoing.controller.signal.aborted?'已请求停止；输入已保留。如回复刚好完成，请重新读取会话确认。':error.message;
+    if(!outgoing.controller.signal.aborted)petsUI.react('error', '先慢慢来，我们可以再试一次。');
+    state.chatErrors.set(key, message);
+    if (state.page !== 'chat' || currentDraftKey() !== key) toast(message, 'error');
   } finally {
     state.sending = null;
     renderPage({ toBottom: state.conversationId === conversationId });
@@ -724,23 +749,50 @@ async function taskAction(id, operation) {
   finally { state.busy.delete(key); await refreshData({ silent: true }); }
 }
 
+const MODEL_SETTING_KEYS = ['baseUrl','model','apiKey','clearApiKey','musicToolMode','intentMode'];
+function modelSettingsDirty() {
+  const draft=state.settingsDraft,saved=state.data.settings;
+  return Boolean(draft && (draft.baseUrl.trim()!==saved.baseUrl || draft.model.trim()!==saved.model || draft.musicToolMode!==(saved.musicToolMode??'tags') || draft.intentMode!==(saved.intentMode??'legacy') || draft.apiKey || draft.clearApiKey));
+}
+function settingsDirtyFromDraft() {
+  return modelSettingsDirty() || ['memoryMessageThreshold','memoryIntervalHours','memoryBudget'].some(key=>Number(state.settingsDraft[key])!==state.data.settings[key]);
+}
+function modelTestLabel() {
+  if(state.testBusy)return '正在测试…';
+  if(!modelSettingsDirty())return '测试已保存的连接';
+  return state.settingsDraft.clearApiKey ? '清除密钥并测试' : '保存并测试连接';
+}
+function modelTestHint() {
+  return modelSettingsDirty() ? '点击后先保存本轮模型配置，再发送一次连接测试；记忆设置单独保存。' : '测试会发送一条请求到已保存的模型服务。';
+}
+function keyIntentHint() {
+  return state.settingsDraft.clearApiKey ? '已选择清除本机密钥，输入框中的新 Key 不会使用。若要使用新 Key，请取消勾选。' : '保存后 Key 只存放在本机，重启后自动恢复，不会发送到浏览器或提交到 Git。';
+}
+function updateSettingsActions() {
+  const test=$('#settings-model-test');
+  if(test){test.innerHTML=icon('play')+e(modelTestLabel());test.dataset.action=modelSettingsDirty()?'save-test-settings':'test-settings';}
+  const testHint=$('#settings-model-test-hint');if(testHint)testHint.textContent=modelTestHint();
+  const keyHint=$('#settings-key-hint');if(keyHint){keyHint.textContent=keyIntentHint();keyHint.classList.toggle('inline-error',state.settingsDraft.clearApiKey);}
+  const hint=$('.settings-actions > .muted');if(hint)hint.textContent=state.settingsDirty?'有尚未保存的修改；模型可在上方单独保存并测试':'配置来自本地服务';
+}
 function renderSettings() {
   initializeSettingsDraft();
   const s = state.settingsDraft;
   const apiKeySet = Boolean(state.data.settings.hasApiKey);
   return `${heading('设置', '配置模型、记忆、回复、媒体与邮件服务。', 'SETTINGS & BOUNDARIES', '<button type="button" class="button" data-guide-action="open">配置指南</button>')}${guidesUI.renderEntry()}
-    <div class="settings-grid"><form id="settings-form"><section class="card settings-card"><h2><span class="section-number">01</span>模型连接</h2><div class="field"><label for="settings-baseUrl">Base URL <span>OpenAI 兼容服务地址</span></label><input id="settings-baseUrl" type="url" name="baseUrl" required maxlength="500" value="${e(s.baseUrl)}" placeholder="例如：https://api.openai.com/v1" autocomplete="off" spellcheck="false"><small>填写服务文档指定的基础地址，通常以 /v1 结尾。也支持本机部署的兼容服务。</small></div><div class="field"><label for="settings-model">模型名称</label><input id="settings-model" name="model" maxlength="160" value="${e(s.model)}" placeholder="填写服务商提供的模型 ID" autocomplete="off" spellcheck="false"></div><div class="field"><label for="settings-apiKey">API Key <span>${apiKeySet ? '服务端已有密钥，不会下发到页面' : '服务端尚无密钥，本地模型可不需要'}</span></label><input id="settings-apiKey" type="password" name="apiKey" maxlength="2000" value="${e(s.apiKey)}" placeholder="留空保留当前密钥" autocomplete="new-password" spellcheck="false"${disabled(s.clearApiKey)}><small>界面输入的密钥仅在当前服务进程内保留，不写入长期配置。重启后可能需要重新输入。</small></div><label class="checkbox-label"><input id="settings-clearApiKey" name="clearApiKey" type="checkbox"${checked(s.clearApiKey)}>清除当前运行期密钥（保存后生效）</label>${notice('空白密钥表示保持原值。环境变量配置不由此页面修改。不要将这个单用户本地应用直接暴露到公网。', '', 'lock')}<div class="card-actions">${button(state.testBusy ? '正在测试…' : '测试已保存的连接', 'test-settings', { iconName: 'play', busy: state.testBusy || state.settingsSaving })}<span class="micro muted">不会自动测试；测试将发送一条请求到已保存的模型服务。</span></div>${state.testResult ? `<div class="${state.testResult.ok ? 'inline-success' : 'inline-error'}" role="status">${e(state.testResult.message || (state.testResult.ok ? '连接测试成功。' : '连接测试失败。'))}</div>` : ''}</section>
+    <div class="settings-grid"><form id="settings-form"><section class="card settings-card"><h2><span class="section-number">01</span>模型连接</h2><div class="field"><label for="settings-baseUrl">Base URL <span>OpenAI 兼容服务地址</span></label><input id="settings-baseUrl" type="url" name="baseUrl" required maxlength="500" value="${e(s.baseUrl)}" placeholder="例如：https://api.openai.com/v1" autocomplete="off" spellcheck="false"><small>填写服务文档指定的基础地址，通常以 /v1 结尾。也支持本机部署的兼容服务。</small></div><div class="field"><label for="settings-model">模型名称</label><input id="settings-model" name="model" maxlength="160" value="${e(s.model)}" placeholder="填写服务商提供的模型 ID" autocomplete="off" spellcheck="false"></div><div class="field"><label for="settings-intentMode">聊天理解模式</label><select id="settings-intentMode" name="intentMode"><option value="legacy"${selected(s.intentMode, 'legacy')}>兼容模式</option><option value="semantic"${selected(s.intentMode, 'semantic')}>语义模式（试用）</option></select><small>语义模式先分析意图并检索，再生成回答，每轮通常调用模型两次。可随时切回兼容模式。</small></div><div class="field"><label for="settings-musicToolMode">点歌调用方式</label><select id="settings-musicToolMode" name="musicToolMode" aria-describedby="settings-musicToolMode-hint"><option value="tags"${selected(s.musicToolMode, 'tags')}>文本标签（兼容模式）</option><option value="native"${selected(s.musicToolMode, 'native')}>原生工具调用</option></select><small id="settings-musicToolMode-hint">默认使用文本标签，保留现有服务商行为。原生模式需模型支持 tools，每次点歌最多一次检索、两次模型请求；服务错误不会自动切换重试。歌曲始终点击才播放；普通连接测试不验证工具能力。</small></div><div class="field"><label for="settings-apiKey">API Key <span>${apiKeySet ? '服务端已有密钥，不会下发到页面' : '服务端尚无密钥，本地模型可不需要'}</span></label><input id="settings-apiKey" type="password" name="apiKey" maxlength="2000" value="${e(s.apiKey)}" placeholder="留空保留当前密钥" autocomplete="new-password" spellcheck="false"${disabled(s.clearApiKey)}><small id="settings-key-hint" class="${s.clearApiKey?'inline-error':''}">${e(keyIntentHint())}</small></div><label class="checkbox-label"><input id="settings-clearApiKey" name="clearApiKey" type="checkbox"${checked(s.clearApiKey)}>清除本机模型密钥（保存后生效）</label>${notice('空白密钥表示保持原值；清除后不会再使用环境变量中的模型 Key。', '', 'lock')}<div class="card-actions">${button('保存模型配置', 'save-model-settings', { iconName: 'check', busy: state.testBusy || state.settingsSaving })}${button(modelTestLabel(), modelSettingsDirty()?'save-test-settings':'test-settings', { iconName: 'play', busy: state.testBusy || state.settingsSaving, extra:'id="settings-model-test"' })}<span id="settings-model-test-hint" class="micro muted">${e(modelTestHint())}</span></div>${state.testResult ? `<div id="settings-model-result" class="${state.testResult.ok ? 'inline-success' : 'inline-error'}" role="status">${e(state.testResult.message || (state.testResult.ok ? '连接测试成功。' : '连接测试失败。'))}</div>` : ''}</section>
       <section class="card settings-card"><h2><span class="section-number">02</span>记忆设置</h2><div class="field-row"><div class="field"><label for="settings-memoryMessageThreshold">总结消息阈值 <span>条</span></label><input id="settings-memoryMessageThreshold" type="number" name="memoryMessageThreshold" required min="2" max="200" step="1" value="${e(s.memoryMessageThreshold)}"><small>会话中未总结的新消息达到该值时触发。</small></div><div class="field"><label for="settings-memoryIntervalHours">总结时间间隔 <span>小时</span></label><input id="settings-memoryIntervalHours" type="number" name="memoryIntervalHours" required min="1" max="720" step="1" value="${e(s.memoryIntervalHours)}"><small>有新消息且距上次总结达到该间隔时触发。</small></div></div><div class="field"><label for="settings-memoryBudget">每个角色的活跃记忆预算 <span>条</span></label><input id="settings-memoryBudget" type="number" name="memoryBudget" required min="10" max="5000" step="1" value="${e(s.memoryBudget)}"><small>超过预算时优先归档低分记忆。固定或处于保护期的条目可能使数量暂时超出预算，不会强制删除。</small></div></section>
-      ${errorHTML(state.settingsError)}<div class="settings-actions"><span class="muted">${state.settingsDirty ? '有尚未保存的修改' : '配置来自本地服务'} · 连接测试只使用已保存配置</span><button type="submit" class="button primary"${disabled(state.settingsSaving || state.testBusy)}>${state.settingsSaving ? '<span class="spinner"></span>' : icon('check')}${state.settingsSaving ? '正在保存…' : '保存设置'}</button></div></form>
+      ${errorHTML(state.settingsError)}<div class="settings-actions"><span class="muted">${state.settingsDirty ? '有尚未保存的修改；模型可在上方单独保存并测试' : '配置来自本地服务'}</span><button type="submit" class="button primary"${disabled(state.settingsSaving || state.testBusy)}>${state.settingsSaving ? '<span class="spinner"></span>' : icon('check')}${state.settingsSaving ? '正在保存…' : '保存设置'}</button></div></form>
     <aside class="card settings-aside"><div class="eyebrow">YOUR DATA, YOUR CHOICE</div><h3>安心，来自清楚的边界。</h3><div class="boundary-item"><strong>${icon('lock')}留在这台设备</strong><p>角色、会话、提取后的文档、记忆与任务保存在本地 SQLite 中。本地存储不等于加密，请自行做好磁盘保护与备份。</p></div><div class="boundary-item"><strong>${icon('arrow')}何时发送到模型</strong><p>聊天、人物分析、记忆总结与 AI 任务会发送相应文本。聊天还可能携带相关知识片段和长期记忆，请只选择获准使用的内容。</p></div><div class="boundary-item"><strong>${icon('shield')}没有隐形的动作</strong><p>邮件由你填写收件人、预览并确认后才通过已配置的 SMTP 服务发送。AI 与定时任务不会自动发信。定时任务仅在本地服务运行时执行。</p></div><div class="boundary-item"><strong>${icon('leaf')}随时修正与遗忘</strong><p>模型可能误解你的意思。你可以查看记忆来源、修改、归档、恢复，或在明确确认后永久删除。</p></div></aside></div>`;
 }
-async function saveSettings() {
-  if (state.settingsSaving || state.testBusy) return;
+async function saveSettings({modelOnly=false,notify=true}={}) {
+  if (state.settingsSaving || state.testBusy) return false;
   const draft = { ...state.settingsDraft };
   const payload = {
     baseUrl: draft.baseUrl.trim(), model: draft.model.trim(), apiKey: draft.clearApiKey ? '' : draft.apiKey,
-    clearApiKey: draft.clearApiKey, memoryMessageThreshold: Number(draft.memoryMessageThreshold),
-    memoryIntervalHours: Number(draft.memoryIntervalHours), memoryBudget: Number(draft.memoryBudget)
+    musicToolMode: draft.musicToolMode, intentMode: draft.intentMode,
+    clearApiKey: draft.clearApiKey, ...(!modelOnly ? {memoryMessageThreshold: Number(draft.memoryMessageThreshold),
+    memoryIntervalHours: Number(draft.memoryIntervalHours), memoryBudget: Number(draft.memoryBudget)} : {})
   };
   state.settingsSaving = true;
   state.settingsError = '';
@@ -751,18 +803,36 @@ async function saveSettings() {
     state.testResult = null;
     // Keep edits made while saving; discard submitted secrets from frontend state after success.
     const current = state.settingsDraft;
-    const unchanged = Object.keys(draft).every(key => current[key] === draft[key]);
-    if (unchanged) { state.settingsDraft = null; state.settingsDirty = false; initializeSettingsDraft(); }
+    const keys=modelOnly?MODEL_SETTING_KEYS:Object.keys(draft);
+    const unchanged = keys.every(key => current[key] === draft[key]);
+    if (unchanged) {
+      for(const key of keys)current[key]=key==='apiKey'?'':key==='clearApiKey'?false:settings[key];
+    }
     else {
       if (current.apiKey === draft.apiKey) current.apiKey = '';
       if (current.clearApiKey === draft.clearApiKey) current.clearApiKey = false;
     }
-    toast(unchanged ? '设置已保存。不会自动发送模型测试。' : '已保存提交时的设置，之后输入的修改仍待保存。');
-  } catch (error) { state.settingsError = error.message; }
+    state.settingsDirty=settingsDirtyFromDraft();
+    if(notify)toast(unchanged ? modelOnly?'模型配置已保存。不会自动发送模型测试。':'设置已保存。不会自动发送模型测试。' : '已保存提交时的设置，之后输入的修改仍待保存。');
+    return true;
+  } catch (error) {
+    if(modelOnly)state.testResult={ok:false,message:error.message};
+    else state.settingsError = error.message;
+    return false;
+  }
   finally { state.settingsSaving = false; renderPage(); }
 }
-async function testSettings() {
+async function testSettings({saveDraft=false}={}) {
   if (state.testBusy || state.settingsSaving) return;
+  if(saveDraft){
+    if(!state.settingsDraft.baseUrl.trim()||!state.settingsDraft.model.trim()){
+      state.testResult={ok:false,message:'请填写 Base URL 和模型名称，再保存并测试连接。'};renderPage();return;
+    }
+    if(!await saveSettings({modelOnly:true,notify:false}))return;
+    if(modelSettingsDirty()){
+      state.testResult={ok:false,message:'保存期间模型配置又有修改，请再次点击保存并测试连接。'};renderPage();return;
+    }
+  }
   state.testBusy = true;
   state.testResult = null;
   renderPage();
@@ -787,7 +857,7 @@ function openQuickModelSetup() {
   openDialog('快捷配置模型', `${notice('你的聊天草稿会继续保留。保存只更新模型连接信息，不会自动测试或发送聊天内容。')}
     ${field('quick-model-baseUrl', '模型基础地址（Base URL）', `<input id="quick-model-baseUrl" name="baseUrl" type="url" required maxlength="500" value="${e(settings.baseUrl)}" placeholder="填写服务商提供的基础地址" autocomplete="off">`, '程序会自动追加 /chat/completions，不要重复填写该后缀。')}
     ${field('quick-model-name', '模型 ID', `<input id="quick-model-name" name="model" required maxlength="160" value="${e(settings.model)}" placeholder="填写服务商实际提供的模型 ID" autocomplete="off">`)}
-    ${field('quick-model-key', '模型 API Key', `<input id="quick-model-key" name="apiKey" type="password" maxlength="2000" autocomplete="new-password" placeholder="${settings.hasApiKey ? '已配置，留空保留' : '无需认证的本机服务可留空'}">`, '仅保留在服务进程内，不写入数据库；不要把密钥贴到聊天中。')}`, '保存快捷配置', { type: 'quick-model' });
+    ${field('quick-model-key', '模型 API Key', `<input id="quick-model-key" name="apiKey" type="password" maxlength="2000" autocomplete="new-password" placeholder="${settings.hasApiKey ? '已配置，留空保留' : '无需认证的本机服务可留空'}">`, '保存到本机，重启后自动恢复；不要把密钥贴到聊天中。')}`, '保存快捷配置', { type: 'quick-model' });
 }
 function openPersonaEditor(persona, fromAnalysis = false) {
   const draft = persona || (fromAnalysis ? {
@@ -1007,6 +1077,9 @@ document.addEventListener('click', async event => {
       case 'run-task': await taskAction(id, 'run'); break;
       case 'delete-task': confirmDelete('task', id); break;
       case 'test-settings': await testSettings(); break;
+      case 'save-test-settings': await testSettings({saveDraft:true}); break;
+      case 'save-model-settings': await saveSettings({modelOnly:true}); break;
+      case 'stop-chat': if(state.sending && !state.sending.stopping){state.sending.stopping=true;state.sending.controller.abort();renderPage();} break;
       case 'quick-model-setup': if (!state.sending && !state.testBusy) openQuickModelSetup(); break;
       case 'resume-setup-chat': if (!state.testBusy) await sendMessage(); break;
       default: break;
@@ -1020,18 +1093,28 @@ document.addEventListener('submit', event => {
   event.preventDefault();
   void action().catch(error => toast(error.message || '操作未能完成，请重试。', 'error'));
 });
+document.addEventListener('toggle',event=>{
+  if(!event.target.matches?.('[data-live-reasoning]'))return;
+  const reply=state.sending||state.streamFailures.get(currentDraftKey());
+  if(reply)reply.reasoningOpen=event.target.open;
+},true);
+
 document.addEventListener('input', event => {
   const target = event.target;
-  if (target.id === 'chat-input') state.drafts.set(currentDraftKey(), target.value);
+  if (target.id === 'chat-input') {
+    const key=currentDraftKey();state.drafts.set(key,target.value);state.draftVersions.set(key,(state.draftVersions.get(key)||0)+1);
+  }
   else if (target.id === 'analysis-target') state.analysis.target = target.value;
   else if (target.id === 'analysis-text') state.analysis.text = target.value;
   else if (target.id === 'knowledge-query') state.knowledge.query = target.value;
   else if (target.closest('#settings-form') && target.name) {
     state.settingsDraft[target.name] = target.type === 'checkbox' ? target.checked : target.value;
     state.settingsDirty = true;
-    const hint = $('.settings-actions > .muted');
-    if (hint) hint.textContent = '有尚未保存的修改 · 连接测试只使用已保存配置';
+    state.settingsDirty=settingsDirtyFromDraft();
+    state.testResult=null;
+    $('#settings-model-result')?.remove();
     if (target.name === 'clearApiKey') $('#settings-apiKey').disabled = target.checked;
+    updateSettingsActions();
   }
 });
 document.addEventListener('change', event => {
