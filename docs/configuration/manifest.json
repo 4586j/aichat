@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "appVersion": "1.0.0",
-  "revision": "2026-10-31.2",
+  "revision": "2026-11-01.3",
   "documents": [
     { "id": "start", "title": "首次启动与配置顺序", "keywords": ["安装", "启动", "环境变量", ".env", "SSH", "隧道", "宠物", "小窝", "摸摸", "喂点心", "轻动效", "减少动态效果", "对话状态", "情绪", "精力", "熟悉程度", "手动修改", "判断依据", "回应联动", "独立开关"], "path": "docs/configuration/start.md" },
     { "id": "model", "title": "模型连接与 API Key", "keywords": ["模型", "AI", "Base URL", "API Key", "OpenAI兼容", "连接", "401", "404", "429"], "path": "docs/configuration/model.md" },

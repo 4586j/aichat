@@ -32,7 +32,7 @@ export function scriptedModel(...replies) {
 export function fixture(t, replies = [], options = {}) {
   const store = createStore(':memory:');
   // Override inherited model configuration; every provider request uses this stub.
-  store.saveSettings({ baseUrl: 'http://model.invalid/v1', model: 'test-model',
+  store.saveSettings({ baseUrl: 'http://model.invalid/v1', model: 'test-model', intentMode: 'legacy',
     memoryMessageThreshold: 200, memoryIntervalHours: 720, memoryBudget: 300 });
   const mock = scriptedModel(...replies);
   const api = createService(store, { fetchImpl: mock.fetchImpl, apiKey: '', timeoutMs: 1000, ...options });

@@ -121,6 +121,13 @@ function protocolResponse(mode,message,finishReason='tool_calls',extraChoices=[]
 }
 
 for(const mode of modes){
+  test(`${mode.name}: validated thinking option is sent and malformed values are rejected`,async()=>{
+    const f=protocolModel(protocolResponse(mode,{content:'正文'},'stop'));
+    await f.model[mode.method]([],{thinking:{type:'disabled'}});
+    assert.deepEqual(f.calls[0].body.thinking,{type:'disabled'});
+    await assert.rejects(f.model[mode.method]([],{thinking:{type:'disabled',extra:true}}),/思考配置无效/u);
+    assert.equal(f.calls.length,1);
+  });
   test(`${mode.name}: authorized native call preserves wire shape and makes one request`,async()=>{
     const call=toolCall(),message={content:' 正文 ',reasoning_content:' 思考 ',tool_calls:[call]};
     const f=protocolModel(protocolResponse(mode,message)),events=[];

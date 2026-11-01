@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
+import { randomInt } from 'node:crypto';
 
 function streamingResponse(content,question,signal){
   const slow=question.includes('流式演示'),interrupted=question.includes('断流演示');
@@ -74,7 +75,7 @@ export async function startOfflineServer({ port = 0, dbPath = ':memory:' } = {})
   } else {
     content = '这是离线测试回复，不来自真实模型。\n\n我会参考提供的知识片段回答 [1]，并保留可追溯的来源。';
     if (instruction.includes('当前问题命中了栖忆配置指南')) content = '根据栖忆配置指南，请在对应的设置字段填写并保存，随后手动测试连接。[1]\n\n这是离线配置帮助测试回复，没有修改设置或连接外部服务。';
-    if (instruction.includes('仅可在末尾输出 <qiyi-media>')) {
+    if (instruction.includes('execution.stickerExplicit')) {
       const context=JSON.parse(request.messages[2].content.slice(request.messages[2].content.indexOf('{')));
       const candidate=context.stickerCandidates[0];
       content=context.song?'已找到歌曲，请点击卡片播放。':'这是离线测试回复。';
@@ -138,10 +139,18 @@ export async function startOfflineServer({ port = 0, dbPath = ':memory:' } = {})
         else process.env[key] = value;
       }
     }
-    if (seed) app.api.updateSettings({ model: 'offline-ui-test', baseUrl: 'http://127.0.0.1:1', memoryMessageThreshold: 20 });
+    if (seed) app.api.updateSettings({ model: 'offline-ui-test', baseUrl: 'http://127.0.0.1:1', intentMode: 'legacy', memoryMessageThreshold: 20 });
     app.api.scheduler.recover();
   };
-  await start(port, true);
+  // Chromium rejects certain low ports (for example 1720), which may be
+  // returned by the OS for port 0 on Windows. Use the high ephemeral range.
+  if (port) await start(port, true);
+  else {
+    for (let attempt=0;attempt<10;attempt++) {
+      try { await start(randomInt(49152,65536),true); break; }
+      catch(error) { if(error.code!=='EADDRINUSE' || attempt===9) throw error; }
+    }
+  }
   return {
     get app() { return app; },
     get url() { return app.url; },
