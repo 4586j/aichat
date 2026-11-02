@@ -246,7 +246,18 @@ function initializeSettingsDraft() {
     memoryIntervalHours: settings.memoryIntervalHours ?? 6, memoryBudget: settings.memoryBudget ?? 300
   };
 }
-async function refreshData({ silent = false, draw = true } = {}) {
+function isUserInteractingWithMain() {
+  if (state.sending) return true;
+  if (document.querySelector('.artifact-open-dropdown.open')) return true;
+  const selection = window.getSelection?.();
+  if (selection && selection.toString().trim().length > 0) return true;
+  const active = document.activeElement;
+  if (active && main && main.contains(active) && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName)) return true;
+  return false;
+}
+
+async function refreshData({ silent = false, draw = true, background = false } = {}) {
+  if (background && isUserInteractingWithMain()) draw = false;
   const sequence = ++refreshSequence;
   state.refreshing = true;
   updateShell();
@@ -705,7 +716,7 @@ function renderMessage(message, persona, prevMessage) {
   const sources = Array.isArray(message.sources) ? message.sources : [];
   const memories = Array.isArray(message.recalledMemories) ? message.recalledMemories : [];
   const rememberAction = localStorage.getItem('qiyi-show-remember') === 'true' ? button('保存记忆', 'remember-reply', { id: message.id, kind: 'small btn-leaf' }) : '';
-  return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time></div>${!isUser&&message.reasoning?`<details class="message-reasoning" data-detail="reasoning-${e(message.id)}"><summary>思考过程</summary><div class="reasoning-text plain-text">${e(message.reasoning)}</div></details>`:''}<div class="message-content plain-text">${isUser ? e(message.content) : formatMessageContent(message.content, userPrompt)}</div>${!isUser ? responseUI.renderMessage(message) + `<div class="message-mail-action"><button type="button" class="button small btn-fan" data-mail-action="from-reply">写成邮件</button>${rememberAction}</div>` : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
+  return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time></div>${!isUser&&message.reasoning?`<details class="message-reasoning" data-detail="reasoning-${e(message.id)}"><summary>思考过程</summary><div class="reasoning-text plain-text">${e(message.reasoning)}</div></details>`:''}<div class="message-content plain-text">${formatMessageContent(message.content, isUser ? '' : userPrompt)}</div>${!isUser ? responseUI.renderMessage(message) + `<div class="message-mail-action"><button type="button" class="button small btn-fan" data-mail-action="from-reply">写成邮件</button>${rememberAction}</div>` : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
 }
 function livePhase(reply){return reply.failed?'生成中断':reply.stopping?'正在停止…':reply.content?'正在输出…':({understanding:'正在理解…',searching_music:'正在查找歌曲…',searching_sources:'正在查找资料…',finalizing:'正在整理回复…'}[reply.phase]||'正在思考…');}
 function livePlaceholder(reply){return reply.failed?'回复未完成，请重新发送。':reply.reasoning?'正在组织回复…':'正在思考…';}
@@ -1788,7 +1799,7 @@ main.addEventListener('drop', event => {
 });
 // Only local reads are automatic. No model tests, analysis, or external requests run on load.
 setInterval(() => {
-  if (document.visibilityState === 'visible' && state.data && !state.refreshing && !dialogSaving && !state.sending && !state.newConversationBusy && !state.settingsSaving && !state.knowledge.uploading && state.busy.size === 0 && !mediaUI.isBusy() && !mailUI.isBusy() && !guidesUI.isBusy() && !petsUI.isBusy() && !chatStateUI.isBusy() && !responseUI.isBusy()) void refreshData({ silent: true });
+  if (document.visibilityState === 'visible' && state.data && !state.refreshing && !dialogSaving && !state.sending && !state.newConversationBusy && !state.settingsSaving && !state.knowledge.uploading && state.busy.size === 0 && !mediaUI.isBusy() && !mailUI.isBusy() && !guidesUI.isBusy() && !petsUI.isBusy() && !chatStateUI.isBusy() && !responseUI.isBusy()) void refreshData({ silent: true, background: true });
 }, 60_000);
 renderPage();
 void refreshData({ silent: true });
