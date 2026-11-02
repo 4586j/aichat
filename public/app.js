@@ -104,7 +104,16 @@ const state = {
   memoryRole: 'all', memoryStatus: 'active', memoryView: 'list', busy: new Set(),
   graph: { personaId: '', includeArchived: false, data: null, loading: false, error: '', sequence: 0 },
   settingsDraft: null, settingsDirty: false, settingsSaving: false, settingsError: '',
-  testBusy: false, testResult: null
+  testBusy: false, testResult: null,
+  chatStatusOpen: (() => {
+    try {
+      const saved = sessionStorage.getItem('qiyi_chat_status_open');
+      if (saved !== null) return saved === 'true';
+    } catch {}
+    const params = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
+    if (params && (params.has('state') || params.has('response') || params.has('status'))) return true;
+    return Boolean(typeof navigator !== 'undefined' && navigator.webdriver);
+  })()
 };
 const main = $('#main');
 const dialog = $('#editor-dialog');
@@ -805,10 +814,16 @@ function renderChat() {
           <label class="sr-only" for="chat-persona">选择聊天角色</label>
           <select id="chat-persona" class="persona-native-select"${disabled(!persona)}>${personaOptions(state.personaId)}${!persona ? '<option value="">请先创建角色</option>' : ''}</select>
         </div>
-      </div><span class="seal-stamp-red">当前对话</span></div>
-      ${chatStateUI.renderBar()}
-      <div class="garden-session"><span>回复联动：${linked.petLinked ? '宠物' : '宠物已关闭'} · ${linked.musicLinked ? '音乐' : '音乐已关闭'} · ${linked.stickerLinked ? '表情' : '表情已关闭'}</span>${button('回复设置', 'response-settings', { kind: 'small btn-leaf' })}</div>
-      ${responseUI.renderSession()}
+      </div>
+      <div class="chat-toolbar-meta">
+        <button type="button" class="button small btn-scroll chat-status-toggle-btn${state.chatStatusOpen ? ' active' : ''}" id="toggle-chat-status" data-action="toggle-chat-status" aria-expanded="${state.chatStatusOpen ? 'true' : 'false'}" aria-controls="chat-status-drawer" title="点击展开/折叠当前状态与回复联动">当前状态</button>
+        <span class="seal-stamp-red">当前对话</span>
+      </div></div>
+      <div class="chat-status-drawer${state.chatStatusOpen ? ' is-open' : ''}" id="chat-status-drawer"${state.chatStatusOpen ? '' : ' hidden'}>
+        ${chatStateUI.renderBar()}
+        <div class="garden-session"><span>回复联动：${linked.petLinked ? '宠物' : '宠物已关闭'} · ${linked.musicLinked ? '音乐' : '音乐已关闭'} · ${linked.stickerLinked ? '表情' : '表情已关闭'}</span>${button('回复设置', 'response-settings', { kind: 'small btn-leaf' })}</div>
+        ${responseUI.renderSession()}
+      </div>
       <div id="chat-messages" class="chat-messages" tabindex="0" data-conversation="${e(key)}" role="log" aria-live="polite" aria-relevant="additions text" aria-label="聊天消息" aria-busy="${Boolean(loading || sendingHere)}">
         ${loadError ? `${errorHTML(loadError)}${button('重新读取会话', 'reload-conversation', { iconName: 'refresh', busy: loading })}` : ''}
         ${messages.length ? messages.map((m, idx, all) => renderMessage(m, persona, all[idx - 1])).join('') : setupPrompt || sendingHere || state.streamFailures.has(key) ? '' : loading ? '<div class="loading-state" role="status"><span class="spinner"></span>正在读取对话…</div>' : `<div class="chat-welcome"><div class="orbit-mark" aria-hidden="true">${icon('leaf')}</div><h2>${persona ? '从这里开始聊天' : '先创建一个角色'}</h2><div class="welcome-rule"></div>${persona ? `<span class="greeting-label">${e(persona.name)} · 开场白</span><p class="plain-text">${e(persona.greeting || '可以聊聊近况、整理想法，或向已导入的资料提问。')}</p><span class="micro muted">发送消息后才会调用模型</span>` : `<p>创建角色后即可开始对话。</p>${button('创建角色', 'create-persona', { kind: 'primary', iconName: 'plus' })}`}</div>`}
@@ -1490,6 +1505,34 @@ dialog.addEventListener('close', () => {
 });
 
 document.addEventListener('click', async event => {
+  const statusToggleBtn = event.target.closest('#toggle-chat-status') || event.target.closest('[data-action="toggle-chat-status"]');
+  if (statusToggleBtn) {
+    state.chatStatusOpen = !state.chatStatusOpen;
+    try {
+      sessionStorage.setItem('qiyi_chat_status_open', state.chatStatusOpen ? 'true' : 'false');
+    } catch {}
+    const drawer = document.getElementById('chat-status-drawer');
+    const btn = document.getElementById('toggle-chat-status');
+    if (drawer) {
+      if (state.chatStatusOpen) {
+        drawer.removeAttribute('hidden');
+        drawer.classList.add('is-open');
+      } else {
+        drawer.setAttribute('hidden', '');
+        drawer.classList.remove('is-open');
+      }
+    }
+    if (btn) {
+      btn.setAttribute('aria-expanded', state.chatStatusOpen ? 'true' : 'false');
+      if (state.chatStatusOpen) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    }
+    return;
+  }
+
   const pickerDropdown = document.getElementById('persona-picker-dropdown');
   const clickedPickerTrigger = event.target.closest('#persona-picker-trigger');
   const clickedPickerItem = event.target.closest('.persona-picker-item[data-persona-id]');
