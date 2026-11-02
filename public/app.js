@@ -565,9 +565,10 @@ function openArtifactPreviewModal({ filename, ext, lang, code }) {
 
   let bodyContent = '';
   if (ext === 'html') {
-    bodyContent = '<iframe class="artifact-preview-frame" sandbox="allow-scripts" srcdoc="' + e(code) + '"></iframe>';
+    bodyContent = '<iframe class="artifact-preview-frame" sandbox="allow-scripts allow-modals" srcdoc="' + e(code) + '"></iframe>';
   } else if (ext === 'svg') {
-    bodyContent = '<div class="artifact-preview-svg">' + code + '</div>';
+    const svgDoc = '<!DOCTYPE html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:transparent;overflow:auto;}svg{max-width:100%;max-height:100%;}</style></head><body>' + code + '</body></html>';
+    bodyContent = '<iframe class="artifact-preview-frame" sandbox="allow-scripts allow-modals" srcdoc="' + e(svgDoc) + '"></iframe>';
   } else {
     bodyContent = '<div class="artifact-preview-code-wrap"><pre class="artifact-preview-code"><code>' + e(code) + '</code></pre></div>';
   }
@@ -1576,16 +1577,33 @@ document.addEventListener('click', async event => {
 
     if (action === 'open-tab') {
       if (!code) return;
-      if (ext === 'html') {
-        const blob = new Blob([code], { type: 'text/html; charset=utf-8' });
+      if (ext === 'html' || ext === 'svg') {
+        const rawContent = ext === 'svg'
+          ? `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>${e(filename)}</title><style>html,body{margin:0;padding:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#fff;overflow:auto;}svg{max-width:96vw;max-height:96vh;}</style></head><body>${code}</body></html>`
+          : code;
+        const shellHtml = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>${e(filename)}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #fff; }
+    iframe { border: none; width: 100%; height: 100%; display: block; }
+  </style>
+</head>
+<body>
+  <iframe sandbox="allow-scripts allow-modals" referrerpolicy="no-referrer"></iframe>
+  <script>
+    const frame = document.querySelector('iframe');
+    frame.srcdoc = ${JSON.stringify(rawContent)};
+  <\/script>
+</body>
+</html>`;
+        const blob = new Blob([shellHtml], { type: 'text/html; charset=utf-8' });
         const url = URL.createObjectURL(blob);
-        window.open(url, '_blank');
-        return;
-      }
-      if (ext === 'svg') {
-        const blob = new Blob([code], { type: 'image/svg+xml; charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        window.open(url, '_blank');
+        window.open(url, '_blank', 'noopener,noreferrer');
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
         return;
       }
       const viewerHtml = `<!DOCTYPE html>
@@ -1623,7 +1641,8 @@ document.addEventListener('click', async event => {
 </html>`;
       const blob = new Blob([viewerHtml], { type: 'text/html; charset=utf-8' });
       const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
       return;
     }
 
