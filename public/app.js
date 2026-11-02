@@ -243,7 +243,11 @@ function initializeSettingsDraft() {
     baseUrl: settings.baseUrl || '', model: settings.model || '', apiKey: '', clearApiKey: false,
     musicToolMode: settings.musicToolMode ?? 'tags', intentMode: settings.intentMode ?? 'legacy',
     memoryMessageThreshold: settings.memoryMessageThreshold ?? 20,
-    memoryIntervalHours: settings.memoryIntervalHours ?? 6, memoryBudget: settings.memoryBudget ?? 300
+    memoryIntervalHours: settings.memoryIntervalHours ?? 6, memoryBudget: settings.memoryBudget ?? 300,
+    agentMaxSteps: settings.agentMaxSteps ?? 20,
+    agentDuplicateThreshold: settings.agentDuplicateThreshold ?? 5,
+    agentFailureThreshold: settings.agentFailureThreshold ?? 5,
+    agentSecurityLevel: settings.agentSecurityLevel ?? 'standard'
   };
 }
 function isUserInteractingWithMain() {
@@ -1159,7 +1163,7 @@ function modelSettingsDirty() {
   return Boolean(draft && (draft.baseUrl.trim()!==saved.baseUrl || draft.model.trim()!==saved.model || draft.musicToolMode!==(saved.musicToolMode??'tags') || draft.intentMode!==(saved.intentMode??'legacy') || draft.apiKey || draft.clearApiKey));
 }
 function settingsDirtyFromDraft() {
-  return modelSettingsDirty() || ['memoryMessageThreshold','memoryIntervalHours','memoryBudget'].some(key=>Number(state.settingsDraft[key])!==state.data.settings[key]);
+  return modelSettingsDirty() || ['memoryMessageThreshold','memoryIntervalHours','memoryBudget','agentMaxSteps','agentDuplicateThreshold','agentFailureThreshold'].some(key=>Number(state.settingsDraft[key])!==state.data.settings[key]) || state.settingsDraft.agentSecurityLevel !== (state.data.settings.agentSecurityLevel ?? 'standard');
 }
 function modelTestLabel() {
   if(state.testBusy)return '正在测试…';
@@ -1186,6 +1190,7 @@ function renderSettings() {
   return `${heading('设置', '配置模型、记忆、回复、媒体与邮件服务。', 'SETTINGS & BOUNDARIES', '<button type="button" class="button" data-guide-action="open">配置指南</button>')}${guidesUI.renderEntry()}
     <div class="settings-grid"><form id="settings-form"><section class="card settings-card"><h2><span class="section-number">01</span>模型连接</h2><div class="field"><label for="settings-baseUrl">Base URL <span>OpenAI 兼容服务地址</span></label><input id="settings-baseUrl" type="url" name="baseUrl" required maxlength="500" value="${e(s.baseUrl)}" placeholder="例如：https://api.openai.com/v1" autocomplete="off" spellcheck="false"><small>填写服务文档指定的基础地址，通常以 /v1 结尾。也支持本机部署的兼容服务。</small></div><div class="field"><label for="settings-model">模型名称</label><input id="settings-model" name="model" maxlength="160" value="${e(s.model)}" placeholder="填写服务商提供的模型 ID" autocomplete="off" spellcheck="false"></div><div class="field"><label for="settings-intentMode">聊天理解模式</label><select id="settings-intentMode" name="intentMode"><option value="legacy"${selected(s.intentMode, 'legacy')}>兼容模式</option><option value="semantic"${selected(s.intentMode, 'semantic')}>语义模式（试用）</option></select><small>语义模式先分析意图并检索，再生成回答，每轮通常调用模型两次。可随时切回兼容模式。</small></div><div class="field"><label for="settings-musicToolMode">点歌调用方式</label><select id="settings-musicToolMode" name="musicToolMode" aria-describedby="settings-musicToolMode-hint"><option value="tags"${selected(s.musicToolMode, 'tags')}>文本标签（兼容模式）</option><option value="native"${selected(s.musicToolMode, 'native')}>原生工具调用</option></select><small id="settings-musicToolMode-hint">默认使用文本标签，保留现有服务商行为。原生模式需模型支持 tools，每次点歌最多一次检索、两次模型请求；服务错误不会自动切换重试。歌曲始终点击才播放；普通连接测试不验证工具能力。</small></div><div class="field"><label for="settings-apiKey">API Key <span>${apiKeySet ? '服务端已有密钥，不会下发到页面' : '服务端尚无密钥，本地模型可不需要'}</span></label><input id="settings-apiKey" type="password" name="apiKey" maxlength="2000" value="${e(s.apiKey)}" placeholder="留空保留当前密钥" autocomplete="new-password" spellcheck="false"${disabled(s.clearApiKey)}><small id="settings-key-hint" class="${s.clearApiKey?'inline-error':''}">${e(keyIntentHint())}</small></div><label class="checkbox-label"><input id="settings-clearApiKey" name="clearApiKey" type="checkbox"${checked(s.clearApiKey)}>清除本机模型密钥（保存后生效）</label>${notice('空白密钥表示保持原值；清除后不会再使用环境变量中的模型 Key。', '', 'lock')}<div class="card-actions">${button('保存模型配置', 'save-model-settings', { iconName: 'check', busy: state.testBusy || state.settingsSaving })}${button(modelTestLabel(), modelSettingsDirty()?'save-test-settings':'test-settings', { iconName: 'play', busy: state.testBusy || state.settingsSaving, extra:'id="settings-model-test"' })}<span id="settings-model-test-hint" class="micro muted">${e(modelTestHint())}</span></div>${state.testResult ? `<div id="settings-model-result" class="${state.testResult.ok ? 'inline-success' : 'inline-error'}" role="status">${e(state.testResult.message || (state.testResult.ok ? '连接测试成功。' : '连接测试失败。'))}</div>` : ''}</section>
       <section class="card settings-card"><h2><span class="section-number">02</span>记忆设置</h2><div class="field-row"><div class="field"><label for="settings-memoryMessageThreshold">总结消息阈值 <span>条</span></label><input id="settings-memoryMessageThreshold" type="number" name="memoryMessageThreshold" required min="2" max="200" step="1" value="${e(s.memoryMessageThreshold)}"><small>会话中未总结的新消息达到该值时触发。</small></div><div class="field"><label for="settings-memoryIntervalHours">总结时间间隔 <span>小时</span></label><input id="settings-memoryIntervalHours" type="number" name="memoryIntervalHours" required min="1" max="720" step="1" value="${e(s.memoryIntervalHours)}"><small>有新消息且距上次总结达到该间隔时触发。</small></div></div><div class="field"><label for="settings-memoryBudget">每个角色的活跃记忆预算 <span>条</span></label><input id="settings-memoryBudget" type="number" name="memoryBudget" required min="10" max="5000" step="1" value="${e(s.memoryBudget)}"><small>超过预算时优先归档低分记忆。固定或处于保护期的条目可能使数量暂时超出预算，不会强制删除。</small></div></section>
+      <section class="card settings-card"><h2><span class="section-number">03</span>Agent 推理与指令安全</h2><div class="field-row"><div class="field"><label for="settings-agentMaxSteps">最大推理思考轮数 <span>(0-100 轮)</span></label><input id="settings-agentMaxSteps" type="number" name="agentMaxSteps" required min="0" max="100" step="1" value="${e(s.agentMaxSteps ?? 20)}"><small>设置为 0 则关闭多轮循环推演；1～100 允许复杂任务深入思考与多步工具调用。</small></div><div class="field"><label for="settings-agentSecurityLevel">指令安全检测级别</label><select id="settings-agentSecurityLevel" name="agentSecurityLevel"><option value="standard"${selected(s.agentSecurityLevel, 'standard')}>标准模式（敏感/破坏性操作需同意）</option><option value="strict"${selected(s.agentSecurityLevel, 'strict')}>严格模式（所有工具调用均需确认）</option><option value="loose"${selected(s.agentSecurityLevel, 'loose')}>宽松模式（仅高危系统指令需确认）</option></select><small>写文件、删文档、执行终端命令等指令在实际运行前需人工审批确认。</small></div></div><div class="field-row"><div class="field"><label for="settings-agentDuplicateThreshold">连续调用熔断阈值 <span>次</span></label><input id="settings-agentDuplicateThreshold" type="number" name="agentDuplicateThreshold" required min="1" max="20" step="1" value="${e(s.agentDuplicateThreshold ?? 5)}"><small>检测到连续 5 次执行相同参数工具时触发熔断，防止陷入逻辑死循环。</small></div><div class="field"><label for="settings-agentFailureThreshold">连续失败阻断阈值 <span>次</span></label><input id="settings-agentFailureThreshold" type="number" name="agentFailureThreshold" required min="1" max="20" step="1" value="${e(s.agentFailureThreshold ?? 5)}"><small>工具调用连续异常 5 次时阻断重试，强制总结回答避免资源消耗。</small></div></div></section>
       ${errorHTML(state.settingsError)}<div class="settings-actions"><span class="muted">${state.settingsDirty ? '有尚未保存的修改；模型可在上方单独保存并测试' : '配置来自本地服务'}</span><button type="submit" class="button primary"${disabled(state.settingsSaving || state.testBusy)}>${state.settingsSaving ? '<span class="spinner"></span>' : icon('check')}${state.settingsSaving ? '正在保存…' : '保存设置'}</button></div></form>
     <aside class="card settings-aside"><div class="eyebrow">YOUR DATA, YOUR CHOICE</div><h3>安心，来自清楚的边界。</h3><div class="boundary-item"><strong>${icon('lock')}留在这台设备</strong><p>角色、会话、提取后的文档、记忆与任务保存在本地 SQLite 中。本地存储不等于加密，请自行做好磁盘保护与备份。</p></div><div class="boundary-item"><strong>${icon('arrow')}何时发送到模型</strong><p>聊天、人物分析、记忆总结与 AI 任务会发送相应文本。聊天还可能携带相关知识片段和长期记忆，请只选择获准使用的内容。</p></div><div class="boundary-item"><strong>${icon('shield')}没有隐形的动作</strong><p>邮件由你填写收件人、预览并确认后才通过已配置的 SMTP 服务发送。AI 与定时任务不会自动发信。定时任务仅在本地服务运行时执行。</p></div><div class="boundary-item"><strong>${icon('leaf')}随时修正与遗忘</strong><p>模型可能误解你的意思。你可以查看记忆来源、修改、归档、恢复，或在明确确认后永久删除。</p></div></aside></div>`;
 }
@@ -1195,8 +1200,15 @@ async function saveSettings({modelOnly=false,notify=true}={}) {
   const payload = {
     baseUrl: draft.baseUrl.trim(), model: draft.model.trim(), apiKey: draft.clearApiKey ? '' : draft.apiKey,
     musicToolMode: draft.musicToolMode, intentMode: draft.intentMode,
-    clearApiKey: draft.clearApiKey, ...(!modelOnly ? {memoryMessageThreshold: Number(draft.memoryMessageThreshold),
-    memoryIntervalHours: Number(draft.memoryIntervalHours), memoryBudget: Number(draft.memoryBudget)} : {})
+    clearApiKey: draft.clearApiKey, ...(!modelOnly ? {
+      memoryMessageThreshold: Number(draft.memoryMessageThreshold),
+      memoryIntervalHours: Number(draft.memoryIntervalHours),
+      memoryBudget: Number(draft.memoryBudget),
+      agentMaxSteps: Number(draft.agentMaxSteps),
+      agentDuplicateThreshold: Number(draft.agentDuplicateThreshold),
+      agentFailureThreshold: Number(draft.agentFailureThreshold),
+      agentSecurityLevel: draft.agentSecurityLevel
+    } : {})
   };
   state.settingsSaving = true;
   state.settingsError = '';

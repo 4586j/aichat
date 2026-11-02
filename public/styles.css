@@ -349,6 +349,20 @@ dialog::backdrop { background: #25372c65; backdrop-filter: blur(4px); }
 .skip-link:focus { top: 12px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .noscript { position: fixed; top: 20px; left: 30%; padding: 20px; background: white; color: var(--danger); z-index: 99; }
+.agent-step-timeline { margin: 10px 0; border: 1px solid #dce4d2; border-radius: 10px; background: rgba(255, 255, 255, 0.6); overflow: hidden; }
+.agent-step-accordion { padding: 8px 12px; border-bottom: 1px solid var(--line-soft); }
+.agent-step-accordion:last-child { border-bottom: none; }
+.agent-step-accordion > summary { cursor: pointer; font-size: 11px; font-weight: 500; color: var(--green); display: flex; align-items: center; gap: 8px; user-select: none; }
+.agent-step-badge { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 4px; background: rgba(46, 125, 50, 0.12); color: #2e7d32; font-size: 10px; font-weight: 600; }
+.agent-step-body { padding: 8px 0 4px; font-size: 12px; line-height: 1.6; }
+.agent-step-thought { margin-bottom: 6px; color: var(--ink-soft); }
+.agent-step-tool { padding: 6px 10px; border-radius: 6px; background: #1c2720; color: #e4ebd9; font-family: ui-monospace, monospace; font-size: 11px; overflow-x: auto; white-space: pre-wrap; }
+.agent-approval-card { margin: 12px 0; padding: 14px 16px; border-radius: 12px; border: 1px solid #e0a353; background: #fffdf7; box-shadow: 0 4px 16px rgba(180, 110, 40, 0.12); }
+.agent-approval-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.agent-approval-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #a05310; }
+.agent-approval-explanation { font-size: 13px; line-height: 1.6; color: var(--ink); margin-bottom: 8px; }
+.agent-approval-args { margin: 8px 0; padding: 8px 12px; border-radius: 6px; background: #262421; color: #fdf8eb; font-family: ui-monospace, monospace; font-size: 11px; overflow-x: auto; white-space: pre-wrap; }
+.agent-approval-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 @media (min-width: 1600px) { #main { padding-top: 45px; } .chat-grid { grid-template-columns: minmax(0, 1fr) 295px; gap: 27px; } .chat-panel { height: calc(100vh - 297px); } }
 @media (max-width: 1200px) { .app-shell { grid-template-columns: 194px minmax(0, 1fr); } .sidebar { padding: 29px 16px 20px; } #main { padding: 27px 27px 18px; } .topbar { padding: 0 27px; } .app-footer { padding-left: 27px; padding-right: 27px; } .chat-grid { grid-template-columns: minmax(0, 1fr) 225px; gap: 16px; } .chat-aside .card { padding: 17px; } .settings-grid { grid-template-columns: minmax(0, 1fr) 235px; gap: 18px; } .chat-toolbar-note { display: none; } .heading-actions { flex-wrap: wrap; justify-content: flex-end; } .studio-grid { grid-template-columns: minmax(230px, .9fr) minmax(0, 1.2fr); gap: 18px; } }
 @media (max-width: 1020px) { .app-shell { grid-template-columns: 80px minmax(0, 1fr); } .sidebar { padding: 25px 13px; align-items: center; } .brand { padding: 0; } .brand > span:last-child, .sidebar-caption, .nav-label, .nav-number, .local-note, .connection-model { display: none; } #navigation { width: 100%; margin-top: 42px; gap: 12px; } .nav-item { justify-content: center; padding: 12px; } .sidebar-bottom { padding: 0; width: 100%; } .connection-status { text-align: center; font-size: 8px; } .status-line { flex-direction: column; gap: 7px; } .chat-grid { grid-template-columns: minmax(0, 1fr) 220px; } .two-column { grid-template-columns: minmax(0, 1fr) minmax(250px, .8fr); gap: 17px; } }
