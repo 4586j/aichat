@@ -68,7 +68,13 @@ test('HTTP serves bootstrap and static assets with defensive headers', async t =
     const asset = await request(app, path);
     assert.equal(asset.status, 200, path);
     assert.ok(asset.headers['content-type'].startsWith(type), path);
+    assert.ok(asset.headers.etag, 'static asset should provide ETag');
+    assert.equal(asset.headers['cache-control'], 'no-cache');
+    const cached = await request(app, path, { headers: { 'if-none-match': asset.headers.etag } });
+    assert.equal(cached.status, 304, 'ETag match returns 304');
+    assert.equal(cached.text, '');
   }
+  assert.equal(app.server.requestTimeout, 120000);
   assert.equal(head.headers['content-length'], page.headers['content-length']);
   assertHttpError(await request(app, '/server.mjs'), 404);
   assertHttpError(await request(app, '/api/does-not-exist'), 404);

@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve, join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -238,8 +238,21 @@ export async function startServer({ port = 4317, dbPath = join(ROOT, 'data', 'ag
       }
       const asset = STATIC.get(url.pathname);
       if (!asset || !['GET', 'HEAD'].includes(request.method)) throw new AppError('页面不存在。', 404);
-      const contents = await readFile(join(ROOT, 'public', asset[0]));
-      if (url.pathname.startsWith('/assets/pets/')) response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      const filePath = join(ROOT, 'public', asset[0]);
+      const fileStat = await stat(filePath);
+      const etag = `W/"${fileStat.size}-${Math.floor(fileStat.mtimeMs)}"`;
+      if (url.pathname.startsWith('/assets/pets/')) {
+        response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      } else {
+        response.setHeader('Cache-Control', 'no-cache');
+        response.setHeader('ETag', etag);
+      }
+      if (request.headers['if-none-match'] === etag) {
+        response.writeHead(304);
+        response.end();
+        return;
+      }
+      const contents = await readFile(filePath);
       response.writeHead(200, { 'Content-Type': asset[1], 'Content-Length': contents.length });
       response.end(request.method === 'HEAD' ? undefined : contents);
     } catch (error) {
@@ -251,7 +264,7 @@ export async function startServer({ port = 4317, dbPath = join(ROOT, 'data', 'ag
       return json(500, { error: '本地服务处理失败，请检查终端中的错误类型。' });
     }
   });
-  server.requestTimeout = 30000;
+  server.requestTimeout = 120000;
   server.headersTimeout = 15000;
   await new Promise((resolveListen, reject) => {
     server.once('error', reject);
