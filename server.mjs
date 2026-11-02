@@ -238,6 +238,27 @@ export async function startServer({ port = 4317, dbPath = join(ROOT, 'data', 'ag
           }
           return;
         }
+        if(method==='POST'&&url.pathname==='/api/agent/run'&&request.headers.accept?.includes('text/event-stream')){
+          const controller=new AbortController();
+          const abort=()=>controller.abort();response.once('close',abort);
+          response.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','X-Accel-Buffering':'no'});
+          response.flushHeaders();
+          const emit=async(data)=>{
+            controller.signal.throwIfAborted();
+            const type=data.type||'message';
+            if(!response.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`))await once(response,'drain',{signal:controller.signal});
+          };
+          const heartbeat=setInterval(()=>{if(!response.destroyed&&!response.writableNeedDrain)response.write(': keepalive\n\n');},15000);
+          try{
+            const result=await api.runAgentTask({...input,stream:{emit},signal:controller.signal});
+            await emit({type:'done',...result});
+          }catch(error){
+            if(!controller.signal.aborted)await emit({type:'error',message:error instanceof AppError?error.message:'Agent 任务执行失败。',status:error instanceof AppError?error.status:500});
+          }finally{
+            clearInterval(heartbeat);response.removeListener('close',abort);controller.abort();response.end();
+          }
+          return;
+        }
         return json(200, await route(api, method, url.pathname, input, url.searchParams));
       }
       const asset = STATIC.get(url.pathname);

@@ -233,7 +233,7 @@ test('file SQLite persists application state across server restarts, never API k
 });
 
 test('HTTP exposes tool registry and pending approvals routes', async t => {
-  const { app } = await localApp(t);
+  const { app } = await localApp(t, ['答案是 30', '答案是 30']);
   const toolsRes = await request(app, '/api/tools');
   assert.equal(toolsRes.status, 200);
   assert.ok(Array.isArray(toolsRes.data.tools));
@@ -248,4 +248,28 @@ test('HTTP exposes tool registry and pending approvals routes', async t => {
     json: { ticketId: 'missing-token', approved: true }
   });
   assertHttpError(approveFail, 404);
+
+  // Test /api/agent/run JSON endpoint
+  const agentJsonRes = await request(app, '/api/agent/run', {
+    method: 'POST',
+    json: {
+      messages: [{ role: 'user', content: 'What is 10 + 20?' }],
+      maxSteps: 0
+    }
+  });
+  assert.equal(agentJsonRes.status, 200);
+  assert.ok(agentJsonRes.data.content);
+
+  // Test /api/agent/run SSE stream endpoint
+  const agentSseRes = await request(app, '/api/agent/run', {
+    method: 'POST',
+    headers: { Accept: 'text/event-stream' },
+    json: {
+      messages: [{ role: 'user', content: 'What is 10 + 20?' }],
+      maxSteps: 0
+    }
+  });
+  assert.equal(agentSseRes.status, 200);
+  assert.ok(agentSseRes.headers['content-type'].includes('text/event-stream'));
+  assert.ok(agentSseRes.text.includes('event: done'));
 });
