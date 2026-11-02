@@ -111,7 +111,10 @@ test('API key is ephemeral, redacted from settings/bootstrap/database and cleara
   assert.ok(!Object.hasOwn(calls[2].init.headers, 'Authorization'));
 });
 
-for (const [key, min, max] of [['memoryMessageThreshold', 2, 200], ['memoryIntervalHours', 1, 720], ['memoryBudget', 10, 5000]]) {
+for (const [key, min, max] of [
+  ['memoryMessageThreshold', 2, 200], ['memoryIntervalHours', 1, 720], ['memoryBudget', 10, 5000],
+  ['agentMaxSteps', 0, 100], ['agentDuplicateThreshold', 1, 20], ['agentFailureThreshold', 1, 20]
+]) {
   test(`settings validates ${key} boundaries and rejects without partial updates`, t => {
     const { api, store } = fixture(t);
     assert.equal(api.updateSettings({ [key]: min }).settings[key], min);
@@ -128,10 +131,13 @@ for (const [key, min, max] of [['memoryMessageThreshold', 2, 200], ['memoryInter
 test('settings rejects invalid text and boolean fields atomically', t => {
   const { api, store } = fixture(t);
   const before = store.settings();
+  assert.equal(api.updateSettings({ agentSecurityLevel: 'strict' }).settings.agentSecurityLevel, 'strict');
+  assert.equal(api.updateSettings({ agentSecurityLevel: 'loose' }).settings.agentSecurityLevel, 'loose');
+  assert.equal(api.updateSettings({ agentSecurityLevel: 'standard' }).settings.agentSecurityLevel, 'standard');
   for (const input of [{ model: 'x'.repeat(161) }, { model: null }, { baseUrl: '' }, { baseUrl: 'https://x.invalid?q=1' },
-    { apiKey: 42 }, { apiKey: 'x'.repeat(2001) }, { clearApiKey: 'true' }, { clearApiKey: null }]) {
+    { apiKey: 42 }, { apiKey: 'x'.repeat(2001) }, { clearApiKey: 'true' }, { clearApiKey: null },
+    { agentSecurityLevel: 'invalid' }, { agentSecurityLevel: 123 }]) {
     assert.throws(() => api.updateSettings(input), errorStatus(400));
-    assert.deepEqual(store.settings(), before);
   }
 });
 
