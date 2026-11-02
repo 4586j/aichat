@@ -9,13 +9,16 @@
 .response-song-feedback { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 15px; font-size: 11px; color: #7a896f; }
 .response-song-feedback button, .response-session button { background: none; border: 0; padding: 4px 0; color: #56764c; font-size: 11px; text-decoration: underline; text-underline-offset: 4px; }
 .response-song-feedback button:hover, .response-session button:hover { color: #254e3b; }
-.response-basis { font-size: 11px; color: #7a896f; margin: 14px 0; }
-.response-basis summary { cursor: pointer; color: #69815c; }
-.response-basis p { line-height: 1.9; }
-.response-basis > div { border-left: 2px solid #d0dcc4; padding-left: 12px; margin: 15px 0; }
-.response-basis strong { font-weight: 500; display: block; color: #56704c; }
-.response-basis small { display: block; font-size: 10px; margin: 5px 0; }
-.response-basis blockquote { margin: 8px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.response-basis { font-size: 11px; color: #7a896f; margin: 8px 0 2px; }
+.response-basis summary { cursor: pointer; color: #69815c; display: inline-flex; align-items: center; gap: 6px; font-size: 10px; padding: 2px 9px; background: rgba(105, 129, 92, 0.08); border: 1px solid rgba(105, 129, 92, 0.16); border-radius: 12px; width: fit-content; transition: background 0.15s ease, color 0.15s ease; user-select: none; }
+.response-basis summary:hover { background: rgba(105, 129, 92, 0.16); color: #3b5434; }
+.response-basis[open] { background: rgba(240, 244, 233, 0.65); border: 1px dashed #cedcc0; border-radius: 9px; padding: 10px 14px; margin-top: 8px; }
+.response-basis[open] summary { background: transparent; border: 0; padding: 0; margin-bottom: 6px; font-weight: 500; }
+.response-basis p { line-height: 1.8; margin: 4px 0 8px; font-size: 11px; }
+.response-basis > div { border-left: 2px solid #b8cbab; padding-left: 10px; margin: 10px 0; }
+.response-basis strong { font-weight: 500; display: block; color: #435e3b; font-size: 11px; }
+.response-basis small { display: block; font-size: 10px; color: #85967b; margin: 3px 0 4px; }
+.response-basis blockquote { margin: 6px 0; font-size: 11px; color: #516949; overflow-wrap: anywhere; white-space: pre-wrap; }
 .response-session { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 7px 15px; padding: 8px 18px; border-bottom: 1px solid #e0e6d8; background: #f5f7ee; font-size: 10px; color: #7a896f; }
 @media (max-width: 700px) {
   .response-settings { padding: 18px; }

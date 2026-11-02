@@ -108,6 +108,12 @@ async function route(api, method, pathname, input, query) {
   if (method === 'GET' && pathname === '/api/music/status') return api.media.music.status();
   if (method === 'GET' && pathname === '/api/music/search') return api.media.music.search(query.get('q') || '', query.get('source') || api.media.settings().musicSource);
   if (method === 'GET' && pathname === '/api/music/song') return { song:api.media.music.get(query.get('id')) };
+  if (method === 'GET' && pathname === '/api/music/cache') return api.media.music.getCacheStats();
+  if (method === 'POST' && pathname === '/api/music/cache') {
+    if (!input?.id || typeof input.id !== 'string') throw new AppError('歌曲标识不能为空。');
+    return api.media.music.cacheSong(input.id, { quality: input.quality });
+  }
+  if (method === 'DELETE' && pathname === '/api/music/cache') return api.media.music.clearCache(query.get('id') || input?.id);
   if (method === 'GET' && pathname === '/api/graph') {
     const archived = query.get('includeArchived') ?? 'false';
     if (!['true', 'false'].includes(archived)) throw new AppError('归档筛选必须为 true 或 false。');
@@ -193,7 +199,8 @@ export async function startServer({ port = 4317, dbPath = join(ROOT, 'data', 'ag
         try {
           const upstream=await api.media.music.resource(url.searchParams.get('id'),url.pathname.endsWith('/cover'),range,controller.signal);
           const headers={};
-          for(const key of ['content-type','content-length','content-range','accept-ranges'])if(upstream.headers.has(key))headers[key]=upstream.headers.get(key);
+          for(const key of ['content-type','content-length','content-range','accept-ranges','x-cache'])if(upstream.headers.has(key))headers[key]=upstream.headers.get(key);
+          if(url.pathname==='/api/music/stream')headers['cache-control']='private, max-age=3600';
           if(upstream.status===416){await upstream.body?.cancel();response.writeHead(416,headers);return response.end();}
           response.writeHead(upstream.status,headers);
           if(request.method==='HEAD'||!upstream.body){await upstream.body?.cancel();return response.end();}

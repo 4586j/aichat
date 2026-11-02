@@ -49,7 +49,14 @@ const ICON_PATHS = {
   spark: '<path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z"/>',
   archive: '<rect x="3" y="3" width="18" height="5" rx="1"/><path d="M5 8v13h14V8M9 12h6"/>',
   play: '<path d="m8 4 12 8-12 8V4Z"/>',
-  shield: '<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/>'
+  shield: '<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/>',
+  code: '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
+  copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+  file: '<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  external: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
+  eye: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
+  share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>'
 };
 function icon(name) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ICON_PATHS.leaf}</svg>`;
@@ -250,6 +257,10 @@ async function refreshData({ silent = false, draw = true } = {}) {
     }
     if (sequence !== refreshSequence) return false;
     state.data = data;
+    for (const conversation of data.conversations) {
+      const recovered = localStorage.getItem('active_flight:' + conversation.id);
+      if (recovered !== null && !state.drafts.has(conversation.id)) state.drafts.set(conversation.id, recovered);
+    }
     mediaUI.sync(data.media);
     mailUI.sync(data.mail);
     guidesUI.sync(data.guides, Boolean(data.settings.model));
@@ -258,10 +269,46 @@ async function refreshData({ silent = false, draw = true } = {}) {
     state.bootstrapError = '';
     state.lastSync = new Date().toISOString();
     if (!data.personas.some(p => p.id === state.personaId)) {
-      state.personaId = (data.personas.find(p => p.name === '望舒') || data.personas[0])?.id || '';
-      state.conversationId = null;
+    let savedPersona = '';
+      try { savedPersona = localStorage.getItem('qiyi-active-persona') || ''; } catch {}
+      if (savedPersona && data.personas.some(p => p.id === savedPersona)) {
+        state.personaId = savedPersona;
+      } else {
+        state.personaId = (data.personas.find(p => p.name === '望舒') || data.personas[0])?.id || '';
+      }
     }
-    if (state.conversationId && !data.conversations.some(c => c.id === state.conversationId)) state.conversationId = null;
+    let candidate = state.conversationId;
+    if (!candidate || !data.conversations.some(c => c.id === candidate && c.personaId === state.personaId)) {
+      let savedConv = null;
+      try {
+        savedConv = localStorage.getItem('qiyi-persona-conversation:' + state.personaId) ||
+          (data.conversations.some(c => c.id === localStorage.getItem('qiyi-active-conversation') && c.personaId === state.personaId) ? localStorage.getItem('qiyi-active-conversation') : null);
+      } catch {}
+      if (!savedConv) savedConv = state.personaConversations.get(state.personaId);
+      if (savedConv && data.conversations.some(c => c.id === savedConv && c.personaId === state.personaId)) {
+        candidate = savedConv;
+      } else {
+        const history = data.conversations.filter(c => c.personaId === state.personaId);
+        candidate = history.length > 0 ? history[0].id : null;
+      }
+    }
+    state.conversationId = candidate;
+    if (candidate) {
+      state.personaConversations.set(state.personaId, candidate);
+      try {
+        localStorage.setItem('qiyi-active-persona', state.personaId);
+        localStorage.setItem('qiyi-active-conversation', candidate);
+        localStorage.setItem('qiyi-persona-conversation:' + state.personaId, candidate);
+      } catch {}
+      if (!state.messages.has(candidate) && (!state.sending || state.sending.conversationId !== candidate)) {
+        await loadConversation(candidate);
+      }
+    } else {
+      try {
+        localStorage.setItem('qiyi-active-persona', state.personaId);
+        localStorage.removeItem('qiyi-active-conversation');
+      } catch {}
+    }
     if (state.memoryRole !== 'all' && !data.personas.some(p => p.id === state.memoryRole)) state.memoryRole = 'all';
     if (!state.settingsDirty && !state.settingsSaving) state.settingsDraft = null;
     initializeSettingsDraft();
@@ -337,6 +384,7 @@ function navigate(page) {
   if (!Object.hasOwn(PAGES, page)) page = 'chat';
   state.page = page;
   renderPage();
+  if (page === 'chat' && state.conversationId && !state.messages.has(state.conversationId)) void loadConversation(state.conversationId);
   if (page === 'memories' && state.memoryView === 'graph') void loadGraph();
   main.focus({ preventScroll: true });
   window.scrollTo({ top: 0, behavior: 'instant' });
@@ -351,16 +399,317 @@ function sourceItems(sources = []) {
 function recalledItems(memories = []) {
   return (Array.isArray(memories) ? memories : []).map(memory => `<div class="evidence-item"><strong>${e(CATEGORIES[memory.category] || memory.category || '长期记忆')}</strong><p class="plain-text">${e(memory.content)}</p>${memory.source ? `<p class="plain-text">来源：${e(text(memory.source))}</p>` : ''}</div>`).join('');
 }
-function renderMessage(message, persona) {
+window.formatMessageContent = formatMessageContent;
+const ARTIFACT_EXT_MAP = {
+  python: 'py', py: 'py',
+  javascript: 'js', js: 'js',
+  typescript: 'ts', ts: 'ts',
+  html: 'html', htm: 'html',
+  css: 'css',
+  json: 'json',
+  markdown: 'md', md: 'md',
+  shell: 'sh', sh: 'sh', bash: 'sh', zsh: 'sh',
+  sql: 'sql',
+  c: 'c', cpp: 'cpp', 'c++': 'cpp', h: 'h', hpp: 'hpp',
+  java: 'java',
+  go: 'go',
+  rust: 'rs', rs: 'rs',
+  yaml: 'yaml', yml: 'yaml',
+  xml: 'xml',
+  svg: 'svg',
+  txt: 'txt', text: 'txt'
+};
+
+const ARTIFACT_MIME_MAP = {
+  py: 'text/x-python; charset=utf-8',
+  js: 'text/javascript; charset=utf-8',
+  ts: 'text/typescript; charset=utf-8',
+  html: 'text/html; charset=utf-8',
+  css: 'text/css; charset=utf-8',
+  json: 'application/json; charset=utf-8',
+  md: 'text/markdown; charset=utf-8',
+  sh: 'text/x-sh; charset=utf-8',
+  sql: 'text/x-sql; charset=utf-8',
+  c: 'text/x-c; charset=utf-8',
+  cpp: 'text/x-c++src; charset=utf-8',
+  java: 'text/x-java-source; charset=utf-8',
+  go: 'text/x-go; charset=utf-8',
+  rs: 'text/rust; charset=utf-8',
+  yaml: 'text/yaml; charset=utf-8',
+  xml: 'application/xml; charset=utf-8',
+  svg: 'image/svg+xml; charset=utf-8',
+  txt: 'text/plain; charset=utf-8'
+};
+
+function isExportableArtifact(info, code, precedingProse, userPrompt) {
+  const trimmedCode = (code || '').trim();
+  const trimmedInfo = (info || '').trim();
+  const contextText = `${userPrompt || ''} ${precedingProse || ''}`.trim();
+  
+  if (trimmedInfo && (/[:.=]/i.test(trimmedInfo) || /\s+[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9_-]+/i.test(trimmedInfo))) {
+    return true;
+  }
+
+  const lines = trimmedCode ? trimmedCode.split('\n') : [];
+  for (const line of lines.slice(0, 3)) {
+    if (/(?:#|\/\/|\/\*|<!--)\s*(?:filename:?\s*|file:?\s*)?[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9_-]+/i.test(line)) {
+      return true;
+    }
+  }
+
+  const hasUserFileRequest = /生成.*文件|创建.*文件|保存.*文件|保存为|导出|另存为|写入.*文件|下载.*文件|输出.*文件|写到.*文件/i.test(contextText) ||
+    /`?[a-zA-Z0-9_\-]+\.(?:py|js|ts|html|css|json|md|sh|sql|cpp|c|java|go|rs|yaml|yml|xml|svg|txt)`?/i.test(contextText);
+
+  if (hasUserFileRequest) {
+    return true;
+  }
+
+  if (/<!DOCTYPE\s+html|<html[\s>]|<svg[\s>]/i.test(trimmedCode)) {
+    return true;
+  }
+
+  const nonEmptyLines = lines.filter(l => l.trim().length > 0);
+  if (nonEmptyLines.length < 25 || trimmedCode.length < 500) {
+    return false;
+  }
+
+  return true;
+}
+
+function detectArtifactMeta(info, code, precedingProse, userPrompt) {
+  let lang = 'code';
+  let filename = '';
+  const context = `${userPrompt || ''} ${precedingProse || ''}`.trim();
+  const trimmed = (info || '').trim();
+  if (trimmed) {
+    const parts = trimmed.split(/[\s:=]+/);
+    if (parts.length > 1) {
+      lang = parts[0].toLowerCase();
+      filename = parts.slice(1).join('_').replace(/["']/g, '').trim();
+    } else if (parts[0].includes('.')) {
+      filename = parts[0];
+      const dotExt = filename.split('.').pop().toLowerCase();
+      lang = Object.keys(ARTIFACT_EXT_MAP).find(k => ARTIFACT_EXT_MAP[k] === dotExt) || dotExt;
+    } else {
+      lang = parts[0].toLowerCase();
+    }
+  }
+
+  if (!filename && code) {
+    const lines = code.slice(0, 300).split('\n').slice(0, 3);
+    for (const line of lines) {
+      const match = line.match(/(?:#|\/\/|\/\*|<!--)\s*(?:filename:?\s*|file:?\s*)?([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9_-]+)/i);
+      if (match && match[1] && !match[1].startsWith('http')) {
+        filename = match[1].trim();
+        break;
+      }
+    }
+  }
+
+  if (!filename && context) {
+    const match = context.match(/`?([a-zA-Z0-9_\-]+\.(?:py|js|ts|html|css|json|md|sh|sql|cpp|c|java|go|rs|yaml|yml|xml|svg|txt))`?/i);
+    if (match && match[1]) filename = match[1].trim();
+  }
+
+  const ext = ARTIFACT_EXT_MAP[lang] || 'txt';
+  if (!filename && code) {
+    if (lang === 'python' || ext === 'py') {
+      const funcMatch = code.match(/def\s+([a-zA-Z0-9_]+)\s*\(/);
+      const classMatch = code.match(/class\s+([a-zA-Z0-9_]+)/);
+      if (funcMatch) filename = funcMatch[1] + '.py';
+      else if (classMatch) filename = classMatch[1].toLowerCase() + '.py';
+    } else if (lang === 'javascript' || lang === 'js' || ext === 'js') {
+      const funcMatch = code.match(/(?:function|const|let)\s+([a-zA-Z0-9_]+)\s*=?\s*(?:function|\()/);
+      if (funcMatch) filename = funcMatch[1] + '.js';
+    } else if (ext === 'html' || /<!DOCTYPE\s+html|<html/i.test(code)) {
+      filename = 'index.html';
+    } else if (ext === 'svg' || /<svg/i.test(code)) {
+      filename = 'illustration.svg';
+    } else if (ext === 'json') {
+      filename = 'data.json';
+    } else if (ext === 'md') {
+      filename = 'document.md';
+    }
+  }
+
+  if (!filename) {
+    const base = lang === 'code' ? 'file' : lang;
+    filename = base + '.' + ext;
+  }
+  const finalExt = filename.includes('.') ? filename.split('.').pop().toLowerCase() : ext;
+  const finalLang = lang === 'code' && ARTIFACT_EXT_MAP[finalExt] ? (Object.keys(ARTIFACT_EXT_MAP).find(k => ARTIFACT_EXT_MAP[k] === finalExt) || finalExt) : lang;
+  return {
+    lang: finalLang,
+    filename,
+    ext: finalExt,
+    mime: ARTIFACT_MIME_MAP[finalExt] || 'text/plain; charset=utf-8'
+  };
+}
+
+function openArtifactPreviewModal({ filename, ext, lang, code }) {
+  let dialog = document.getElementById('artifact-preview-dialog');
+  if (!dialog) {
+    dialog = document.createElement('dialog');
+    dialog.id = 'artifact-preview-dialog';
+    dialog.className = 'artifact-preview-modal';
+    dialog.setAttribute('aria-labelledby', 'artifact-preview-title');
+    dialog.addEventListener('click', e => {
+      if (e.target === dialog) dialog.close();
+    });
+    document.body.appendChild(dialog);
+  }
+  dialog.dataset.code = code;
+  dialog.dataset.filename = filename;
+  dialog.dataset.ext = ext;
+  dialog.dataset.lang = lang;
+
+  let bodyContent = '';
+  if (ext === 'html') {
+    bodyContent = '<iframe class="artifact-preview-frame" sandbox="allow-scripts" srcdoc="' + e(code) + '"></iframe>';
+  } else if (ext === 'svg') {
+    bodyContent = '<div class="artifact-preview-svg">' + code + '</div>';
+  } else {
+    bodyContent = '<div class="artifact-preview-code-wrap"><pre class="artifact-preview-code"><code>' + e(code) + '</code></pre></div>';
+  }
+
+  dialog.innerHTML = `
+    <header class="dialog-header artifact-preview-header">
+      <div class="artifact-preview-heading">
+        <div class="artifact-preview-icon">${icon('file')}</div>
+        <div>
+          <h3 id="artifact-preview-title">${e(filename)}</h3>
+          <span class="small muted">${e(lang.toUpperCase())} · 实时内容预览</span>
+        </div>
+      </div>
+      <div class="artifact-preview-header-actions">
+        <button type="button" class="button small artifact-btn" data-artifact-preview-action="copy">${icon('copy')}<span>复制</span></button>
+        <button type="button" class="button small primary artifact-btn" data-artifact-preview-action="save">${icon('download')}<span>另存为</span></button>
+        <button type="button" class="icon-button" data-artifact-preview-action="close" aria-label="关闭预览">${icon('close')}</button>
+      </div>
+    </header>
+    <div class="artifact-preview-body">
+      ${bodyContent}
+    </div>
+  `;
+  dialog.showModal();
+}
+
+function formatMessageContent(content, userPrompt = '') {
+  if (!content) return '';
+  const text = String(content);
+  if (!text.includes('```') && !text.includes('`')) {
+    return e(text);
+  }
+  const blockRegex = /```([^\n\r]*)\r?\n?([\s\S]*?)(?:```|$)/g;
+  let lastIndex = 0;
+  let match;
+  let html = '';
+  let prevProse = '';
+
+  const formatText = (segment) => {
+    if (!segment) return '';
+    const parts = segment.split(/(`[^`\n]+`)/g);
+    return parts.map(part => {
+      if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
+        return '<code class="inline-code">' + e(part.slice(1, -1)) + '</code>';
+      }
+      return e(part);
+    }).join('');
+  };
+
+  while ((match = blockRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      const prose = text.slice(lastIndex, match.index).trim();
+      if (prose) {
+        prevProse = prose;
+        html += '<div class="message-prose">' + formatText(prose) + '</div>';
+      }
+    }
+    const info = (match[1] || '').trim();
+    const code = match[2];
+    const isExportable = isExportableArtifact(info, code, prevProse, userPrompt);
+    const meta = detectArtifactMeta(info, code, prevProse, userPrompt);
+
+    if (isExportable) {
+      html += '<section class="artifact-card" data-lang="' + e(meta.lang) + '" data-filename="' + e(meta.filename) + '" data-ext="' + e(meta.ext) + '" data-is-file="true">' +
+        '<header class="artifact-header">' +
+          '<div class="artifact-meta">' +
+            '<span class="artifact-badge">' + icon('file') + ' 文件产物</span>' +
+            '<span class="artifact-filename" title="' + e(meta.filename) + '">' + e(meta.filename) + '</span>' +
+            '<span class="artifact-lang">' + e(meta.lang.toUpperCase() || 'CODE') + '</span>' +
+          '</div>' +
+          '<div class="artifact-actions">' +
+            '<button type="button" class="artifact-btn artifact-copy-btn" data-artifact-action="copy" title="复制代码到剪贴板">' +
+              icon('copy') + '<span>复制</span>' +
+            '</button>' +
+            '<button type="button" class="artifact-btn artifact-save-btn" data-artifact-action="save" title="另存为本地文件 (' + e(meta.filename) + ')">' +
+              icon('download') + '<span>另存为</span>' +
+            '</button>' +
+            '<div class="artifact-dropdown">' +
+              '<button type="button" class="artifact-btn artifact-open-btn" data-artifact-action="toggle-menu" aria-haspopup="true" aria-expanded="false" title="用其他方式打开或预览">' +
+                icon('external') + '<span>打开方式</span>' + icon('chevron') +
+              '</button>' +
+              '<div class="artifact-menu" role="menu">' +
+                '<button type="button" class="artifact-menu-item" data-artifact-action="open-tab">' +
+                  icon('external') + '<span>新窗口打开 / 运行</span>' +
+                '</button>' +
+                '<button type="button" class="artifact-menu-item" data-artifact-action="open-preview">' +
+                  icon('eye') + '<span>页面内实时预览</span>' +
+                '</button>' +
+                '<button type="button" class="artifact-menu-item" data-artifact-action="open-share">' +
+                  icon('share') + '<span>调用系统应用 / 分享</span>' +
+                '</button>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</header>' +
+        '<div class="artifact-body">' +
+          '<pre class="artifact-code"><code>' + e(code) + '</code></pre>' +
+        '</div>' +
+      '</section>';
+    } else {
+      // Short snippet without export request: show compact snippet card with copy only
+      html += '<section class="artifact-card is-snippet" data-lang="' + e(meta.lang) + '" data-is-snippet="true">' +
+        '<header class="artifact-header">' +
+          '<div class="artifact-meta">' +
+            '<span class="artifact-badge">' + icon('code') + ' 代码片段</span>' +
+            '<span class="artifact-lang">' + e(meta.lang.toUpperCase() || 'CODE') + '</span>' +
+          '</div>' +
+          '<div class="artifact-actions">' +
+            '<button type="button" class="artifact-btn artifact-copy-btn" data-artifact-action="copy" title="复制代码到剪贴板">' +
+              icon('copy') + '<span>复制</span>' +
+            '</button>' +
+          '</div>' +
+        '</header>' +
+        '<div class="artifact-body">' +
+          '<pre class="artifact-code"><code>' + e(code) + '</code></pre>' +
+        '</div>' +
+      '</section>';
+    }
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    const trailing = text.slice(lastIndex).trim();
+    if (trailing) html += '<div class="message-prose">' + formatText(trailing) + '</div>';
+  }
+
+  return html || '<div class="message-prose">' + formatText(text) + '</div>';
+}
+
+function renderMessage(message, persona, prevMessage) {
   const isUser = message.role === 'user';
+  const userPrompt = (!isUser && prevMessage && prevMessage.role === 'user') ? prevMessage.content : '';
   const sources = Array.isArray(message.sources) ? message.sources : [];
   const memories = Array.isArray(message.recalledMemories) ? message.recalledMemories : [];
-  return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time></div>${!isUser&&message.reasoning?`<details class="message-reasoning" data-detail="reasoning-${e(message.id)}"><summary>思考过程</summary><div class="reasoning-text plain-text">${e(message.reasoning)}</div></details>`:''}<div class="message-content plain-text">${e(message.content)}</div>${!isUser ? responseUI.renderMessage(message) + `<div class="message-mail-action"><button type="button" class="button small btn-fan" data-mail-action="from-reply">写成邮件</button>${button('保存记忆','remember-reply',{id:message.id,kind:'small btn-leaf'})}</div>` : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
+  const rememberAction = localStorage.getItem('qiyi-show-remember') === 'true' ? button('保存记忆', 'remember-reply', { id: message.id, kind: 'small btn-leaf' }) : '';
+  return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time></div>${!isUser&&message.reasoning?`<details class="message-reasoning" data-detail="reasoning-${e(message.id)}"><summary>思考过程</summary><div class="reasoning-text plain-text">${e(message.reasoning)}</div></details>`:''}<div class="message-content plain-text">${isUser ? e(message.content) : formatMessageContent(message.content, userPrompt)}</div>${!isUser ? responseUI.renderMessage(message) + `<div class="message-mail-action"><button type="button" class="button small btn-fan" data-mail-action="from-reply">写成邮件</button>${rememberAction}</div>` : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
 }
 function livePhase(reply){return reply.failed?'生成中断':reply.stopping?'正在停止…':reply.content?'正在输出…':({understanding:'正在理解…',searching_music:'正在查找歌曲…',searching_sources:'正在查找资料…',finalizing:'正在整理回复…'}[reply.phase]||'正在思考…');}
 function livePlaceholder(reply){return reply.failed?'回复未完成，请重新发送。':reply.reasoning?'正在组织回复…':'正在思考…';}
 function renderLiveReply(reply,persona){
-  return `${renderMessage({role:'user',content:reply.inputContent,createdAt:reply.createdAt},persona)}<article id="live-reply" class="message assistant live-reply ${reply.failed?'is-interrupted':'is-streaming'}" aria-live="off"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><span>${e(persona?.name||'助手')}</span><span class="generation-state" role="status" aria-live="polite"><span class="thinking-dot" aria-hidden="true"></span><span class="generation-label">${livePhase(reply)}</span></span></div><details class="message-reasoning" data-live-reasoning${reply.reasoningOpen?' open':''}${reply.reasoning?'':' hidden'}><summary>思考过程</summary><div class="reasoning-text plain-text">${e(reply.reasoning)}</div></details><div class="message-content plain-text live-body${reply.content?'':' is-waiting'}">${e(reply.content||livePlaceholder(reply))}</div>${reply.failed?'<p class="small muted stream-interrupted-note">这是未完成的临时内容，请重新读取会话确认是否已保存。</p>':''}</article>`;
+  return `${renderMessage({role:'user',content:reply.inputContent,createdAt:reply.createdAt},persona)}<article id="live-reply" class="message assistant live-reply ${reply.failed?'is-interrupted':'is-streaming'}" aria-live="off"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><span>${e(persona?.name||'助手')}</span><span class="generation-state" role="status" aria-live="polite"><span class="thinking-dot" aria-hidden="true"></span><span class="generation-label">${livePhase(reply)}</span></span></div><details class="message-reasoning" data-live-reasoning${reply.reasoningOpen?' open':''}${reply.reasoning?'':' hidden'}><summary>思考过程</summary><div class="reasoning-text plain-text">${e(reply.reasoning)}</div></details><div class="message-content plain-text live-body${reply.content?'':' is-waiting'}">${formatMessageContent(reply.content||livePlaceholder(reply), reply.inputContent)}</div>${reply.failed?'<p class="small muted stream-interrupted-note">这是未完成的临时内容，请重新读取会话确认是否已保存。</p>':''}</article>`;
 }
 function patchLiveReply(reply){
   const article=$('#live-reply'),list=$('#chat-messages');if(!article||!list)return;
@@ -369,7 +718,7 @@ function patchLiveReply(reply){
   const reasoning=$('[data-live-reasoning]',article);reasoning.hidden=!reply.reasoning;
   const thinkingText=$('.reasoning-text',reasoning),thinkingAtBottom=thinkingText.scrollHeight-thinkingText.scrollTop-thinkingText.clientHeight<40;
   thinkingText.textContent=reply.reasoning;if(thinkingAtBottom)thinkingText.scrollTop=thinkingText.scrollHeight;
-  const body=$('.live-body',article);body.classList.toggle('is-waiting',!reply.content);body.textContent=reply.content||livePlaceholder(reply);
+  const body=$('.live-body',article);body.classList.toggle('is-waiting',!reply.content);body.innerHTML=formatMessageContent(reply.content||livePlaceholder(reply), reply.inputContent);
   if(nearBottom)list.scrollTop=list.scrollHeight;
 }
 function renderSetupPrompt(key) {
@@ -403,7 +752,7 @@ function renderChat() {
       ${responseUI.renderSession()}
       <div id="chat-messages" class="chat-messages" tabindex="0" data-conversation="${e(key)}" role="log" aria-live="polite" aria-relevant="additions text" aria-label="聊天消息" aria-busy="${Boolean(loading || sendingHere)}">
         ${loadError ? `${errorHTML(loadError)}${button('重新读取会话', 'reload-conversation', { iconName: 'refresh', busy: loading })}` : ''}
-        ${messages.length ? messages.map(m => renderMessage(m, persona)).join('') : setupPrompt || sendingHere || state.streamFailures.has(key) ? '' : loading ? '<div class="loading-state" role="status"><span class="spinner"></span>正在读取对话…</div>' : `<div class="chat-welcome"><div class="orbit-mark" aria-hidden="true">${icon('leaf')}</div><h2>${persona ? '从这里开始聊天' : '先创建一个角色'}</h2><div class="welcome-rule"></div>${persona ? `<span class="greeting-label">${e(persona.name)} · 开场白</span><p class="plain-text">${e(persona.greeting || '可以聊聊近况、整理想法，或向已导入的资料提问。')}</p><span class="micro muted">发送消息后才会调用模型</span>` : `<p>创建角色后即可开始对话。</p>${button('创建角色', 'create-persona', { kind: 'primary', iconName: 'plus' })}`}</div>`}
+        ${messages.length ? messages.map((m, idx, all) => renderMessage(m, persona, all[idx - 1])).join('') : setupPrompt || sendingHere || state.streamFailures.has(key) ? '' : loading ? '<div class="loading-state" role="status"><span class="spinner"></span>正在读取对话…</div>' : `<div class="chat-welcome"><div class="orbit-mark" aria-hidden="true">${icon('leaf')}</div><h2>${persona ? '从这里开始聊天' : '先创建一个角色'}</h2><div class="welcome-rule"></div>${persona ? `<span class="greeting-label">${e(persona.name)} · 开场白</span><p class="plain-text">${e(persona.greeting || '可以聊聊近况、整理想法，或向已导入的资料提问。')}</p><span class="micro muted">发送消息后才会调用模型</span>` : `<p>创建角色后即可开始对话。</p>${button('创建角色', 'create-persona', { kind: 'primary', iconName: 'plus' })}`}</div>`}
         ${setupPrompt}
         ${sendingHere&&!state.sending.completed ? renderLiveReply(state.sending,persona) : !sendingHere&&state.streamFailures.has(key) ? renderLiveReply(state.streamFailures.get(key),persona) : ''}
       </div>
@@ -444,13 +793,40 @@ async function openConversation(id) {
   state.personaId = conversation.personaId;
   state.conversationId = id;
   state.personaConversations.set(conversation.personaId, id);
+  try {
+    localStorage.setItem('qiyi-active-persona', conversation.personaId);
+    localStorage.setItem('qiyi-active-conversation', id);
+    localStorage.setItem('qiyi-persona-conversation:' + conversation.personaId, id);
+  } catch {}
   renderPage();
   if (!state.sending || state.sending.conversationId !== id) await loadConversation(id);
 }
 function selectPersona(id) {
   state.personaId = id;
-  const remembered = state.personaConversations.get(id);
-  state.conversationId = state.data.conversations.some(c => c.id === remembered && c.personaId === id) ? remembered : null;
+  let remembered = null;
+  try {
+    remembered = localStorage.getItem('qiyi-persona-conversation:' + id);
+  } catch {}
+  if (!remembered) remembered = state.personaConversations.get(id);
+  let convId = state.data.conversations.some(c => c.id === remembered && c.personaId === id) ? remembered : null;
+  if (!convId) {
+    const history = state.data.conversations.filter(c => c.personaId === id);
+    convId = history.length > 0 ? history[0].id : null;
+  }
+  state.conversationId = convId;
+  if (convId) {
+    state.personaConversations.set(id, convId);
+    try {
+      localStorage.setItem('qiyi-active-persona', id);
+      localStorage.setItem('qiyi-active-conversation', convId);
+      localStorage.setItem('qiyi-persona-conversation:' + id, convId);
+    } catch {}
+  } else {
+    try {
+      localStorage.setItem('qiyi-active-persona', id);
+      localStorage.removeItem('qiyi-active-conversation');
+    } catch {}
+  }
   renderPage();
   if (state.conversationId && !state.messages.has(state.conversationId)) void loadConversation(state.conversationId);
 }
@@ -464,7 +840,14 @@ async function newConversation() {
     state.data.conversations.unshift(conversation);
     state.messages.set(conversation.id, []);
     state.personaConversations.set(personaId, conversation.id);
-    if (state.personaId === personaId) state.conversationId = conversation.id;
+    if (state.personaId === personaId) {
+      state.conversationId = conversation.id;
+      try {
+        localStorage.setItem('qiyi-active-persona', personaId);
+        localStorage.setItem('qiyi-active-conversation', conversation.id);
+        localStorage.setItem('qiyi-persona-conversation:' + personaId, conversation.id);
+      } catch {}
+    }
     await refreshData({ silent: true });
     if (state.page === 'chat') $('#chat-input')?.focus();
   } catch (error) { toast(error.message, 'error'); }
@@ -501,12 +884,20 @@ async function sendMessage() {
       if (state.setupPrompts.delete(key)) state.setupPrompts.add(conversationId);
       state.drafts.delete(key);
       state.personaConversations.set(personaId, conversationId);
-      if (state.personaId === personaId && state.conversationId === null) state.conversationId = conversationId;
+      if (state.personaId === personaId && state.conversationId === null) {
+        state.conversationId = conversationId;
+        try {
+          localStorage.setItem('qiyi-active-persona', personaId);
+          localStorage.setItem('qiyi-active-conversation', conversationId);
+          localStorage.setItem('qiyi-persona-conversation:' + personaId, conversationId);
+        } catch {}
+      }
       key = conversationId;
       state.sending.conversationId = conversationId;
       renderPage({ toBottom: true });
     }
     outgoing.controller.signal.throwIfAborted();
+    localStorage.setItem('active_flight:' + conversationId, content);
     const result = await requestChat(`/conversations/${endpointId(conversationId)}/messages`,content,event=>{
       if(outgoing.controller.signal.aborted)return;
       if(event.type==='status')outgoing.phase=event.phase;
@@ -516,6 +907,7 @@ async function sendMessage() {
     },{signal:outgoing.controller.signal});
     outgoing.controller.signal.throwIfAborted();
     outgoing.completed=true;
+    localStorage.removeItem('active_flight:' + conversationId);
     if (result.chatState) chatStateUI.receive(result.chatState);
     petsUI.react('reply', '回复来啦，陪你慢慢看。');
     const assistant = { ...result.message, sources: result.sources ?? result.message?.sources ?? [], recalledMemories: result.recalledMemories ?? result.message?.recalledMemories ?? [] };
@@ -1031,6 +1423,235 @@ dialog.addEventListener('close', () => {
 });
 
 document.addEventListener('click', async event => {
+  if (!event.target.closest('.artifact-dropdown')) {
+    $$('.artifact-menu.is-active').forEach(m => {
+      m.classList.remove('is-active');
+      m.closest('.artifact-dropdown')?.querySelector('[data-artifact-action="toggle-menu"]')?.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  const previewActionBtn = event.target.closest('[data-artifact-preview-action]');
+  if (previewActionBtn) {
+    const action = previewActionBtn.dataset.artifactPreviewAction;
+    const dialog = document.getElementById('artifact-preview-dialog');
+    if (action === 'close') {
+      dialog?.close();
+      return;
+    }
+    const code = dialog?.dataset.code || '';
+    const filename = dialog?.dataset.filename || 'file.txt';
+    const ext = dialog?.dataset.ext || 'txt';
+    const mime = ARTIFACT_MIME_MAP[ext] || 'text/plain; charset=utf-8';
+    if (action === 'copy' && code) {
+      try {
+        await navigator.clipboard?.writeText(code);
+        toast('代码已复制到剪贴板', 'info');
+      } catch {
+        toast('复制失败，请手动选择复制', 'error');
+      }
+    } else if (action === 'save' && code) {
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({ suggestedName: filename });
+          const writable = await handle.createWritable();
+          await writable.write(code);
+          await writable.close();
+          toast(`已保存文件：${handle.name || filename}`, 'info');
+          return;
+        } catch (e) { if (e.name === 'AbortError') return; }
+      }
+      const blob = new Blob([code], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast(`已另存为/下载：${filename}`, 'info');
+    }
+    return;
+  }
+
+  const artifactBtn = event.target.closest('[data-artifact-action]');
+  if (artifactBtn) {
+    const action = artifactBtn.dataset.artifactAction;
+    const card = artifactBtn.closest('.artifact-card');
+    const code = card?.querySelector('.artifact-code code')?.textContent || '';
+    const filename = card?.dataset.filename || 'file.txt';
+    const ext = card?.dataset.ext || 'txt';
+    const lang = card?.dataset.lang || 'code';
+    const mime = ARTIFACT_MIME_MAP[ext] || 'text/plain; charset=utf-8';
+
+    if (action === 'toggle-menu') {
+      const dropdown = artifactBtn.closest('.artifact-dropdown');
+      const menu = dropdown?.querySelector('.artifact-menu');
+      const wasActive = menu?.classList.contains('is-active');
+      $$('.artifact-menu.is-active').forEach(m => {
+        m.classList.remove('is-active');
+        m.closest('.artifact-dropdown')?.querySelector('[data-artifact-action="toggle-menu"]')?.setAttribute('aria-expanded', 'false');
+      });
+      if (menu && !wasActive) {
+        menu.classList.add('is-active');
+        artifactBtn.setAttribute('aria-expanded', 'true');
+      } else {
+        artifactBtn.setAttribute('aria-expanded', 'false');
+      }
+      return;
+    }
+
+    $$('.artifact-menu.is-active').forEach(m => {
+      m.classList.remove('is-active');
+      m.closest('.artifact-dropdown')?.querySelector('[data-artifact-action="toggle-menu"]')?.setAttribute('aria-expanded', 'false');
+    });
+
+    if (action === 'copy') {
+      if (code) {
+        try {
+          if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(code);
+          } else {
+            const ta = document.createElement('textarea');
+            ta.value = code;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            ta.remove();
+          }
+          const span = artifactBtn.querySelector('span');
+          const orig = span ? span.textContent : '复制';
+          if (span) span.textContent = '已复制！';
+          artifactBtn.classList.add('is-copied');
+          toast('代码已复制到剪贴板', 'info');
+          setTimeout(() => {
+            if (span) span.textContent = orig;
+            artifactBtn.classList.remove('is-copied');
+          }, 1800);
+        } catch {
+          toast('复制失败，请手动选择复制', 'error');
+        }
+      }
+      return;
+    }
+
+    if (action === 'save') {
+      if (!code) return;
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: filename,
+            types: [{
+              description: `${ext.toUpperCase()} 文件 (*.${ext})`,
+              accept: { [mime.split(';')[0]]: ['.' + ext] }
+            }]
+          });
+          const writable = await handle.createWritable();
+          await writable.write(code);
+          await writable.close();
+          toast(`文件已成功保存为：${handle.name || filename}`, 'info');
+          return;
+        } catch (err) {
+          if (err.name === 'AbortError') return;
+        }
+      }
+      try {
+        const blob = new Blob([code], { type: mime });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        toast(`已另存为/下载文件：${filename}`, 'info');
+      } catch {
+        toast('保存文件失败，请尝试复制代码', 'error');
+      }
+      return;
+    }
+
+    if (action === 'open-tab') {
+      if (!code) return;
+      if (ext === 'html') {
+        const blob = new Blob([code], { type: 'text/html; charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        return;
+      }
+      if (ext === 'svg') {
+        const blob = new Blob([code], { type: 'image/svg+xml; charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        return;
+      }
+      const viewerHtml = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>${e(filename)}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { margin: 0; background: #141f18; color: #e4ebd9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; height: 100vh; display: flex; flex-direction: column; }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; background: #1c2720; border-bottom: 1px solid #2e4235; }
+    .meta { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px; }
+    .badge { font-size: 11px; background: rgba(175, 240, 184, 0.15); color: #aff0b8; padding: 2px 8px; border-radius: 4px; font-family: monospace; }
+    .btn { background: #26382c; color: #d1ddca; border: 1px solid #364d3d; border-radius: 6px; padding: 6px 14px; font-size: 12px; cursor: pointer; transition: 0.15s; }
+    .btn:hover { background: #314738; color: #fff; }
+    main { flex: 1; overflow: auto; padding: 20px; }
+    pre { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.6; white-space: pre; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="meta">
+      <span>${e(filename)}</span>
+      <span class="badge">${e(ext.toUpperCase())}</span>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn" onclick="navigator.clipboard.writeText(document.querySelector('code').textContent).then(()=>{this.textContent='已复制！';setTimeout(()=>this.textContent='复制代码',1500)})">复制代码</button>
+      <button class="btn" onclick="window.print()">打印 / 另存为 PDF</button>
+    </div>
+  </header>
+  <main>
+    <pre><code>${e(code)}</code></pre>
+  </main>
+</body>
+</html>`;
+      const blob = new Blob([viewerHtml], { type: 'text/html; charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      return;
+    }
+
+    if (action === 'open-preview') {
+      openArtifactPreviewModal({ filename, ext, lang, code });
+      return;
+    }
+
+    if (action === 'open-share') {
+      if (navigator.canShare && navigator.canShare({ files: [new File([code], filename, { type: mime })] })) {
+        try {
+          const file = new File([code], filename, { type: mime });
+          await navigator.share({
+            title: filename,
+            text: `来自栖忆的文件产物：${filename}`,
+            files: [file]
+          });
+          toast('已唤起系统分享/外部打开', 'info');
+        } catch (err) {
+          if (err.name !== 'AbortError') toast('分享失败', 'error');
+        }
+      } else {
+        toast('当前浏览器环境不支持直接调用外部程序，可点击“另存为”保存至本地后用本地工具打开', 'info');
+      }
+      return;
+    }
+  }
+
   const control = event.target.closest('[data-action]');
   if (!control || control.disabled) return;
   const action = control.dataset.action;

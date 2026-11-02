@@ -31,8 +31,10 @@ test('blank music and online sticker configuration makes no network requests',as
 
 test('media settings validate atomically and runtime keys never enter settings or database',t=>{
   const {media,store}=local(t);
-  const result=media.update({musicBaseUrl:'http://music.invalid/prefix/',musicApiKey:'music-secret',stickerApiKey:'sticker-secret'});
+  assert.equal(media.settings().musicQuality,'128');
+  const result=media.update({musicBaseUrl:'http://music.invalid/prefix/',musicApiKey:'music-secret',stickerApiKey:'sticker-secret',musicQuality:'320'});
   assert.equal(result.settings.musicBaseUrl,'http://music.invalid/prefix');
+  assert.equal(result.settings.musicQuality,'320');
   assert.equal(result.settings.hasMusicApiKey,true);
   assert.ok(!JSON.stringify(result).includes('music-secret'));
   assert.ok(!store.get('SELECT value FROM media_settings').value.includes('secret'));
@@ -43,7 +45,7 @@ test('media settings validate atomically and runtime keys never enter settings o
   assert.equal(media.update({clearMusicApiKey:true}).settings.hasMusicApiKey,false);
 });
 
-for(const input of [{musicBaseUrl:'file:///tmp/key'},{musicBaseUrl:'http://user:password@host'}, {musicBaseUrl:'https://host?q=token'}, {musicEnabled:'true'}, {stickerImageOrigins:['https://host/path']}, {stickerSearchUrl:null}]) {
+for(const input of [{musicBaseUrl:'file:///tmp/key'},{musicBaseUrl:'http://user:password@host'}, {musicBaseUrl:'https://host?q=token'}, {musicEnabled:'true'}, {stickerImageOrigins:['https://host/path']}, {stickerSearchUrl:null}, {musicQuality:'999'}]) {
   test(`invalid configuration is rejected: ${Object.keys(input)[0]} ${JSON.stringify(input)}`,t=>{const{media}=local(t);assert.throws(()=>media.update(input));assert.equal(media.settings().musicBaseUrl,'');});
 }
 

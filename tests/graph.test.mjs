@@ -140,6 +140,28 @@ test('NFKC, case and whitespace normalization deduplicate entities, relations an
   assert.equal(calls.length, 0);
 });
 
+test('book quotes, titles and version phrases deduplicate entities and standardize display names', t => {
+  const { api, store, personaId, calls } = fixture(t);
+  const first = save(api, personaId, '用户偏好歌曲《沦陷》贾格演唱版本', { triples: [
+    triple('用户', '偏好', '《沦陷》贾格演唱版本', 'person', 'topic'),
+  ] });
+  const second = save(api, personaId, '用户想听贾格版本的《沦陷》', { triples: [
+    triple('用户', '偏好', '贾格版本的《沦陷》', 'person', 'topic'),
+  ] });
+  const third = save(api, personaId, '点播《晴天》', { triples: [
+    triple('用户', '点播', '《晴天》', 'person', 'topic'),
+  ] });
+  const view = api.getGraph({ personaId });
+  assert.equal(view.stats.entityCount, 3);
+  assert.equal(view.stats.relationCount, 2);
+  const entityLabels = new Set(entities(view).map(e => e.label));
+  assert.deepEqual(entityLabels, new Set(['用户', '沦陷 贾格版', '晴天']));
+  const normalizedNames = new Set(store.all('SELECT normalizedName FROM graph_entities').map(row => row.normalizedName));
+  assert.deepEqual(normalizedNames, new Set(['用户', '沦陷 贾格版', '晴天']));
+  assertGraphIntegrity(view);
+  assert.equal(calls.length, 0);
+});
+
 test('deduplication preserves distinct predicates, direction and self-relations', t => {
   const { api, personaId } = fixture(t);
   const memory = save(api, personaId, 'Several distinct statements', { triples: [

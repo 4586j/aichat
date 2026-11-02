@@ -7,3 +7,6 @@ model-key.local*
 test-results/
 playwright-report/
 test-reports/
+scratch/
+__pycache__/
+*.pyc

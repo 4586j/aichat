@@ -31,7 +31,7 @@ export const test = base.extend({
     await use(offline.url);
   },
   storageState: async ({ baseURL }, use) => {
-    await use({ cookies: [], origins: [{ origin: baseURL, localStorage: [{ name: 'qiyi-entrance-seen', value: 'true' }] }] });
+    await use({ cookies: [], origins: [{ origin: baseURL, localStorage: [{ name: 'qiyi-entrance-seen', value: 'true' }, { name: 'qiyi-show-remember', value: 'true' }] }] });
   },
   context: async ({ context, offlineApp: offline }, use, testInfo) => {
     const diagnostics = { pageErrors: [], consoleErrors: [], failedRequests: [], errorResponses: [] };
