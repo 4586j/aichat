@@ -762,7 +762,50 @@ function renderChat() {
     button(state.newConversationBusy ? '正在新建…' : '新建对话', 'new-conversation', { kind: 'primary', iconName: 'plus', busy: !persona || state.newConversationBusy }))}
     <div class="marble-balustrade-bar" aria-hidden="true"><svg viewBox="0 0 1200 22" preserveAspectRatio="none"><use href="#sym-marble-balustrade" x="0" y="-10" width="600" height="32"/><use href="#sym-marble-balustrade" x="600" y="-10" width="600" height="32"/></svg></div>
     <div class="chat-grid"><section class="card card-begonia chat-panel" aria-label="与角色对话"><span class="scroll-dowel scroll-dowel-left" aria-hidden="true"></span><span class="scroll-dowel scroll-dowel-right" aria-hidden="true"></span>${petsUI.renderCompanion(true)}
-      <div class="chat-toolbar"><div class="persona-control"><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><div class="persona-select-wrap"><label class="sr-only" for="chat-persona">选择聊天角色</label><select id="chat-persona"${disabled(!persona)}>${personaOptions(state.personaId)}${!persona ? '<option value="">请先创建角色</option>' : ''}</select><div class="persona-subtitle truncate" title="${e(title || '新对话')}">${e(title || '新对话')} · 记忆独立保存</div></div></div><span class="seal-stamp-red">当前对话</span></div>
+      <div class="chat-toolbar"><div class="persona-control">
+        <div class="persona-picker-dropdown" id="persona-picker-dropdown">
+          <button type="button" class="persona-picker-trigger" id="persona-picker-trigger" aria-haspopup="listbox" aria-expanded="false" title="切换对话角色"${disabled(!persona)}>
+            <span class="avatar avatar-octagon" aria-hidden="true">${e(initial(persona?.name))}</span>
+            <div class="persona-picker-info">
+              <div class="persona-picker-title-row">
+                <span class="persona-picker-name">${e(persona?.name || '选择角色')}</span>
+                <svg class="persona-picker-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
+              </div>
+              <div class="persona-subtitle truncate" title="${e(title || '新对话')}">${e(title || '新对话')} · 记忆独立保存</div>
+            </div>
+          </button>
+          <div class="persona-picker-menu" id="persona-picker-menu" role="listbox" aria-label="角色列表">
+            <div class="persona-picker-menu-header">
+              <span class="persona-picker-menu-title">切换当前角色</span>
+              <span class="seal-stamp-red mini">共 ${state.data.personas.length} 位</span>
+            </div>
+            <div class="persona-picker-list">
+              ${state.data.personas.map(p => `
+                <div class="persona-picker-item ${p.id === state.personaId ? 'is-active' : ''}" role="option" aria-selected="${p.id === state.personaId}" data-persona-id="${e(p.id)}" tabindex="0">
+                  <span class="avatar avatar-octagon mini" aria-hidden="true">${e(initial(p.name))}</span>
+                  <div class="persona-item-info">
+                    <div class="persona-item-name-row">
+                      <span class="persona-item-name">${e(p.name)}</span>
+                      ${p.id === state.personaId ? '<span class="seal-stamp-red mini">当前</span>' : ''}
+                    </div>
+                    <div class="persona-item-desc truncate" title="${e(p.tone || p.description || '')}">${e(p.tone || p.description || '无设定说明')}</div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+            <div class="persona-picker-footer">
+              <a class="persona-picker-action" href="#personas">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
+                <span>管理与创建新角色</span>
+              </a>
+            </div>
+          </div>
+        </div>
+        <div class="persona-select-wrap">
+          <label class="sr-only" for="chat-persona">选择聊天角色</label>
+          <select id="chat-persona" class="persona-native-select"${disabled(!persona)}>${personaOptions(state.personaId)}${!persona ? '<option value="">请先创建角色</option>' : ''}</select>
+        </div>
+      </div><span class="seal-stamp-red">当前对话</span></div>
       ${chatStateUI.renderBar()}
       <div class="garden-session"><span>回复联动：${linked.petLinked ? '宠物' : '宠物已关闭'} · ${linked.musicLinked ? '音乐' : '音乐已关闭'} · ${linked.stickerLinked ? '表情' : '表情已关闭'}</span>${button('回复设置', 'response-settings', { kind: 'small btn-leaf' })}</div>
       ${responseUI.renderSession()}
@@ -1447,6 +1490,39 @@ dialog.addEventListener('close', () => {
 });
 
 document.addEventListener('click', async event => {
+  const pickerDropdown = document.getElementById('persona-picker-dropdown');
+  const clickedPickerTrigger = event.target.closest('#persona-picker-trigger');
+  const clickedPickerItem = event.target.closest('.persona-picker-item[data-persona-id]');
+
+  if (clickedPickerTrigger) {
+    if (pickerDropdown) {
+      const active = pickerDropdown.classList.toggle('is-active');
+      clickedPickerTrigger.setAttribute('aria-expanded', active ? 'true' : 'false');
+    }
+    return;
+  }
+
+  if (clickedPickerItem) {
+    const newId = clickedPickerItem.dataset.personaId;
+    if (pickerDropdown) {
+      pickerDropdown.classList.remove('is-active');
+      document.getElementById('persona-picker-trigger')?.setAttribute('aria-expanded', 'false');
+    }
+    if (newId && newId !== state.personaId) {
+      const select = document.getElementById('chat-persona');
+      if (select) select.value = newId;
+      selectPersona(newId);
+    }
+    return;
+  }
+
+  if (!event.target.closest('#persona-picker-dropdown')) {
+    if (pickerDropdown?.classList.contains('is-active')) {
+      pickerDropdown.classList.remove('is-active');
+      document.getElementById('persona-picker-trigger')?.setAttribute('aria-expanded', 'false');
+    }
+  }
+
   if (!event.target.closest('.artifact-dropdown')) {
     $$('.artifact-menu.is-active').forEach(m => {
       m.classList.remove('is-active');
@@ -1792,6 +1868,18 @@ document.addEventListener('change', event => {
   else if (target.id === 'task-type' || target.id === 'task-scheduleType') updateTaskFields();
 });
 document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') {
+    const pickerDropdown = document.getElementById('persona-picker-dropdown');
+    if (pickerDropdown?.classList.contains('is-active')) {
+      pickerDropdown.classList.remove('is-active');
+      const trigger = document.getElementById('persona-picker-trigger');
+      trigger?.setAttribute('aria-expanded', 'false');
+      trigger?.focus();
+    }
+  } else if (event.target.closest('.persona-picker-item') && (event.key === 'Enter' || event.key === ' ')) {
+    event.preventDefault();
+    event.target.closest('.persona-picker-item').click();
+  }
   if (event.target.id === 'chat-input' && event.key === 'Enter' && !window.matchMedia('(pointer: coarse)').matches && !event.shiftKey && !event.isComposing && event.keyCode !== 229 && !event.ctrlKey && !event.metaKey && !event.altKey) {
     event.preventDefault();
     $('#chat-form')?.requestSubmit();
