@@ -75,6 +75,10 @@ async function route(api, method, pathname, input, query) {
   const [, resource, itemId, action] = parts;
   if (parts.length > 4) throw new AppError('接口不存在。', 404);
   if (method === 'GET' && pathname === '/api/bootstrap') return api.bootstrap();
+  if (method === 'POST' && pathname === '/api/chat/approve') return api.approveAction(input.ticketId, { approved: Boolean(input.approved), reason: input.reason });
+  if (method === 'GET' && pathname === '/api/chat/pending-approvals') return { approvals: api.getPendingApprovals(query.get('conversationId') || null) };
+  if (method === 'GET' && pathname === '/api/tools') return { tools: api.toolRegistry.listDefinitions() };
+  if (method === 'POST' && pathname === '/api/agent/run') return api.runAgentTask(input);
   if (method === 'GET' && pathname === '/api/chat-state') return api.getChatState({ personaId: query.get('personaId'), conversationId: query.get('conversationId') || null });
   if (method === 'POST' && pathname === '/api/chat-state') return api.updateChatState(input);
   if (method === 'GET' && pathname === '/api/response-settings') return { responseSettings: api.responsePolicy.settings() };

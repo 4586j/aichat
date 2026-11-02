@@ -231,3 +231,21 @@ test('file SQLite persists application state across server restarts, never API k
   assert.equal(app.store.get('SELECT * FROM settings WHERE key=?', 'apiKey'), null);
   assert.equal(mock.calls.length, 1);
 });
+
+test('HTTP exposes tool registry and pending approvals routes', async t => {
+  const { app } = await localApp(t);
+  const toolsRes = await request(app, '/api/tools');
+  assert.equal(toolsRes.status, 200);
+  assert.ok(Array.isArray(toolsRes.data.tools));
+  assert.ok(toolsRes.data.tools.some(tool => tool.function.name === 'calculator'));
+
+  const pendingRes = await request(app, '/api/chat/pending-approvals');
+  assert.equal(pendingRes.status, 200);
+  assert.deepEqual(pendingRes.data.approvals, []);
+
+  const approveFail = await request(app, '/api/chat/approve', {
+    method: 'POST',
+    json: { ticketId: 'missing-token', approved: true }
+  });
+  assertHttpError(approveFail, 404);
+});
