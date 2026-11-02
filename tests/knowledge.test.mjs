@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tokenize, rankText, chunkText, MAX_FILE_BYTES, MAX_TEXT_LENGTH } from '../lib/knowledge.mjs';
+import { tokenize, rankText, chunkText, extractHeadingPaths, MAX_FILE_BYTES, MAX_TEXT_LENGTH } from '../lib/knowledge.mjs';
+import { LOCAL_EMBEDDING_DIM, computeLocalEmbedding, cosineSimilarity, vectorToBlob, blobToVector } from '../lib/vector.mjs';
 import { fixture, base64, errorStatus } from './helpers.mjs';
 import { tinyDocx, tinyPdf } from './knowledge-fixtures.mjs';
 
@@ -146,3 +147,76 @@ test('DOCX advertised decompression size and encryption are rejected before extr
     await assert.rejects(api.importDocument({ name: 'unsafe.docx', data: base64(data) }), errorStatus(422, /DOCX/));
   }
 });
+
+test('vector embeddings are unit-normalized Float32Arrays, round-trip through SQLite BLOBs and cascade on delete', async t => {
+  const { api, store } = fixture(t);
+  const v1 = computeLocalEmbedding('凌晨容器触发快照归档并回收僵尸句柄');
+  const v2 = computeLocalEmbedding('半夜服务器清理内存与垃圾回收');
+  const vUnrelated = computeLocalEmbedding('足球场上的体育训练计划');
+  assert.equal(v1.length, LOCAL_EMBEDDING_DIM);
+  const norm = Math.sqrt(v1.reduce((sum, x) => sum + x * x, 0));
+  assert.ok(Math.abs(norm - 1) < 1e-5, 'normalized vector must lie on the unit hypersphere');
+  const restored = blobToVector(vectorToBlob(v1));
+  assert.deepEqual(Array.from(restored), Array.from(v1));
+  assert.ok(cosineSimilarity(v1, v2) > 0.5, 'semantically aligned concepts must have high cosine similarity');
+  assert.ok(Math.abs(cosineSimilarity(v1, vUnrelated)) < 0.1, 'orthogonal domains must have near-zero similarity');
+
+  const { document } = await api.importDocument({ name: 'ops.md', data: base64('# 运维指南\n## 内存治理\n容器在每日 03:00 触发快照归档并回收僵尸句柄。') });
+  const vecRow = store.get('SELECT * FROM chunk_vectors WHERE chunkId = (SELECT id FROM chunks WHERE documentId=?)', document.id);
+  assert.ok(vecRow);
+  assert.equal(vecRow.dim, LOCAL_EMBEDDING_DIM);
+  assert.equal(vecRow.headingPath, '运维指南 > 内存治理');
+  assert.equal(api.knowledge.stats().vectorCount, 1);
+
+  api.deleteDocument(document.id);
+  assert.equal(store.get('SELECT COUNT(*) AS n FROM chunk_vectors').n, 0);
+  assert.equal(api.knowledge.stats().chunkCount, 0);
+});
+
+test('hybrid vector + BM25 search bridges the lexical gap when BM25 has zero token overlap', async t => {
+  const { api } = fixture(t);
+  const opsDoc = await api.importDocument({
+    name: 'ops-manual.txt',
+    data: base64('容器在每日 03:00 触发快照归档并回收僵尸句柄。'),
+  });
+  const rocketDoc = await api.importDocument({
+    name: 'space.txt',
+    data: base64('Deploy the satellite with a reusable rocket.'),
+  });
+  await api.importDocument({
+    name: 'sports.txt',
+    data: base64('周末在球场进行篮球比赛。'),
+  });
+
+  // Pure BM25 has 0 overlapping Chinese bigrams between query and opsDoc
+  assert.equal(rankText('为什么半夜系统会卡顿并清理内存', [{ content: '容器在每日 03:00 触发快照归档并回收僵尸句柄。' }]).length, 0);
+
+  // Hybrid search recalls opsDoc via dense semantic vector similarity
+  const semanticHits = api.searchKnowledge({ query: '为什么半夜系统会卡顿并清理内存' }).sources;
+  assert.ok(semanticHits.length >= 1);
+  assert.equal(semanticHits[0].documentId, opsDoc.document.id);
+
+  // Morphological stem & aerospace concept matching ("deployment" / "spacecraft launch into orbit")
+  const stemHits = api.searchKnowledge({ query: 'spacecraft deployment into orbit' }).sources;
+  assert.ok(stemHits.length >= 1);
+  assert.equal(stemHits[0].documentId, rocketDoc.document.id);
+});
+
+test('hierarchical Markdown heading paths preserve parent section context across chunks', async t => {
+  const { api } = fixture(t);
+  const chunk1 = `# 网易云音乐模块\n## 简介\n${'音乐服务基础说明。'.repeat(120)}`;
+  const chunk2 = `## 常见故障\n### 连接超时排查\n请检查本地 3000 端口是否启动。`;
+  const paths = extractHeadingPaths([chunk1, chunk2]);
+  assert.equal(paths[0], '网易云音乐模块 > 简介');
+  assert.equal(paths[1], '网易云音乐模块 > 常见故障 > 连接超时排查');
+
+  const { document } = await api.importDocument({
+    name: 'manual.md',
+    data: base64(`${chunk1}\n${chunk2}`),
+  });
+  const hits = api.searchKnowledge({ query: '网易云音乐 3000 端口' }).sources;
+  assert.ok(hits.length >= 1);
+  assert.equal(hits[0].documentId, document.id);
+  assert.equal(hits[0].index, 2);
+});
+
