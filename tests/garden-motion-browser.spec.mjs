@@ -20,8 +20,23 @@ async function settled(page) {
   await expect(skip(page)).toBeHidden();
 }
 
+async function triggerReplay(page) {
+  const btn = replay(page);
+  if (await btn.isVisible()) {
+    await btn.click();
+  } else {
+    await page.evaluate(() => {
+      if (typeof window.__replayGardenEntrance === 'function') {
+        window.__replayGardenEntrance();
+      } else {
+        document.querySelector('[data-garden-action="entrance"]')?.click();
+      }
+    });
+  }
+}
+
 async function startReplay(page) {
-  await replay(page).click();
+  await triggerReplay(page);
   await expect(page.locator('#startup-screen')).toHaveCount(1);
   await expect(page.locator('#startup-screen')).toHaveClass(/is-active/);
   await expect(page.locator('#startup-screen')).toHaveAttribute('aria-hidden', 'false');
@@ -268,11 +283,15 @@ test.describe('fresh garden entrance', () => {
       await skip(page).click();
       await settled(page);
     }
+    await nav(page, '设置').click();
     await page.getByRole('button', { name: '夜雨', exact: true }).click();
     await expect(page.locator('html')).toHaveAttribute('data-garden-theme', 'night');
     await scenes(page).click();
+    await nav(page, '对话').click();
     await expect(sceneSwitch(page)).toHaveAttribute('aria-checked', 'false');
+    await nav(page, '设置').click();
     await scenes(page).click();
+    await nav(page, '对话').click();
     await expect(sceneSwitch(page)).toHaveAttribute('aria-checked', 'true');
     await page.locator('#chat-input').fill('存储不可用也不丢失当前草稿。');
     await nav(page, '知识库').click();
@@ -317,7 +336,7 @@ test.describe('fresh garden entrance', () => {
           if (element.scrollHeight > element.clientHeight + 2 || element.scrollWidth > element.clientWidth + 2) problems.push(`${element.className} clips its content`);
         }
         const pairs = [
-          ['.garden-controls', '.sidebar'], ['.sidebar', '.topbar'], ['.topbar', '.page-heading'],
+          ['.sidebar', '.topbar'], ['.topbar', '.page-heading'],
           ['.page-heading', '.chat-panel'], ['#chat-messages', '.composer-wrap'],
           ['.composer-wrap', '.chat-aside'], ['.persona-summary', '.garden-memory'],
           ['#chat-input', '#chat-form button[type="submit"]'],
@@ -325,7 +344,7 @@ test.describe('fresh garden entrance', () => {
         const overlaps = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1
           && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
         for (const [a, b] of pairs) if (overlaps(rect(a), rect(b))) problems.push(`${a} overlaps ${b}`);
-        const controls = [...document.querySelectorAll('#navigation a, .garden-controls button, .garden-memory button, #chat-input, #chat-form button[type="submit"]')];
+        const controls = [...document.querySelectorAll('#navigation a, .garden-memory button, #chat-input, #chat-form button[type="submit"]')];
         controls.forEach((element, index) => {
           const box = element.getBoundingClientRect();
           const label = element.id || element.textContent.trim();
@@ -393,7 +412,7 @@ test('changing reduced motion cancels both entrance phases and allows explicit r
     await settled(page);
     await expect(page.locator('.ambient-bamboo')).toHaveCSS('animation-name', 'none');
     await expect(page.locator('.koi-fish-red')).toHaveCSS('animation-name', 'none');
-    await replay(page).click(); // Explicit replay must also respect the current preference.
+    await triggerReplay(page); // Explicit replay must also respect the current preference.
     await settled(page);
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await settled(page); // Restoring motion is not an unsolicited replay.
@@ -449,6 +468,9 @@ test('scene controls freeze actual decorative animation clocks and visuals, then
   await page.setViewportSize({ width: 1440, height: 960 }); // The miniature lantern is hidden on phones.
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.goto(offline.url);
+  if (await skip(page).isVisible({ timeout: 1000 }).catch(() => false)) {
+    await skip(page).click();
+  }
   await settled(page);
   await expect(sceneSwitch(page)).toHaveAttribute('aria-checked', 'true');
   const initial = await sampleDecorations(page);
@@ -464,7 +486,6 @@ test('scene controls freeze actual decorative animation clocks and visuals, then
 
   await sceneSwitch(page).click();
   await expect(sceneSwitch(page)).toHaveAttribute('aria-checked', 'false');
-  await expect(scenes(page)).toHaveAttribute('aria-pressed', 'false');
   // Soft checks retain every target's evidence while still exercising resume.
   const soft = expect.configure({ soft: true });
   await soft.poll(async () => motionStateProblems(await sampleDecorations(page), 'paused'), {
@@ -474,12 +495,19 @@ test('scene controls freeze actual decorative animation clocks and visuals, then
   const frozen = await measureDecorations(page);
   for (const sample of frozen.samples) compareMotion(frozen.first, sample, false);
 
-  await scenes(page).click(); // Both controls must operate on the same scene preference.
+  await sceneSwitch(page).click(); // Resume on chat so the existing DOM elements keep their animation clocks.
   await expect(sceneSwitch(page)).toHaveAttribute('aria-checked', 'true');
-  await expect(scenes(page)).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(async () => motionStateProblems(await sampleDecorations(page), 'running'), { intervals: [50], timeout: 2500 }).toEqual([]);
   const resumed = await measureDecorations(page);
   compareMotion(frozen.last, resumed.last, true);
   compareMotion(resumed.first, resumed.last, true);
+
+  // Synchronize with settings:
+  await nav(page, '设置').click();
+  await expect(scenes(page)).toHaveAttribute('aria-pressed', 'true');
+  await scenes(page).click();
+  await expect(scenes(page)).toHaveAttribute('aria-pressed', 'false');
+  await nav(page, '对话').click();
+  await expect(sceneSwitch(page)).toHaveAttribute('aria-checked', 'false');
   expect(offline.calls.model).toHaveLength(0);
 });

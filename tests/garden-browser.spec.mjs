@@ -77,8 +77,10 @@ test('appearance preferences persist without mutating service settings or losing
   const writes = [];
   page.on('request', req => { if (req.method() !== 'GET') writes.push(req.url()); });
   await page.locator('#chat-input').fill('切换主题时保留这句话。');
+  await nav(page, '设置').click();
   await page.getByRole('button', { name: '夜雨', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-garden-theme', 'night');
+  await nav(page, '对话').click();
   await page.locator('.garden-memory [data-garden-action="scenes"]').click();
   await expect(page.locator('body')).toHaveClass(/scene-paused/);
   await nav(page, '知识库').click();

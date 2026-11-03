@@ -113,16 +113,8 @@
        2. 顶部“造园工艺检视器”交互控制栏
        ========================================================================== */
     .preview-inspector {
-      position: sticky;
-      top: 0;
-      z-index: 80;
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px 18px;
-      padding: 8px 24px;
-      background: linear-gradient(90deg, #192520, #24362f);
+      display: none !important;
+    }
       color: #f3efe4;
       border-bottom: 1px solid rgba(213, 207, 192, 0.25);
       font-size: 12px;
@@ -2210,11 +2202,8 @@
     button, input, select, textarea { font-family: var(--sans); }
     .button { font-family: var(--sans); letter-spacing: 0; white-space: nowrap; }
     .seal-stamp-red, .seal-stamp-gold, .small-label, .eyebrow { font-family: var(--sans); letter-spacing: 0; }
-    .preview-inspector { height: 34px; min-height: 34px; padding: 0 14px; gap: 12px; }
-    .inspector-brand { font-family: var(--sans); font-size: 11px; letter-spacing: 0; gap: 8px; white-space: nowrap; }
-    .inspector-controls { flex-wrap: nowrap; gap: 6px; font-size: 11px; }
-    .inspector-btn { min-height: 24px; padding: 2px 8px; font-size: 11px; white-space: nowrap; }
-    .app-shell { height: calc(100% - 34px); min-height: 0; grid-template-columns: var(--rail-width) minmax(0, 1fr); overflow: hidden; }
+    .preview-inspector { display: none !important; }
+    .app-shell { height: 100%; min-height: 0; grid-template-columns: var(--rail-width) minmax(0, 1fr); overflow: hidden; }
 
     /* Navigation and companion share the left rail. */
     .sidebar { position: relative; top: 0; height: 100%; min-height: 0; padding: 12px; gap: 12px; justify-content: flex-start; overflow: hidden; }
@@ -2507,11 +2496,7 @@
     }
     @media (max-width: 680px) {
       /* A compact overview keeps all modules visible on phones too. */
-      .preview-inspector { height: 56px; min-height: 56px; flex-wrap: wrap; justify-content: center; gap: 2px; padding: 3px 6px; }
-      .inspector-brand { width: 100%; justify-content: center; }
-      .inspector-controls { width: 100%; justify-content: center; gap: 2px; }
-      .inspector-btn { padding: 1px 3px; min-height: 21px; font-size: 8px; }
-      .app-shell { height: calc(100% - 56px); display: flex; flex-direction: column; }
+      .app-shell { height: 100%; display: flex; flex-direction: column; }
       .sidebar { flex-shrink: 0; display: grid; grid-template-columns: 65px minmax(0, 1fr); height: 49px; padding: 5px 7px; gap: 7px; border-right: 0; border-bottom: 1px solid var(--line); overflow: visible; }
       .brand-plaque { height: 37px; padding: 3px 6px; border: 0; background: transparent; box-shadow: none; }
       .brand-plaque::after, .brand-text small, .brand-seal, .sidebar > .leak-window-strip, .sidebar-bottom { display: none; }
@@ -2648,6 +2633,16 @@ body { height: var(--visible-height, 100dvh); }
 .garden-controls .inspector-brand { font-family: var(--sans); }
 .garden-controls [data-garden-action="scenes"][aria-pressed="true"] { background: rgba(255,255,255,.13); border-color: rgba(243,239,228,.4); }
 .garden-controls [data-garden-action="scenes"][aria-pressed="false"] { opacity: .7; }
+.garden-appearance-card .theme-options { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.garden-appearance-card [data-garden-theme-select] { min-height: 32px; padding: 4px 18px; font-size: 13px; border-radius: var(--radius-sm, 4px); cursor: pointer; transition: all 0.2s ease; user-select: none; }
+.garden-appearance-card [data-garden-theme-select="spring"] { background: rgba(108, 138, 124, 0.12); color: var(--ink); border: 1px solid rgba(108, 138, 124, 0.4); }
+.garden-appearance-card [data-garden-theme-select="autumn"] { background: rgba(184, 135, 60, 0.12); color: var(--ink); border: 1px solid rgba(184, 135, 60, 0.4); }
+.garden-appearance-card [data-garden-theme-select="night"] { background: rgba(30, 45, 40, 0.18); color: var(--ink); border: 1px solid rgba(163, 50, 39, 0.35); }
+.garden-appearance-card [data-garden-theme-select][aria-pressed="true"] { outline: 2px solid var(--bamboo); outline-offset: 1px; font-weight: 600; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12); }
+.garden-appearance-card .garden-setting-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.garden-appearance-card .garden-setting-actions .inspector-btn { min-height: 32px; padding: 4px 18px; font-size: 13px; }
+.garden-appearance-card [data-garden-action="scenes"][aria-pressed="true"] { background: var(--bamboo-soft); border-color: var(--bamboo); color: var(--ink); }
+.garden-appearance-card [data-garden-action="scenes"][aria-pressed="false"] { opacity: 0.65; }
 .app-shell { padding: 0; }
 body[data-music-player="true"] .app-shell { padding: 0; }
 .sidebar { align-items: stretch; }
@@ -2919,14 +2914,8 @@ body[data-music-player="true"] .toast-stack { bottom: 16px; }
 }
 @media (max-width: 700px) {
   :root { --rail-width: 0px; }
-  .garden-controls.preview-inspector { height: 32px; min-height: 32px; flex-wrap: nowrap; justify-content: space-between; padding: 0 7px; gap: 5px; }
-  .garden-controls .inspector-brand { width: auto; font-size: 10px; }
-  .garden-controls .inspector-brand > span:last-child { display: none; }
-  .garden-controls .inspector-controls { width: auto; gap: 4px; justify-content: flex-end; }
-  .garden-controls .inspector-btn { min-height: 24px; padding: 2px 5px; font-size: 9px; }
   .theme-options { gap: 4px; }
-  .garden-controls .inspector-divider { display: none; }
-  .app-shell { display: flex; flex-direction: column; height: calc(100% - 32px); padding: 0; }
+  .app-shell { display: flex; flex-direction: column; height: 100%; padding: 0; }
   .sidebar { display: grid; grid-template-columns: 57px minmax(0,1fr); height: 53px; padding: 5px 7px; gap: 7px; flex-shrink: 0; border-right: 0; border-bottom: 1px solid var(--line); position: relative; overflow: hidden; }
   .brand.brand-plaque { display: flex; padding: 4px 2px; border: 0; min-height: 42px; height: auto; margin: 0; box-shadow: none; background: transparent; }
   .brand .brand-mark, .brand .brand-text small, .brand .brand-seal, .brand::after, .sidebar > .leak-window-strip, #garden-companion, .sidebar-bottom, .sidebar-caption { display: none; }
