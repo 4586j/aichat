@@ -185,3 +185,38 @@ test('manual memory fields reject invalid bounds and updates remain atomic', t =
   assert.equal(edge.importance, 0);
   assert.equal(edge.confidence, 1);
 });
+
+test('chat attachments are parsed, persisted and wrapped in secure boundary tags for the model', async t => {
+  const { api, personaId, calls } = fixture(t, ['代码审查回复：建议增加异常处理。']);
+  const parsed = await api.parseAttachment({ name: 'bubble.py', data: Buffer.from('def bubble_sort(arr):\n    return sorted(arr)').toString('base64') });
+  assert.equal(parsed.name, 'bubble.py');
+  assert.equal(parsed.format, 'py');
+  assert.equal(parsed.lineCount, 2);
+  assert.ok(parsed.text.includes('bubble_sort'));
+
+  const conversationId = addConversation(api, personaId);
+  const result = await api.sendMessage(conversationId, {
+    content: '请帮我审查代码',
+    attachments: [{
+      name: 'bubble.py',
+      format: 'py',
+      size: 48,
+      lineCount: 2,
+      content: 'def bubble_sort(arr):\n    return sorted(arr)'
+    }]
+  });
+
+  assert.equal(result.userMessage.content, '请帮我审查代码');
+  assert.equal(result.userMessage.attachments.length, 1);
+  assert.equal(result.userMessage.attachments[0].name, 'bubble.py');
+  assert.equal(result.userMessage.attachments[0].format, 'py');
+
+  const modelUserPrompt = calls[0].body.messages.find(m => m.role === 'user')?.content;
+  assert.ok(modelUserPrompt.includes('<user_attachment name="bubble.py" format="py">'));
+  assert.ok(modelUserPrompt.includes('def bubble_sort'));
+  assert.ok(modelUserPrompt.includes('请帮我审查代码'));
+
+  const stored = api.getConversation(conversationId);
+  assert.equal(stored.messages[0].attachments.length, 1);
+  assert.equal(stored.messages[0].attachments[0].name, 'bubble.py');
+});

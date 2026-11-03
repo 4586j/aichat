@@ -56,7 +56,8 @@ const ICON_PATHS = {
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
   external: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
   eye: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
-  share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>'
+  share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>',
+  quote: '<path d="M3 21c3 0 7-1 7-8V5c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v6c0 1.1.9 2 2 2h4c0 3.5-1 5.5-5 6v2Zm11 0c3 0 7-1 7-8V5c0-1.1-.9-2-2-2h-4c-1.1 0-2 .9-2 2v6c0 1.1.9 2 2 2h4c0 3.5-1 5.5-5 6v2Z"/>'
 };
 function icon(name) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ICON_PATHS.leaf}</svg>`;
@@ -99,6 +100,7 @@ const state = {
   messages: new Map(), loadingConversations: new Set(), loadErrors: new Map(),
   drafts: new Map(), draftVersions: new Map(), chatErrors: new Map(), streamFailures: new Map(), sending: null, newConversationBusy: false,
   setupPrompts: new Set(),
+  attachments: new Map(),
   analysis: { text: '', target: '', fileName: '', result: null, resultTarget: '', busy: false, error: '' },
   knowledge: { query: '', result: null, resultQuery: '', busy: false, uploading: false, error: '', uploadError: '' },
   memoryRole: 'all', memoryStatus: 'active', memoryView: 'list', busy: new Set(),
@@ -203,6 +205,170 @@ function toast(message, kind = 'success') {
 function currentPersona() { return state.data?.personas.find(p => p.id === state.personaId); }
 function personaName(id) { return state.data?.personas.find(p => p.id === id)?.name || '未关联角色'; }
 function currentDraftKey() { return state.conversationId || `new:${state.personaId}`; }
+
+function currentAttachments(key = currentDraftKey()) {
+  return state.attachments.get(key) || [];
+}
+function setAttachments(list, key = currentDraftKey()) {
+  state.attachments.set(key, list);
+  renderAttachments();
+}
+function removeAttachment(id, key = currentDraftKey()) {
+  const next = currentAttachments(key).filter(a => a.id !== id);
+  state.attachments.set(key, next);
+  renderAttachments();
+}
+function renderAttachmentChips(attachments) {
+  if (!attachments || !attachments.length) return '';
+  return attachments.map(a => `
+    <div class="attachment-chip" data-id="${e(a.id)}">
+      <span class="attachment-format">${e((a.format || 'file').toUpperCase())}</span>
+      <span class="attachment-name" title="${e(a.name)}">${e(a.name)}</span>
+      <span class="attachment-size">${a.lineCount ? `${a.lineCount} 行 · ` : ''}${number(a.size)} B</span>
+      <button type="button" class="attachment-btn" data-action="preview-attachment" data-id="${e(a.id)}" title="预览文件内容">${icon('eye')}</button>
+      <button type="button" class="attachment-btn" data-action="remove-attachment" data-id="${e(a.id)}" title="移除附件">${icon('close')}</button>
+    </div>
+  `).join('');
+}
+function renderAttachments() {
+  const container = document.getElementById('composer-attachments');
+  if (container) {
+    container.innerHTML = renderAttachmentChips(currentAttachments());
+  }
+}
+async function addFilesToChat(fileList) {
+  if (!fileList || !fileList.length) return;
+  const key = currentDraftKey();
+  const current = [...currentAttachments(key)];
+  const textFormats = [
+    'txt', 'md', 'json', 'csv', 'py', 'js', 'mjs', 'cjs', 'ts', 'jsx', 'tsx', 'html', 'css',
+    'sql', 'yaml', 'yml', 'xml', 'c', 'cpp', 'h', 'hpp', 'java', 'rs', 'go', 'sh', 'bat', 'ps1',
+    'log', 'env', 'ini', 'toml'
+  ];
+  for (const file of fileList) {
+    if (file.size > 8 * 1024 * 1024) {
+      toast(`文件 ${file.name} 超过 8 MiB，无法附加`, 'error');
+      continue;
+    }
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    if (file.type.startsWith('image/')) {
+      const dataUrl = await fileToBase64(file);
+      current.push({
+        id: 'att_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+        name: file.name || 'image.png',
+        format: ext || 'png',
+        type: 'image',
+        size: file.size,
+        content: `data:${file.type};base64,${dataUrl}`
+      });
+      toast(`已附加图片：${file.name || '图片'}`);
+    } else if (textFormats.includes(ext) || file.type.startsWith('text/') || ext === '') {
+      try {
+        const text = await file.text();
+        const lineCount = text.split('\n').length;
+        current.push({
+          id: 'att_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+          name: file.name,
+          format: ext || 'txt',
+          type: 'text',
+          size: file.size,
+          lineCount,
+          charCount: text.length,
+          content: text.slice(0, 40000)
+        });
+        toast(`已附加文件：${file.name} (${lineCount} 行)`);
+      } catch {
+        toast(`读取文件 ${file.name} 失败`, 'error');
+      }
+    } else if (['docx', 'pdf'].includes(ext)) {
+      try {
+        toast(`正在解析 ${file.name}…`, 'info');
+        const b64 = await fileToBase64(file);
+        const parsed = await api('/chat/parse-attachment', 'POST', { name: file.name, data: b64 });
+        current.push({
+          id: 'att_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+          name: file.name,
+          format: ext,
+          type: 'text',
+          size: file.size,
+          lineCount: parsed.lineCount || 0,
+          charCount: parsed.charCount || 0,
+          content: parsed.text.slice(0, 40000)
+        });
+        toast(`已附加文档：${file.name}`);
+      } catch (err) {
+        toast(err.message || `解析文档 ${file.name} 失败`, 'error');
+      }
+    } else {
+      toast(`不支持的文件格式：.${ext}`, 'error');
+    }
+  }
+  setAttachments(current, key);
+}
+function previewAttachmentDialog(att) {
+  if (!att) return;
+  dialogState = { type: 'attachment-preview' };
+  dialog.innerHTML = `
+    <div class="dialog-header">
+      <h2 id="dialog-title">${e(att.name)}</h2>
+      <button type="button" class="icon-button" data-action="close-dialog" aria-label="关闭">${icon('close')}</button>
+    </div>
+    <div class="dialog-body">
+      <div class="attachment-chip" style="margin-bottom:12px;">
+        <span class="attachment-format">${e((att.format || 'FILE').toUpperCase())}</span>
+        <span class="attachment-name">${e(att.name)}</span>
+        <span class="attachment-size">${att.lineCount ? `${att.lineCount} 行 · ` : ''}${number(att.size)} B</span>
+      </div>
+      ${att.type === 'image' ? `<img src="${att.content}" alt="${e(att.name)}" style="max-width:100%;max-height:400px;border-radius:4px;">` : `<pre class="artifact-preview-code"><code>${e(att.content)}</code></pre>`}
+    </div>
+  `;
+  if (!dialog.open) dialog.showModal();
+}
+function autoResizeTextarea(textarea) {
+  if (!textarea) return;
+  textarea.style.height = 'auto';
+  const newHeight = Math.min(Math.max(textarea.scrollHeight, 42), 160);
+  textarea.style.height = `${newHeight}px`;
+}
+function exportCurrentConversation() {
+  const current = state.data?.conversations?.find(c => c.id === state.conversationId);
+  const persona = currentPersona();
+  const messages = state.messages.get(state.conversationId) || [];
+  if (!messages.length) {
+    toast('当前对话没有可导出的消息', 'info');
+    return;
+  }
+  const title = current?.title || '栖忆对话记录';
+  const roleName = persona?.name || '伙伴';
+  let md = `# 对话记录 · ${title}\n\n`;
+  md += `- 参与角色：${roleName}\n`;
+  md += `- 导出时间：${new Date().toLocaleString('zh-CN')}\n`;
+  md += `- 消息总数：${messages.length} 条\n\n---\n\n`;
+
+  for (const m of messages) {
+    const isUser = m.role === 'user';
+    const sender = isUser ? '用户' : roleName;
+    const time = date(m.createdAt);
+    md += `### ${isUser ? '👤 ' : '🌸 '}${sender} (${time})\n\n`;
+    if (m.attachments && m.attachments.length) {
+      md += `*📎 附件：${m.attachments.map(a => `${a.name} (${a.format})`).join(', ')}*\n\n`;
+    }
+    if (!isUser && m.reasoning) {
+      md += `<details><summary>思考过程</summary>\n\n${m.reasoning}\n\n</details>\n\n`;
+    }
+    md += `${m.content}\n\n---\n\n`;
+  }
+
+  const blob = new Blob([md], { type: 'text/markdown; charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${title}-${new Date().toISOString().slice(0, 10)}.md`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  toast('已导出 Markdown 对话记录');
+}
+
 async function requestChat(path,content,onEvent,{signal}={}){
   let transport;
   try{transport=await import('./streaming.js');}
@@ -730,7 +896,9 @@ function renderMessage(message, persona, prevMessage) {
   const sources = Array.isArray(message.sources) ? message.sources : [];
   const memories = Array.isArray(message.recalledMemories) ? message.recalledMemories : [];
   const rememberAction = localStorage.getItem('qiyi-show-remember') === 'true' ? button('保存记忆', 'remember-reply', { id: message.id, kind: 'small btn-leaf' }) : '';
-  return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time></div>${!isUser&&message.reasoning?`<details class="message-reasoning" data-detail="reasoning-${e(message.id)}"><summary>思考过程</summary><div class="reasoning-text plain-text">${e(message.reasoning)}</div></details>`:''}<div class="message-content plain-text">${formatMessageContent(message.content, isUser ? '' : userPrompt)}</div>${!isUser ? responseUI.renderMessage(message) + `<div class="message-mail-action"><button type="button" class="button small btn-fan" data-mail-action="from-reply">写成邮件</button>${rememberAction}</div>` : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
+  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+  const userAttachmentsHtml = isUser && attachments.length ? `<div class="message-attachments-list">${attachments.map(att => `<div class="attachment-chip is-message"><span class="attachment-format">${e((att.format || 'FILE').toUpperCase())}</span><span class="attachment-name" title="${e(att.name)}">${e(att.name)}</span><span class="attachment-size">${att.lineCount ? `${att.lineCount} 行 · ` : ''}${number(att.size)} B</span>${att.content ? `<button type="button" class="attachment-btn" data-action="preview-message-attachment" data-msg-id="${e(message.id)}" data-att-id="${e(att.id || att.name)}" title="查看附件内容">${icon('eye')}</button>` : ''}</div>`).join('')}</div>` : '';
+  return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time><div class="message-actions-bar"><button type="button" class="btn-msg-action" data-action="copy-message" data-id="${e(message.id)}" title="复制消息全文" aria-label="复制消息全文">${icon('copy')}</button><button type="button" class="btn-msg-action" data-action="quote-message" data-id="${e(message.id)}" title="引用此消息" aria-label="引用此消息">${icon('quote')}</button></div></div>${userAttachmentsHtml}${!isUser&&message.reasoning?`<details class="message-reasoning" data-detail="reasoning-${e(message.id)}"><summary>思考过程</summary><div class="reasoning-text plain-text">${e(message.reasoning)}</div></details>`:''}<div class="message-content plain-text">${formatMessageContent(message.content, isUser ? '' : userPrompt)}</div>${!isUser ? responseUI.renderMessage(message) + `<div class="message-mail-action"><button type="button" class="button small btn-fan" data-mail-action="from-reply">写成邮件</button>${rememberAction}</div>` : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
 }
 function livePhase(reply){return reply.failed?'生成中断':reply.stopping?'正在停止…':reply.content?'正在输出…':({understanding:'正在理解…',searching_music:'正在查找歌曲…',searching_sources:'正在查找资料…',finalizing:'正在整理回复…'}[reply.phase]||'正在思考…');}
 function livePlaceholder(reply){return reply.failed?'回复未完成，请重新发送。':reply.reasoning?'正在组织回复…':'正在思考…';}
@@ -768,10 +936,11 @@ function renderChat() {
   const description = persona?.description || '创建和编辑角色，让对话更符合你的习惯。';
   const linked = responseUI.settings();
   return `${heading('今天，聊点什么？', '和伙伴聊聊天，记录想法与日常。', '对话工作台',
+    button('导出对话', 'export-conversation', { kind: 'btn-scroll', iconName: 'download', busy: !messages.length }) +
     button('历史对话', 'conversation-history', { kind: 'btn-scroll', iconName: 'book' }) +
     button(state.newConversationBusy ? '正在新建…' : '新建对话', 'new-conversation', { kind: 'primary', iconName: 'plus', busy: !persona || state.newConversationBusy }))}
     <div class="marble-balustrade-bar" aria-hidden="true"><svg viewBox="0 0 1200 22" preserveAspectRatio="none"><use href="#sym-marble-balustrade" x="0" y="-10" width="600" height="32"/><use href="#sym-marble-balustrade" x="600" y="-10" width="600" height="32"/></svg></div>
-    <div class="chat-grid"><section class="card card-begonia chat-panel" aria-label="与角色对话"><span class="scroll-dowel scroll-dowel-left" aria-hidden="true"></span><span class="scroll-dowel scroll-dowel-right" aria-hidden="true"></span>${petsUI.renderCompanion(true)}
+    <div class="chat-grid"><section class="card card-begonia chat-panel" id="chat-panel" aria-label="与角色对话"><div id="chat-drop-overlay" class="chat-drop-overlay" aria-hidden="true"><div class="drop-overlay-card">${icon('upload')}<h3>落墨成卷 · 拖入即阅</h3><p>松开鼠标将文件附加至当前对话</p></div></div><span class="scroll-dowel scroll-dowel-left" aria-hidden="true"></span><span class="scroll-dowel scroll-dowel-right" aria-hidden="true"></span>${petsUI.renderCompanion(true)}
       <div class="chat-toolbar"><div class="persona-control">
         <div class="persona-picker-dropdown" id="persona-picker-dropdown">
           <button type="button" class="persona-picker-trigger" id="persona-picker-trigger" aria-haspopup="listbox" aria-expanded="false" title="切换对话角色"${disabled(!persona)}>
@@ -831,7 +1000,7 @@ function renderChat() {
         ${setupPrompt}
         ${sendingHere&&!state.sending.completed ? renderLiveReply(state.sending,persona) : !sendingHere&&state.streamFailures.has(key) ? renderLiveReply(state.streamFailures.get(key),persona) : ''}
       </div>
-      <div class="composer-wrap">${errorHTML(state.chatErrors.get(key))}<div class="composer-paperweight"><span>发送消息</span><span class="keyboard-hint">Enter 发送 · Shift + Enter 换行</span><span class="touch-hint">换行继续写，轻触发送</span></div><form id="chat-form" class="composer"><label class="sr-only" for="chat-input">发送给当前角色的消息</label><textarea id="chat-input" name="content" rows="2" maxlength="8000" placeholder="和${e(persona?.name || '伙伴')}聊聊今天的想法…"${disabled(!persona || loading)}>${e(state.drafts.get(key) || '')}</textarea><div class="composer-bottom"><span class="composer-hint">对话保存在本地，发送时调用所选模型</span>${sendingHere ? `<button class="button small" type="button" data-action="stop-chat"${disabled(state.sending.stopping)}>${state.sending.stopping ? '正在停止…' : '停止生成'}</button>` : `<button class="button primary small" type="submit"${disabled(!persona || loading || Boolean(loadError) || Boolean(state.sending))}>${icon('send')}${state.sending ? '等待回复' : '发送'}</button>`}</div></form></div>
+      <div class="composer-wrap">${errorHTML(state.chatErrors.get(key))}<div class="composer-paperweight"><div class="composer-pw-left"><span>发送消息</span><label class="composer-attach-label" title="添加文件或图片附件">${icon('plus')}<span>添加文件</span><input id="chat-file-input" type="file" multiple accept=".txt,.md,.json,.csv,.py,.js,.ts,.html,.css,.sql,.yaml,.yml,.xml,.c,.cpp,.h,.java,.rs,.go,.sh,.bat,.ps1,.log,.docx,.pdf,image/*" style="display:none"></label></div><div class="composer-pw-right"><span class="keyboard-hint">Enter 发送 · Shift + Enter 换行</span><span class="touch-hint">换行继续写，轻触发送</span></div></div><form id="chat-form" class="composer"><div id="composer-attachments" class="composer-attachments">${renderAttachmentChips(currentAttachments())}</div><label class="sr-only" for="chat-input">发送给当前角色的消息</label><textarea id="chat-input" name="content" rows="2" maxlength="8000" placeholder="和${e(persona?.name || '伙伴')}聊聊今天的想法…"${disabled(!persona || loading)}>${e(state.drafts.get(key) || '')}</textarea><div class="composer-bottom"><span class="composer-hint">对话保存在本地，发送时调用所选模型</span>${sendingHere ? `<button class="button small" type="button" data-action="stop-chat"${disabled(state.sending.stopping)}>${state.sending.stopping ? '正在停止…' : '停止生成'}</button>` : `<button class="button primary small" type="submit"${disabled(!persona || loading || Boolean(loadError) || Boolean(state.sending))}>${icon('send')}${state.sending ? '等待回复' : '发送'}</button>`}</div></form></div>
     </section><aside class="chat-aside" aria-label="当前角色与会话信息">
       <section class="card card-begonia persona-summary">${gardenLattice}<div class="eyebrow">当前角色</div><div class="persona-head-row"><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><div><h2>${e(persona?.name || '未选择角色')}</h2>${persona?.tone ? `<span class="seal-stamp-red persona-tone" title="${e(persona.tone)}">${e(persona.tone)}</span>` : ''}</div></div><p class="plain-text" title="${e(description)}">${e(description.length > 90 ? description.slice(0,90) + '…' : description)}</p>${persona ? `<div>${button('查看人设', 'edit-persona', { id: persona.id, kind: 'small btn-scroll' })}</div>` : button('创建角色','create-persona',{kind:'small'})}</section>
       <section class="card card-begonia aside-card garden-memory"><h3><span>记忆</span><span class="seal-stamp-red">当前角色</span></h3>${gardenPond}<div class="memory-stats"><a class="stat-line" href="#memories"><span>活跃记忆</span><strong data-memory-count="active">${number(activeMemories)}</strong></a><a class="stat-line" href="#memories"><span>固定记忆</span><strong data-memory-count="pinned">${number(pinnedMemories)}</strong></a><a class="stat-line" href="#knowledge"><span>知识库文档</span><strong data-memory-count="documents">${number(state.data.documents.length)}</strong></a></div><div class="garden-memory-links"><a href="#memories">管理记忆</a><span>·</span><a href="#knowledge">查看知识库</a></div>${gardenCenser}<div class="switch-demo-row"><span>场景动画</span><button type="button" class="bamboo-switch" data-garden-action="scenes" role="switch" aria-checked="true"><span class="bamboo-track"><span class="bamboo-knob"></span></span><span data-garden-scenes-label>开启</span></button></div></section>
@@ -973,7 +1142,11 @@ async function sendMessage() {
     }
     outgoing.controller.signal.throwIfAborted();
     localStorage.setItem('active_flight:' + conversationId, content);
-    const result = await requestChat(`/conversations/${endpointId(conversationId)}/messages`,content,event=>{
+    const draftAttachments = currentAttachments(key);
+    const result = await requestChat(`/conversations/${endpointId(conversationId)}/messages`,{
+      content,
+      attachments: draftAttachments.map(a => ({ id: a.id, name: a.name, format: a.format, type: a.type, size: a.size, lineCount: a.lineCount, charCount: a.charCount, content: a.content }))
+    },event=>{
       if(outgoing.controller.signal.aborted)return;
       if(event.type==='status')outgoing.phase=event.phase;
       if(event.type==='reasoning')outgoing.reasoning+=event.delta||'';
@@ -992,7 +1165,7 @@ async function sendMessage() {
     }
     state.messages.set(conversationId, messages);
     state.setupPrompts.delete(key);
-    if (state.drafts.get(key) === rawDraft && (state.draftVersions.get(key)||0)===draftVersion) state.drafts.delete(key);
+    if (state.drafts.get(key) === rawDraft && (state.draftVersions.get(key)||0)===draftVersion) { state.drafts.delete(key); state.attachments.delete(key); renderAttachments(); }
     state.chatErrors.delete(key);
     await refreshData({ silent: true, draw: false });
   } catch (error) {
@@ -1832,6 +2005,46 @@ document.addEventListener('click', async event => {
       case 'response-settings': location.hash = 'settings'; requestAnimationFrame(() => $('.response-settings')?.scrollIntoView({ block: 'start' })); break;
       case 'remember-reply': { const message = (state.messages.get(state.conversationId) || []).find(m => String(m.id) === id); if (message) { openMemoryEditor(); $('#memory-content').value = message.content.slice(0,1000); } break; }
       case 'reload-conversation': await loadConversation(state.conversationId); break;
+      case 'export-conversation': exportCurrentConversation(); break;
+      case 'copy-message': {
+        const msg = (state.messages.get(state.conversationId) || []).find(m => String(m.id) === id);
+        if (msg) {
+          navigator.clipboard.writeText(msg.content);
+          toast('已复制消息全文');
+        }
+        break;
+      }
+      case 'quote-message': {
+        const msg = (state.messages.get(state.conversationId) || []).find(m => String(m.id) === id);
+        if (msg) {
+          const input = $('#chat-input');
+          if (input) {
+            const sender = msg.role === 'user' ? '我' : (currentPersona()?.name || '伙伴');
+            const lines = msg.content.trim().split('\n').map(l => `> ${l}`).join('\n');
+            const quote = `> 【${sender}】\n${lines}\n\n`;
+            input.value = quote + (input.value ? input.value : '');
+            state.drafts.set(currentDraftKey(), input.value);
+            autoResizeTextarea(input);
+            input.focus();
+            toast('已引用消息');
+          }
+        }
+        break;
+      }
+      case 'remove-attachment': removeAttachment(id); break;
+      case 'preview-attachment': {
+        const att = currentAttachments().find(a => a.id === id);
+        if (att) previewAttachmentDialog(att);
+        break;
+      }
+      case 'preview-message-attachment': {
+        const msgId = control.dataset.msgId;
+        const attId = control.dataset.attId;
+        const msg = (state.messages.get(state.conversationId) || []).find(m => String(m.id) === msgId);
+        const att = msg?.attachments?.find(a => String(a.id || a.name) === attId);
+        if (att) previewAttachmentDialog(att);
+        break;
+      }
       case 'create-persona': openPersonaEditor(); break;
       case 'edit-persona': openPersonaEditor(state.data.personas.find(p => p.id === id)); break;
       case 'chat-as-persona':
@@ -1948,3 +2161,52 @@ setInterval(() => {
 }, 60_000);
 renderPage();
 void refreshData({ silent: true });
+
+// Drag and Drop & Paste handling for Chat
+document.addEventListener('dragover', event => {
+  const panel = document.getElementById('chat-panel');
+  if (panel && event.dataTransfer?.types?.includes('Files')) {
+    event.preventDefault();
+    panel.classList.add('is-drag-over');
+  }
+});
+document.addEventListener('dragleave', event => {
+  const panel = document.getElementById('chat-panel');
+  if (panel && (!event.relatedTarget || !panel.contains(event.relatedTarget))) {
+    panel.classList.remove('is-drag-over');
+  }
+});
+document.addEventListener('drop', event => {
+  const panel = document.getElementById('chat-panel');
+  if (panel) {
+    panel.classList.remove('is-drag-over');
+    if (event.dataTransfer?.files?.length && state.page === 'chat') {
+      event.preventDefault();
+      addFilesToChat(event.dataTransfer.files);
+    }
+  }
+});
+
+document.addEventListener('paste', event => {
+  if (state.page !== 'chat') return;
+  const target = event.target;
+  if (target?.id === 'chat-input' || target?.closest('#chat-form')) {
+    if (event.clipboardData?.files?.length) {
+      event.preventDefault();
+      addFilesToChat(event.clipboardData.files);
+    }
+  }
+});
+
+document.addEventListener('change', event => {
+  if (event.target.id === 'chat-file-input' && event.target.files?.length) {
+    addFilesToChat(event.target.files);
+    event.target.value = '';
+  }
+});
+
+document.addEventListener('input', event => {
+  if (event.target.id === 'chat-input') {
+    autoResizeTextarea(event.target);
+  }
+});

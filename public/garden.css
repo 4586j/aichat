@@ -3206,3 +3206,202 @@ body[data-music-player="true"] .toast-stack { bottom: 16px; }
 .stream-interrupted-note { margin: 6px 0 0; }
 @keyframes reply-pulse { 0%,100% { opacity: .35; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .thinking-dot, .is-streaming .live-body:not(.is-waiting)::after { animation: none; } }
+
+/* Chat Drop Overlay */
+.chat-panel { position: relative; }
+.chat-drop-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 99;
+  background: rgba(244, 241, 232, 0.94);
+  backdrop-filter: blur(4px);
+  border: 2.5px dashed var(--bamboo);
+  border-radius: var(--radius-md, 8px);
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.chat-panel.is-drag-over .chat-drop-overlay {
+  display: flex;
+}
+[data-garden-theme="night"] .chat-drop-overlay {
+  background: rgba(21, 30, 27, 0.95);
+  border-color: var(--celadon);
+}
+.drop-overlay-card {
+  text-align: center;
+  padding: 24px 36px;
+  background: var(--paper-card);
+  border: 1px solid var(--frame-accent);
+  border-radius: var(--radius-sm, 4px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+}
+.drop-overlay-card svg {
+  width: 44px;
+  height: 44px;
+  color: var(--bamboo);
+  margin-bottom: 8px;
+}
+.drop-overlay-card h3 {
+  font-family: var(--kaiti);
+  font-size: 18px;
+  margin: 0 0 6px;
+  color: var(--ink);
+}
+.drop-overlay-card p {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+}
+
+/* Composer Attachments */
+.composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.composer-attachments:empty {
+  display: none;
+}
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  background: var(--paper-card);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.attachment-chip:hover {
+  border-color: var(--bamboo);
+}
+.attachment-chip.is-message {
+  margin-bottom: 6px;
+  background: rgba(0, 0, 0, 0.03);
+}
+[data-garden-theme="night"] .attachment-chip.is-message {
+  background: rgba(255, 255, 255, 0.05);
+}
+.attachment-format {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 1px 4px;
+  border-radius: 2px;
+  background: var(--bamboo-soft);
+  color: var(--bamboo);
+}
+.attachment-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--sans);
+  font-weight: 500;
+}
+.attachment-size {
+  font-size: 10px;
+  color: var(--muted);
+}
+.attachment-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 3px;
+}
+.attachment-btn svg {
+  width: 13px;
+  height: 13px;
+}
+.attachment-btn:hover {
+  color: var(--cinnabar);
+  background: rgba(0, 0, 0, 0.05);
+}
+.composer-attach-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: var(--sans);
+  padding: 2px 6px;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+}
+.composer-attach-label:hover {
+  color: var(--bamboo);
+  background: rgba(0, 0, 0, 0.05);
+}
+.composer-attach-label svg {
+  width: 13px;
+  height: 13px;
+}
+.composer-pw-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.composer-pw-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Message Actions Bar */
+.message {
+  position: relative;
+}
+.message-actions-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.message:hover .message-actions-bar,
+.message:focus-within .message-actions-bar {
+  opacity: 1;
+}
+.btn-msg-action {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--paper-card);
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-msg-action:hover {
+  color: var(--ink);
+  border-color: var(--bamboo);
+  background: var(--paper-deep);
+}
+.btn-msg-action svg {
+  width: 13px;
+  height: 13px;
+}
+.message-attachments-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}

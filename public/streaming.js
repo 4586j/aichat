@@ -39,8 +39,9 @@ export async function* readEvents(body,{signal,maxBytes=2*1024*1024}={}) {
   }
 }
 
-export async function requestChat(path,content,onEvent,{signal}={}){
-  const response=await fetch(`/api${path}`,{method:'POST',headers:{'Content-Type':'application/json',Accept:'text/event-stream'},body:JSON.stringify({content}),signal});
+export async function requestChat(path,payload,onEvent,{signal}={}){
+  const body = typeof payload === 'string' ? { content: payload } : payload;
+  const response=await fetch(`/api${path}`,{method:'POST',headers:{'Content-Type':'application/json',Accept:'text/event-stream'},body:JSON.stringify(body),signal});
   if(!response.headers.get('content-type')?.includes('text/event-stream')){
     const data=await response.json();if(!response.ok)throw new Error(typeof data.error==='string'?data.error:'请求未成功，请稍后重试。');return data;
   }

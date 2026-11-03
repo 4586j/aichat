@@ -144,6 +144,7 @@ async function route(api, method, pathname, input, query) {
     if (method === 'POST' && !itemId) return api.importDocument(input);
     if (method === 'DELETE' && itemId) return api.deleteDocument(itemId);
   }
+  if (method === 'POST' && pathname === '/api/chat/parse-attachment') return api.parseAttachment(input);
   if (method === 'POST' && pathname === '/api/knowledge/search') return api.searchKnowledge(input);
   if (resource === 'memories' && !action) {
     if (method === 'POST' && itemId === 'summarize') return api.summarize(input);
