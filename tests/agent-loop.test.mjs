@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runAgentLoop } from '../lib/agent-loop.mjs';
 import { createInstructionInspector } from '../lib/instruction-inspector.mjs';
+import { fixture, addConversation } from './helpers.mjs';
 
 function createMockModel(responses) {
   let callIndex = 0;
@@ -274,4 +275,129 @@ test('runAgentLoop: critic rejection triggers reflective feedback loop and conve
   assert.ok(streamEvents.some(e => e.type === 'status' && e.phase === 'reviewing'));
   assert.ok(streamEvents.some(e => e.type === 'status' && e.phase === 'reflecting'));
   assert.equal(result.criticResult.passed, true);
+});
+
+test('unified turn-pipeline in sendMessage enforces instruction inspector approval on sensitive tools and records turn_traces', async t => {
+  const toolCallReply = new Response(JSON.stringify({
+    choices: [{
+      index: 0,
+      message: {
+        role: 'assistant',
+        content: null,
+        tool_calls: [{
+          id: 'call_del_1',
+          type: 'function',
+          function: { name: 'delete_external_record', arguments: '{"recordId":"rec-99"}' }
+        }]
+      },
+      finish_reason: 'tool_calls'
+    }]
+  }), { headers: { 'content-type': 'application/json' } });
+
+  const f = fixture(t, [
+    toolCallReply,
+    '由于您未授权删除操作，已为您保留原记录 rec-99。'
+  ]);
+  let sensitiveExecuted = false;
+  f.api.toolRegistry.registerSkill({
+    type: 'function',
+    function: {
+      name: 'delete_external_record',
+      description: 'Delete an external record',
+      parameters: { type: 'object', properties: { recordId: { type: 'string' } }, required: ['recordId'] }
+    }
+  }, async () => { sensitiveExecuted = true; return { deleted: true }; });
+  f.api.updateSettings({ criticEnabled: false });
+
+  const convId = addConversation(f.api, f.personaId);
+  const events = [];
+  const res = await f.api.sendMessage(convId, { content: '帮我删除外部记录 rec-99' }, {
+    onEvent: ev => events.push(ev)
+  });
+
+  assert.equal(sensitiveExecuted, false, 'Sensitive tool in main chat must be intercepted by inspector when unapproved');
+  assert.ok(events.some(e => e.type === 'approval_requested' && e.ticket?.toolCall?.name === 'delete_external_record'));
+  assert.ok(res.message.content.includes('保留原记录'));
+
+  const { traces } = f.api.getTraces({ conversationId: convId });
+  assert.equal(traces.length, 1);
+  assert.equal(traces[0].conversationId, convId);
+  assert.equal(traces[0].outcome, 'approval_rejected');
+  assert.equal(traces[0].toolCalls, 1);
+});
+
+test('unified turn-pipeline in sendMessage strictly caps critic reflections by criticMaxRetries', async t => {
+  const calcCallReply = new Response(JSON.stringify({
+    choices: [{
+      index: 0,
+      message: {
+        role: 'assistant',
+        content: null,
+        tool_calls: [{
+          id: 'call_calc_1',
+          type: 'function',
+          function: { name: 'calculator', arguments: '{"expression":"6*7"}' }
+        }]
+      },
+      finish_reason: 'tool_calls'
+    }]
+  }), { headers: { 'content-type': 'application/json' } });
+
+  const f = fixture(t, [
+    calcCallReply,
+    '第一次候选回答：结果是 42。',
+    JSON.stringify({ passed: false, score: 45, missingPoints: ['缺少推导说明'], factCheck: 'consistent', feedbackToAgent: '请补充推导说明' }),
+    '第二次修正回答：6 乘以 7 等于 42，推导完毕。',
+    JSON.stringify({ passed: false, score: 55, missingPoints: ['仍想挑剔'], factCheck: 'consistent', feedbackToAgent: '继续挑剔' })
+  ]);
+  f.api.updateSettings({ criticEnabled: true, criticMaxRetries: 1, agentMaxSteps: 20 });
+
+  const convId = addConversation(f.api, f.personaId);
+  const res = await f.api.sendMessage(convId, { content: '请计算 6*7 并给出详细推导说明' });
+  assert.ok(res.message.content.includes('42'));
+  // 1 tool call + 1 candidate + 1 critic + 1 retry candidate + 1 critic = 5 model calls total (capped at 1 retry despite agentMaxSteps=20)
+  assert.equal(f.calls.length, 5);
+  const { traces } = f.api.getTraces({ conversationId: convId });
+  assert.equal(traces[0].modelCalls, 5);
+  assert.equal(traces[0].criticScore, 55);
+});
+
+test('store schemaVersion migrations and FTS5 chunks_fts stay synchronized on import and delete', async t => {
+  const f = fixture(t, []);
+  assert.equal(f.store.schemaVersion(), 2);
+  assert.equal(f.api.knowledge.stats().ftsEnabled, true);
+
+  const rawText = '栖忆古典园林架构采用 SQLite FTS5 全文检索引擎与向量混合排序。';
+  const doc = await f.api.knowledge.importDocument('architecture.md', Buffer.from(rawText, 'utf8').toString('base64'));
+  const ftsHits = f.api.knowledge.ftsSearch('全文检索引擎');
+  assert.equal(ftsHits.length, 1);
+
+  const searchHits = f.api.knowledge.search('FTS5 全文检索');
+  assert.equal(searchHits.length, 1);
+  assert.equal(searchHits[0].documentId, doc.id);
+
+  f.api.deleteDocument(doc.id);
+  assert.equal(f.api.knowledge.ftsSearch('全文检索引擎').length, 0);
+});
+
+test('model.complete supports pre-first-byte maxRetries and criticModel override', async t => {
+  let attempt = 0;
+  const f = fixture(t, [], {
+    fetchImpl: async (url, init) => {
+      attempt++;
+      if (attempt === 1) {
+        return new Response('Service Unavailable', { status: 503 });
+      }
+      const body = JSON.parse(init.body);
+      return new Response(JSON.stringify({
+        choices: [{ index: 0, message: { role: 'assistant', content: `成功使用模型:${body.model}` }, finish_reason: 'stop' }]
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+  });
+  const reply = await f.api.model.complete([{ role: 'user', content: '重试测试' }], {
+    maxRetries: 1,
+    model: 'qiyi-critic-lite'
+  });
+  assert.equal(attempt, 2);
+  assert.equal(reply, '成功使用模型:qiyi-critic-lite');
 });

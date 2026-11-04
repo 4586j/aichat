@@ -7,6 +7,7 @@ import { createGuidesUI } from './guides.js';
 import { createPetsUI } from './pets.js';
 import { createChatStateUI } from './chat-state.js';
 import { createResponseUI } from './response-policy.js';
+import { SSE_EVENTS, SSE_PHASES } from './sse-protocol.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -1158,11 +1159,12 @@ async function sendMessage() {
       attachments: draftAttachments.map(a => ({ id: a.id, name: a.name, format: a.format, type: a.type, size: a.size, lineCount: a.lineCount, charCount: a.charCount, content: a.content }))
     },event=>{
       if(outgoing.controller.signal.aborted)return;
-      if(event.type==='status') { outgoing.phase = event.phase; outgoing.phaseDetail = event.reason || (event.step ? `第 ${event.step} 步` : ''); }
-      if(event.type==='thought_step') { outgoing.thoughtSteps = outgoing.thoughtSteps || []; outgoing.thoughtSteps.push(event); }
-      if(event.type==='tool_result') { outgoing.toolResults = outgoing.toolResults || []; outgoing.toolResults.push(event); }
-      if(event.type==='reasoning') outgoing.reasoning += event.delta || '';
-      if(event.type==='content') outgoing.content = typeof event.content === 'string' ? event.content : outgoing.content + (event.delta || '');
+      if(event.type===SSE_EVENTS.STATUS) { outgoing.phase = event.phase; outgoing.phaseDetail = event.reason || (event.step ? `第 ${event.step} 步` : ''); }
+      if(event.type===SSE_EVENTS.THOUGHT_STEP) { outgoing.thoughtSteps = outgoing.thoughtSteps || []; outgoing.thoughtSteps.push(event); }
+      if(event.type===SSE_EVENTS.APPROVAL_REQUESTED) { outgoing.approvals = outgoing.approvals || []; outgoing.approvals.push(event.ticket); }
+      if(event.type===SSE_EVENTS.TOOL_RESULT) { outgoing.toolResults = outgoing.toolResults || []; outgoing.toolResults.push(event); }
+      if(event.type===SSE_EVENTS.REASONING) outgoing.reasoning += event.delta || '';
+      if(event.type===SSE_EVENTS.CONTENT) outgoing.content = typeof event.content === 'string' ? event.content : outgoing.content + (event.delta || '');
       if(state.page==='chat'&&state.conversationId===conversationId)patchLiveReply(outgoing);
     },{signal:outgoing.controller.signal});
     outgoing.controller.signal.throwIfAborted();
