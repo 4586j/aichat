@@ -220,3 +220,55 @@ test('chat attachments are parsed, persisted and wrapped in secure boundary tags
   assert.equal(stored.messages[0].attachments.length, 1);
   assert.equal(stored.messages[0].attachments[0].name, 'bubble.py');
 });
+
+test('sendMessage: executes multi-step ReAct agent loop and critic auditing', async t => {
+  const jsonResp = (obj, finish_reason = 'stop') => new Response(JSON.stringify({
+    choices: [{
+      finish_reason,
+      message: obj
+    }]
+  }), { headers: { 'Content-Type': 'application/json' } });
+
+  const replies = [
+    // 1. Step 1 of agent loop: tool call to calculator
+    jsonResp({
+      content: '我先计算一下表达式',
+      tool_calls: [{
+        id: 'call_calc_1',
+        type: 'function',
+        function: {
+          name: 'calculator',
+          arguments: JSON.stringify({ expression: '(345 * 28) + (1024 / 16)' })
+        }
+      }]
+    }, 'tool_calls'),
+    // 2. Step 2 of agent loop: final candidate answer based on calculator
+    jsonResp({
+      content: '计算结果是 9724。'
+    }, 'stop'),
+    // 3. Step 3: Critic model audit
+    JSON.stringify({
+      passed: true,
+      score: 98,
+      missingPoints: [],
+      factCheck: 'consistent',
+      feedbackToAgent: ''
+    })
+  ];
+
+  const { store, api, personaId } = fixture(t, replies);
+  store.saveSettings({ intentMode: 'legacy', agentMaxSteps: 20, criticEnabled: true, criticMaxRetries: 1 });
+
+  const conversationId = addConversation(api, personaId);
+  const events = [];
+  const result = await api.sendMessage(conversationId, {
+    content: '帮我计算 (345 * 28) + (1024 / 16) 是多少？'
+  }, {
+    onEvent: ev => events.push(ev)
+  });
+
+  assert.ok(result.message.content.includes('9724'));
+  assert.ok(events.some(e => e.type === 'thought_step' && e.tool === 'calculator'));
+  assert.ok(events.some(e => e.type === 'tool_result' && e.tool === 'calculator'));
+  assert.ok(events.some(e => e.type === 'status' && e.phase === 'reviewing'));
+});

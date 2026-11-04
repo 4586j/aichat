@@ -211,3 +211,67 @@ test('runAgentLoop: instruction inspector allows execution when user approves', 
   assert.equal(toolExecuted, true);
   assert.equal(result.content, '文档 doc-1 已成功删除。');
 });
+
+test('runAgentLoop: critic rejection triggers reflective feedback loop and converges upon approval', async () => {
+  const model = createMockModel([
+    // Step 1: Tool call (calculator)
+    {
+      content: '先算一下',
+      toolCalls: [{ id: 'c1', type: 'function', function: { name: 'calculator', arguments: '{"expr":"2+2"}' } }]
+    },
+    // Step 2: First candidate answer (imcomplete)
+    {
+      content: '2+2 等于 4。',
+      toolCalls: []
+    },
+    // Step 3: Revised candidate after receiving critic feedback
+    {
+      content: '2+2 等于 4。同时已补充满足安全规范说明。',
+      toolCalls: []
+    }
+  ]);
+
+  let criticCalls = 0;
+  const mockCritic = {
+    auditCandidate: async ({ candidateContent }) => {
+      criticCalls++;
+      if (criticCalls === 1) {
+        return {
+          passed: false,
+          score: 50,
+          missingPoints: ['缺少安全规范说明'],
+          factCheck: 'consistent',
+          feedbackToAgent: '请补充说明安全规范相关内容'
+        };
+      }
+      return {
+        passed: true,
+        score: 95,
+        missingPoints: [],
+        factCheck: 'consistent',
+        feedbackToAgent: ''
+      };
+    }
+  };
+
+  const streamEvents = [];
+  const result = await runAgentLoop({
+    model,
+    messages: [{ role: 'user', content: '计算 2+2 并说明安全规范' }],
+    tools: [{ type: 'function', function: { name: 'calculator', parameters: {} } }],
+    toolExecutor: async () => ({ result: 4 }),
+    critic: mockCritic,
+    criticEnabled: true,
+    criticMaxRetries: 1,
+    maxSteps: 5,
+    stream: {
+      emit: ev => streamEvents.push(ev)
+    }
+  });
+
+  assert.equal(criticCalls, 2);
+  assert.equal(result.content, '2+2 等于 4。同时已补充满足安全规范说明。');
+  assert.ok(streamEvents.some(e => e.type === 'status' && e.phase === 'reviewing'));
+  assert.ok(streamEvents.some(e => e.type === 'status' && e.phase === 'reflecting'));
+  assert.equal(result.criticResult.passed, true);
+});
