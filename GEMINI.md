@@ -37,6 +37,9 @@ node --test tests/tool-registry.test.mjs tests/http.test.mjs
 # 运行 Playwright 浏览器端到端测试（多视口渲染、交互断言）
 node ./node_modules/playwright/cli.js test tests/browser.spec.mjs
 node ./node_modules/playwright/cli.js test tests/garden-browser.spec.mjs
+
+# 运行真实用户全链路操作模拟测试套件（7 大核心用户旅程闭环）
+node ./node_modules/playwright/cli.js test tests/user-journey-simulation.spec.mjs
 ```
 
 ### 3. Git 协同规范
@@ -94,28 +97,31 @@ ai-companion/
 ├── playwright.config.mjs      # Playwright 端到端浏览器测试配置
 ├── server.mjs                 # 主 HTTP/SSE 服务入口与路由网关
 ├── lib/                       # 核心业务逻辑与服务层（ESM）
-│   ├── agent-loop.mjs         # ReAct 多轮推理循环引擎
+│   ├── agent-loop.mjs         # ReAct 多轮推理循环引擎（含工具链与 Critic 反思闭环）
 │   ├── chat-state.mjs         # 会话短期情感与意图状态机
 │   ├── chat-stream.mjs        # 流式传输协议与可见正文解析
 │   ├── instruction-inspector.mjs # 指令安全检测与审批凭据管理
-│   ├── knowledge.mjs          # 本地知识库分块、索引与两段式检索
+│   ├── intent-critic.mjs      # 回答意图对齐与事实一致性独立审核器 (Intent Critic)
+│   ├── knowledge.mjs          # 本地知识库分块、FTS5 全文索引与 RRF 混合向量检索
 │   ├── mail.mjs               # 本地/SMTP 邮件收发与草稿引擎
 │   ├── mcp-manager.mjs        # MCP JSON-RPC 2.0 客户端管理器
 │   ├── media.mjs              # 音乐搜索播放与表情包资源管理
 │   ├── memory.mjs             # 长期记忆衰减、图谱与召回
-│   ├── model.mjs              # OpenAI 兼容大模型客户端协议适配
+│   ├── model.mjs              # OpenAI 兼容大模型客户端协议适配（支持首包前退避重试与多模型路由）
 │   ├── pets.mjs               # 桌面宠物伴侣交互与动作调度
 │   ├── response-policy.mjs    # 伴侣回应策略与意图裁决
-│   ├── scheduler.mjs          # 本地定时任务调度器
+│   ├── scheduler.mjs          # 本地定时任务调度器（后台静默模式）
 │   ├── semantic-answer.mjs    # 语义对话编排与知识图谱融合
 │   ├── service.mjs            # 核心业务聚合 API 服务层
-│   ├── store.mjs              # SQLite 数据库模型与事务底座
-│   └── tool-registry.mjs      # 统一 Skill/MCP 工具注册中心
+│   ├── store.mjs              # SQLite 数据库模型、PRAGMA user_version 迁移与事务底座
+│   ├── tool-registry.mjs      # 统一 Skill/MCP 工具注册中心
+│   └── turn-pipeline.mjs      # 统一对话回合管线（上下文构建、提示词组装、AgentLoop 编排与 Trace 记录）
 ├── public/                    # 前端原生静态资源（零编译）
 │   ├── index.html             # 单页应用入口与 SVG 园林窗格图案定义
 │   ├── app.js                 # 前端核心交互控制器与组件渲染
 │   ├── styles.css             # 基础工作台布局与样式
 │   ├── garden.css             # 中国古典园林色彩与视觉系统（核心）
+│   ├── sse-protocol.js        # 前后端共享的 SSE 事件与阶段枚举协议契约
 │   └── streaming.js           # 前端 SSE 流解析器
 ├── docs/                      # 架构评审、演进方案与工程复盘文档
 │   ├── system-architecture-and-remediation-analysis-2026-11-02.md # 系统缺陷与深度修复架构分析
@@ -154,3 +160,27 @@ ai-companion/
 1. **多视口自适应**：核心页面必须完整通过 320px、390px（移动端）与 1024px、1280px、1366px（桌面端）视口测试。移动端输入框必须稳定固定在触手可及的底部，不得被侧边栏高度撑开导致全页双滚动条。
 2. **浮层穿透防御**：原生 `<dialog>` 元素在关闭状态下禁止与 CSS `display: flex` 产生优先级冲突，避免形成不可见的幽灵拦截层。
 3. **动效减弱适配**：必须完整支持 `@media (prefers-reduced-motion: reduce)`，在该模式下静默跳过开场动画并停止无休止的鱼池或游园动画，保持即刻可交互。
+
+---
+
+## 六、 真实用户全链路模拟测试方法论与测试产物清理规范
+
+### 1. 真实用户操作模拟测试设计原则 (`tests/user-journey-simulation.spec.mjs`)
+单纯的单元测试无法发现跨模块状态流转、SSE 事件过滤或 DOM 挂载时序导致的交互断裂。每次重大特性演进或架构重构后，必须从**真实用户的完整操作旅程**出发，在真实 Chromium 浏览器与完整 HTTP/SSE + SQLite 实例下验证以下 **7 大核心用户场景**：
+1. **设置工作台与古典园林三主题切换**：覆盖 `01 模型连接`、`02 记忆设置`、`03 Agent 推理与指令安全`、`04 园林外观与主题` 四大分区，验证任意表单项（含 `criticEnabled`、`criticMaxRetries` 等）修改即时触发「有尚未保存的修改」脏状态提示，并校验 `春园`、`秋庭`、`夜雨` 切换后无硬编码 `#ffffff` 白底泄露。
+2. **人设创建、双轨选择器与对话状态折叠面板**：验证新建角色自动同步至双轨角色选择器 (`#persona-picker-trigger`)，「当前状态」按钮 (`#toggle-chat-status`) 与抽屉 (`#chat-status-drawer`) 的 `aria-expanded` 显隐状态严格同步，状态编辑弹窗关闭后无遮挡。
+3. **新会话剪贴板粘贴附件 + 多轮 ReAct 工具调用 + Critic 审核反思闭环**：模拟用户在尚未创建会话 ID（`new:${personaId}`）的新对话输入框中直接 `Ctrl+V` 粘贴文件，验证首条消息发送后附件不丢失并渲染 `.attachment-chip.is-message`；验证多轮工具执行与 Critic 打回重修轨迹实时写入并持久化至 `<details class="message-reasoning">`（思考过程），且 `/api/traces` 准确记录回合指标。
+4. **流式生成中途点击“停止”与会话锁释放恢复**：验证流式输出期间点击「停止生成」能立即中断上游请求、保留输入框草稿，且后端 `chatLocks` 在 `finally` 中可靠释放，随后立即重发消息不会触发 `409 Conflict`。
+5. **知识库 FTS5 + 混合向量检索、记忆三元组与定时任务后台运行**：验证 Markdown 文档导入后中英文 FTS5 + 向量混合检索精准召回；验证定时任务「立即运行」在 `isBackgroundTask: true` 下自动跳过交互式工具与 Critic 审批，顺利生成执行记录。
+6. **移动端极窄视口 (`320×568` / `390×844`) 自适应与闭合 `<dialog>` 零穿透**：验证页面无横向滚动条、底部输入区稳固锚定，且所有 `dialog:not([open])` 均为 `display: none`。
+7. **严格模式敏感指令实时审批卡片交互闭环**：验证开启 `strict` 模式或调用敏感指令时，SSE 推送 `approval_requested` 并在后端通过 `inspector.waitForDecision` 挂起等待，前端 `#live-reply` 实时弹出 `.approval-ticket-card`（「允许执行 / 拒绝执行」），点击后调用 `/api/chat/approve` 放行并完成最终回复。
+
+### 2. 附件与上下文隔离准则
+- **新会话草稿与附件同步迁移**：当用户在未创建会话（`state.conversationId === null`）时添加附件并发送首条消息，前端必须将 `state.attachments` 与 `state.drafts` 一并从 `new:${personaId}` 迁移至新创建的 `conversationId`。
+- **图片附件与文本附件分离**：图片附件（`type === 'image'`）保留完整 Base64 供前端预览（不按 40,000 字符截断损坏），且严禁将图片 Base64 原文混入 `<user_attachment>` 文本标签塞入大模型上下文。
+- **纯净提问与大附件检索解耦**：`guides.search`、`knowledge.search`、`memory.recall`、`responsePolicy.plan` 与 `media.prepare` 必须仅針對用户纯净提问 `queryText` 执行，严禁将高达数万字的附件正文直接传入检索与点歌意图判断器，防止附件内容中的词汇误触发点歌或配置指南。
+
+### 3. 测试产物清理规范
+每次执行完 Playwright 端到端测试或视觉回归测试后，必须清理测试运行生成的临时报告、截图与中间产物，保持工作区整洁：
+- 清理目录：`test-reports/`、`test-results/`、`playwright-report/` 以及 `data/` 下非运行时必要的测试快照文件（如 `data/pet-scale-review/`、`data/pet-*.png`、`data/pet-cadence-profile.jsonl` 等）。
+- **严禁误删用户运行时核心数据**：清理时必须保留 `data/agent.sqlite`（及其 `-wal`/`-shm`）、`data/model-key.local` 与 `data/music-cache/`。
