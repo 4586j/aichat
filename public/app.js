@@ -1159,10 +1159,26 @@ async function sendMessage() {
       attachments: draftAttachments.map(a => ({ id: a.id, name: a.name, format: a.format, type: a.type, size: a.size, lineCount: a.lineCount, charCount: a.charCount, content: a.content }))
     },event=>{
       if(outgoing.controller.signal.aborted)return;
-      if(event.type===SSE_EVENTS.STATUS) { outgoing.phase = event.phase; outgoing.phaseDetail = event.reason || (event.step ? `第 ${event.step} 步` : ''); }
-      if(event.type===SSE_EVENTS.THOUGHT_STEP) { outgoing.thoughtSteps = outgoing.thoughtSteps || []; outgoing.thoughtSteps.push(event); }
+      if(event.type===SSE_EVENTS.STATUS) {
+        outgoing.phase = event.phase;
+        outgoing.phaseDetail = event.reason || (event.step ? `第 ${event.step} 步` : '');
+        if (event.phase === SSE_PHASES.REFLECTING) {
+          outgoing.reasoning += `${outgoing.reasoning ? '\n' : ''}[意图审核] 第 ${event.score ?? 0} 分未通过：${event.reason || '正在补充完善'}\n`;
+        }
+      }
+      if(event.type===SSE_EVENTS.THOUGHT_STEP) {
+        outgoing.thoughtSteps = outgoing.thoughtSteps || [];
+        outgoing.thoughtSteps.push(event);
+        outgoing.phaseDetail = `第 ${event.step} 步 · 调用 ${event.tool}`;
+        outgoing.reasoning += `${outgoing.reasoning ? '\n' : ''}[步骤 ${event.step}] 调用工具 ${event.tool}(${event.arguments || '{}'})\n`;
+      }
       if(event.type===SSE_EVENTS.APPROVAL_REQUESTED) { outgoing.approvals = outgoing.approvals || []; outgoing.approvals.push(event.ticket); }
-      if(event.type===SSE_EVENTS.TOOL_RESULT) { outgoing.toolResults = outgoing.toolResults || []; outgoing.toolResults.push(event); }
+      if(event.type===SSE_EVENTS.TOOL_RESULT) {
+        outgoing.toolResults = outgoing.toolResults || [];
+        outgoing.toolResults.push(event);
+        const obs = typeof event.result === 'string' ? event.result : JSON.stringify(event.result);
+        outgoing.reasoning += `  ↳ 工具返回: ${obs.slice(0, 180)}\n`;
+      }
       if(event.type===SSE_EVENTS.REASONING) outgoing.reasoning += event.delta || '';
       if(event.type===SSE_EVENTS.CONTENT) outgoing.content = typeof event.content === 'string' ? event.content : outgoing.content + (event.delta || '');
       if(state.page==='chat'&&state.conversationId===conversationId)patchLiveReply(outgoing);
@@ -1409,7 +1425,10 @@ function modelSettingsDirty() {
   return Boolean(draft && (draft.baseUrl.trim()!==saved.baseUrl || draft.model.trim()!==saved.model || draft.musicToolMode!==(saved.musicToolMode??'tags') || draft.intentMode!==(saved.intentMode??'legacy') || draft.apiKey || draft.clearApiKey));
 }
 function settingsDirtyFromDraft() {
-  return modelSettingsDirty() || ['memoryMessageThreshold','memoryIntervalHours','memoryBudget','agentMaxSteps','agentDuplicateThreshold','agentFailureThreshold'].some(key=>Number(state.settingsDraft[key])!==state.data.settings[key]) || state.settingsDraft.agentSecurityLevel !== (state.data.settings.agentSecurityLevel ?? 'standard');
+  return modelSettingsDirty()
+    || ['memoryMessageThreshold','memoryIntervalHours','memoryBudget','agentMaxSteps','agentDuplicateThreshold','agentFailureThreshold','criticMaxRetries'].some(key=>Number(state.settingsDraft[key])!==state.data.settings[key])
+    || state.settingsDraft.agentSecurityLevel !== (state.data.settings.agentSecurityLevel ?? 'standard')
+    || (state.settingsDraft.criticEnabled === true || state.settingsDraft.criticEnabled === 'true') !== (state.data.settings.criticEnabled ?? true);
 }
 function modelTestLabel() {
   if(state.testBusy)return '正在测试…';

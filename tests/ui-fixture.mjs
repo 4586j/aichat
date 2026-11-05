@@ -38,6 +38,17 @@ export async function startOfflineServer({ port = 0, dbPath = ':memory:' } = {})
   const instruction = request.messages[0].content;
   const question = request.messages.findLast(message => message.role === 'user')?.content || '';
   const tool = request.messages.findLast(message => message.role === 'tool');
+  const hasCriticFeedback = request.messages.some(message => message.role === 'system' && message.content?.includes('[审核员质检未通过]'));
+  if (instruction.includes('高精度的回答意图对齐审核器')) {
+    if (question.includes('多轮计算与审核演示') && !question.includes('```js')) {
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({ passed: false, score: 58, missingPoints: ['缺少示例验证代码'], factCheck: 'consistent', feedbackToAgent: '计算结果 160 正确，但请补充一段简短的 JS 验证代码块。' }) } }]
+      }), { headers: { 'content-type': 'application/json' } });
+    }
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ passed: true, score: 96, missingPoints: [], factCheck: 'consistent', feedbackToAgent: '' }) } }]
+    }), { headers: { 'content-type': 'application/json' } });
+  }
   if (instruction.includes('聊天意图分析器')) {
     const input=JSON.parse(question), text=input.content;
     if (text.includes('语义停止演示')) await delay(3000,undefined,{signal:options.signal});
@@ -49,6 +60,15 @@ export async function startOfflineServer({ port = 0, dbPath = ':memory:' } = {})
     if(request.tools?.some(item=>item.function.name==='plan_turn')) return new Response(JSON.stringify({choices:[{index:0,message:{content:null,tool_calls:[call]},finish_reason:'tool_calls'}]}),{headers:{'content-type':'application/json'}});
     return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(plan)}}]}),{headers:{'content-type':'application/json'}});
   }
+  if (question.includes('多轮计算与审核演示') && !tool && request.tools?.some(item => item.function.name === 'calculator') && request.tool_choice !== 'none') {
+    const call = { id: 'offline_calc_call', type: 'function', function: { name: 'calculator', arguments: JSON.stringify({ expression: '128 * 1.25' }) } };
+    if (!request.stream) return new Response(JSON.stringify({ choices: [{ index: 0, message: { content: null, tool_calls: [call] }, finish_reason: 'tool_calls' }] }), { headers: { 'content-type': 'application/json' } });
+    const frames = [
+      { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: call.id, type: call.type, function: { name: call.function.name, arguments: call.function.arguments } }] } }] },
+      { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
+    ];
+    return new Response(frames.map(frame => `data: ${JSON.stringify(frame)}\n\n`).join('') + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
+  }
   if (request.tools?.some(item => item.function.name === 'search_music') && request.tool_choice !== 'none' && !question.includes('只回正文')) {
     const call = { id: 'offline_music_call', type: 'function', function: { name: 'search_music', arguments: JSON.stringify({ query: '安静片刻' }) } };
     if (!request.stream) return new Response(JSON.stringify({ choices: [{ index: 0, message: { content: null, tool_calls: [call] }, finish_reason: 'tool_calls' }] }), { headers: { 'content-type': 'application/json' } });
@@ -57,10 +77,14 @@ export async function startOfflineServer({ port = 0, dbPath = ':memory:' } = {})
       { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '片刻"}' } }] } }] },
       { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
     ];
-    return new Response(frames.map(frame => `data: ${JSON.stringify(frame)}\n\n`).join('') + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
+    return new Response(frames.map(frame => `data: ${JSON.stringify(frame)}\n\n`).join('') + 'data: [DONE]\n\n', { headers: { 'content-type': 'application/json' } });
   }
   let content;
-  if (tool) {
+  if (question.includes('多轮计算与审核演示') && tool) {
+    content = hasCriticFeedback
+      ? '计算结果是 160。以下是为您补充的验证代码：\n\n```js\nconsole.log(128 * 1.25); // 160\n```'
+      : '计算结果是 160。';
+  } else if (tool) {
     const result = JSON.parse(tool.content);
     content = result.status === 'found' ? `已找到《${result.song.title}》，点击歌曲卡片后播放。` : '本轮音乐暂不可用，没有播放任何音频。';
   } else if (instruction.includes('邮件起草助手')) {
