@@ -128,6 +128,9 @@ const STATIC_API_ROUTES = new Map([
 ]);
 
 const RESOURCE_HANDLERS = {
+  approvals: ({ api, method, itemId, action, input }) => {
+    if (method === 'POST' && itemId && !action) return api.approveAction(itemId, { approved: Boolean(input.approved), reason: input.reason });
+  },
   pets: ({ api, method, itemId, action, input }) => {
     if (method === 'PUT' && itemId && !action) return api.pets.rename(itemId, input);
   },

@@ -137,6 +137,9 @@ test.describe('栖忆 (QiYi) 真实用户全链路操作模拟测试套件', () 
     await page.locator('#chat-input').fill('多轮计算与审核演示：请结合附件计算 128 * 1.25 的精确数值，并附带一段 JS 验证代码块。');
     await page.getByRole('button', { name: '发送', exact: true }).click();
 
+    // 验证新会话首条消息的附件未丢失，已持久化展示在用户消息气泡中
+    await expect(page.locator('.message.user').last().locator('.attachment-chip.is-message')).toContainText('metrics.json');
+
     // 验证最终助手回复包含工具计算结果 160、修正后的代码块以及持久化的多步思考过程
     const assistantMsg = page.locator('.message.assistant').last();
     await expect(assistantMsg).toContainText('计算结果是 160');
@@ -250,5 +253,32 @@ test.describe('栖忆 (QiYi) 真实用户全链路操作模拟测试套件', () 
       expect(diagnostics.composerVisible).toBe(true);
       expect(diagnostics.blockingDialogCount).toBe(0);
     }
+  });
+
+  test('场景 7：严格模式下敏感指令实时审批卡片（允许/拒绝）端到端交互闭环', async ({ page, request }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+
+    // 开启 strict 严格安全拦截模式
+    await request.put('/api/settings', { data: { agentSecurityLevel: 'strict' } });
+    await page.goto('/#chat');
+
+    await page.locator('#chat-input').fill('严格审批演示：请调用系统时间工具查询当前时间。');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+
+    // 验证实时流式气泡中弹出指令安全审批卡片
+    const approvalCard = page.locator('#live-reply .approval-ticket-card');
+    await expect(approvalCard).toBeVisible();
+    await expect(approvalCard).toContainText('get_system_time');
+
+    // 点击“允许执行”按钮
+    await approvalCard.getByRole('button', { name: '允许执行', exact: true }).click();
+
+    // 验证工具获批后继续执行并完成最终回复
+    const assistantMsg = page.locator('.message.assistant').last();
+    await expect(assistantMsg).toContainText('已获授权查询系统时间');
+
+    // 恢复默认 standard 模式
+    await request.put('/api/settings', { data: { agentSecurityLevel: 'standard' } });
   });
 });

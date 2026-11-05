@@ -373,7 +373,7 @@ function exportCurrentConversation() {
 async function requestChat(path,content,onEvent,{signal}={}){
   let transport;
   try{transport=await import('./streaming.js');}
-  catch{return api(path,'POST',{content},{signal});} // A newer page can still chat with an older running server during upgrade.
+  catch{return api(path,'POST',typeof content==='string'?{content}:content,{signal});} // A newer page can still chat with an older running server during upgrade.
   return transport.requestChat(path,content,onEvent,{signal});
 }
 function acceptStateSave(result) {
@@ -383,6 +383,7 @@ function acceptStateSave(result) {
     const key = currentDraftKey(); state.conversationId = conversation.id;
     state.messages.set(conversation.id, []); state.personaConversations.set(conversation.personaId, conversation.id);
     if (state.drafts.has(key)) { state.drafts.set(conversation.id, state.drafts.get(key)); state.drafts.delete(key); }
+    if (state.attachments.has(key)) { state.attachments.set(conversation.id, state.attachments.get(key)); state.attachments.delete(key); }
     if (state.setupPrompts.delete(key)) state.setupPrompts.add(conversation.id);
   }
   toast('状态修改已保存，将用于后续回复。');
@@ -903,9 +904,28 @@ function renderMessage(message, persona, prevMessage) {
   const userAttachmentsHtml = isUser && attachments.length ? `<div class="message-attachments-list">${attachments.map(att => `<div class="attachment-chip is-message"><span class="attachment-format">${e((att.format || 'FILE').toUpperCase())}</span><span class="attachment-name" title="${e(att.name)}">${e(att.name)}</span><span class="attachment-size">${att.lineCount ? `${att.lineCount} 行 · ` : ''}${number(att.size)} B</span>${att.content ? `<button type="button" class="attachment-btn" data-action="preview-message-attachment" data-msg-id="${e(message.id)}" data-att-id="${e(att.id || att.name)}" title="查看附件内容">${icon('eye')}</button>` : ''}</div>`).join('')}</div>` : '';
   return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time><div class="message-actions-bar"><button type="button" class="btn-msg-action" data-action="copy-message" data-id="${e(message.id)}" title="复制消息全文" aria-label="复制消息全文">${icon('copy')}</button><button type="button" class="btn-msg-action" data-action="quote-message" data-id="${e(message.id)}" title="引用此消息" aria-label="引用此消息">${icon('quote')}</button></div></div>${userAttachmentsHtml}${!isUser&&message.reasoning?`<details class="message-reasoning" data-detail="reasoning-${e(message.id)}"><summary>思考过程</summary><div class="reasoning-text plain-text">${e(message.reasoning)}</div></details>`:''}<div class="message-content plain-text">${formatMessageContent(message.content, isUser ? '' : userPrompt)}</div>${!isUser ? responseUI.renderMessage(message) + `<div class="message-mail-action"><button type="button" class="button small btn-fan" data-mail-action="from-reply">写成邮件</button>${rememberAction}</div>` : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
 }
+function renderApprovalCards(approvals = []) {
+  const pending = (Array.isArray(approvals) ? approvals : []).filter(t => t && t.status === 'pending');
+  if (!pending.length) return '';
+  return pending.map(ticket => `
+    <div class="card card-pad approval-ticket-card" data-ticket-id="${e(ticket.id)}" style="margin:10px 0;border:1px solid var(--frame-accent, #c48a47);">
+      <div class="card-header" style="margin-bottom:6px">
+        <strong>${icon('shield')} 指令安全审批请求 · <code>${e(ticket.toolCall?.name || '未知工具')}</code></strong>
+        <span class="pill warning">${e(ticket.riskLevel === 'critical' ? '高危拦截' : '敏感确认')}</span>
+      </div>
+      <p class="small muted" style="margin:4px 0">${e(ticket.reason || '该指令需要你的明确授权后方可执行。')}</p>
+      <pre class="plain-text" style="font-size:12px;margin:6px 0;padding:6px 8px;background:var(--paper-soft, rgba(0,0,0,0.04));border-radius:6px;overflow-x:auto"><code>${e(ticket.toolCall?.arguments || '{}')}</code></pre>
+      <div class="card-actions" style="margin-top:8px;display:flex;gap:8px">
+        <button type="button" class="button small primary" data-action="decide-approval" data-id="${e(ticket.id)}" data-decision="approve">允许执行</button>
+        <button type="button" class="button small" data-action="decide-approval" data-id="${e(ticket.id)}" data-decision="reject">拒绝执行</button>
+      </div>
+    </div>
+  `).join('');
+}
 function livePhase(reply){
   return reply.failed ? '生成中断'
     : reply.stopping ? '正在停止…'
+    : reply.phase === 'awaiting_approval' ? '等待你确认敏感指令…'
     : reply.phase === 'reviewing' ? '正在核验意图与事实…'
     : reply.phase === 'reflecting' ? '正在根据核验反思完善…'
     : reply.phase === 'thinking' ? (reply.phaseDetail ? `正在深度推演 (${reply.phaseDetail})…` : '正在多轮深度思考…')
@@ -914,7 +934,8 @@ function livePhase(reply){
 }
 function livePlaceholder(reply){return reply.failed?'回复未完成，请重新发送。':reply.reasoning?'正在组织回复…':'正在思考…';}
 function renderLiveReply(reply,persona){
-  return `${renderMessage({role:'user',content:reply.inputContent,createdAt:reply.createdAt},persona)}<article id="live-reply" class="message assistant live-reply ${reply.failed?'is-interrupted':'is-streaming'}" aria-live="off"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><span>${e(persona?.name||'助手')}</span><span class="generation-state" role="status" aria-live="polite"><span class="thinking-dot" aria-hidden="true"></span><span class="generation-label">${livePhase(reply)}</span></span></div><details class="message-reasoning" data-live-reasoning${reply.reasoningOpen?' open':''}${reply.reasoning?'':' hidden'}><summary>思考过程</summary><div class="reasoning-text plain-text">${e(reply.reasoning)}</div></details><div class="message-content plain-text live-body${reply.content?'':' is-waiting'}">${formatMessageContent(reply.content||livePlaceholder(reply), reply.inputContent)}</div>${reply.failed?'<p class="small muted stream-interrupted-note">这是未完成的临时内容，请重新读取会话确认是否已保存。</p>':''}</article>`;
+  const approvalsHtml = renderApprovalCards(reply.approvals);
+  return `${renderMessage({role:'user',content:reply.inputContent,attachments:reply.attachments,createdAt:reply.createdAt},persona)}<article id="live-reply" class="message assistant live-reply ${reply.failed?'is-interrupted':'is-streaming'}" aria-live="off"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><span>${e(persona?.name||'助手')}</span><span class="generation-state" role="status" aria-live="polite"><span class="thinking-dot" aria-hidden="true"></span><span class="generation-label">${livePhase(reply)}</span></span></div><details class="message-reasoning" data-live-reasoning${reply.reasoningOpen?' open':''}${reply.reasoning?'':' hidden'}><summary>思考过程</summary><div class="reasoning-text plain-text">${e(reply.reasoning)}</div></details><div class="live-approvals" data-live-approvals${approvalsHtml?'':' hidden'}>${approvalsHtml}</div><div class="message-content plain-text live-body${reply.content?'':' is-waiting'}">${formatMessageContent(reply.content||livePlaceholder(reply), reply.inputContent)}</div>${reply.failed?'<p class="small muted stream-interrupted-note">这是未完成的临时内容，请重新读取会话确认是否已保存。</p>':''}</article>`;
 }
 function patchLiveReply(reply){
   const article=$('#live-reply'),list=$('#chat-messages');if(!article||!list)return;
@@ -923,6 +944,8 @@ function patchLiveReply(reply){
   const reasoning=$('[data-live-reasoning]',article);reasoning.hidden=!reply.reasoning;
   const thinkingText=$('.reasoning-text',reasoning),thinkingAtBottom=thinkingText.scrollHeight-thinkingText.scrollTop-thinkingText.clientHeight<40;
   thinkingText.textContent=reply.reasoning;if(thinkingAtBottom)thinkingText.scrollTop=thinkingText.scrollHeight;
+  const approvalsBox=$('[data-live-approvals]',article);
+  if(approvalsBox){const html=renderApprovalCards(reply.approvals);approvalsBox.hidden=!html;if(approvalsBox.innerHTML!==html)approvalsBox.innerHTML=html;}
   const body=$('.live-body',article);body.classList.toggle('is-waiting',!reply.content);body.innerHTML=formatMessageContent(reply.content||livePlaceholder(reply), reply.inputContent);
   if(nearBottom)list.scrollTop=list.scrollHeight;
 }
@@ -1113,7 +1136,8 @@ async function sendMessage() {
   let key = currentDraftKey();
   const rawDraft = state.drafts.get(key) || '';
   const draftVersion=state.draftVersions.get(key)||0;
-  const content = rawDraft.trim();
+  const initialAttachments = currentAttachments(key);
+  const content = rawDraft.trim() || (initialAttachments.length ? `请查看并分析附件：${initialAttachments.map(a => a.name).join('、')}` : '');
   if (!content) { $('#chat-input')?.focus(); return; }
   if (!state.data.settings.model) {
     state.setupPrompts.add(key);
@@ -1123,7 +1147,7 @@ async function sendMessage() {
   }
   const personaId = state.personaId;
   let conversationId = state.conversationId;
-  state.sending = { personaId, conversationId, inputContent:content, content:'', reasoning:'', reasoningOpen:true, phase:'thinking', controller:new AbortController(), createdAt:new Date().toISOString() };
+  state.sending = { personaId, conversationId, inputContent:content, attachments:[...initialAttachments], content:'', reasoning:'', reasoningOpen:true, phase:'thinking', controller:new AbortController(), createdAt:new Date().toISOString() };
   const outgoing=state.sending;
   state.streamFailures.delete(key);
   state.chatErrors.delete(key);
@@ -1136,6 +1160,10 @@ async function sendMessage() {
       state.messages.set(conversationId, []);
       state.drafts.set(conversationId, state.drafts.get(key) || rawDraft);
       state.draftVersions.set(conversationId,state.draftVersions.get(key)||0);state.draftVersions.delete(key);
+      if (state.attachments.has(key)) {
+        state.attachments.set(conversationId, state.attachments.get(key));
+        state.attachments.delete(key);
+      }
       if (state.setupPrompts.delete(key)) state.setupPrompts.add(conversationId);
       state.drafts.delete(key);
       state.personaConversations.set(personaId, conversationId);
@@ -1172,7 +1200,14 @@ async function sendMessage() {
         outgoing.phaseDetail = `第 ${event.step} 步 · 调用 ${event.tool}`;
         outgoing.reasoning += `${outgoing.reasoning ? '\n' : ''}[步骤 ${event.step}] 调用工具 ${event.tool}(${event.arguments || '{}'})\n`;
       }
-      if(event.type===SSE_EVENTS.APPROVAL_REQUESTED) { outgoing.approvals = outgoing.approvals || []; outgoing.approvals.push(event.ticket); }
+      if(event.type===SSE_EVENTS.APPROVAL_REQUESTED) {
+        outgoing.approvals = outgoing.approvals || [];
+        if (event.ticket) {
+          outgoing.approvals.push(event.ticket);
+          outgoing.phase = 'awaiting_approval';
+          outgoing.reasoning += `${outgoing.reasoning ? '\n' : ''}[安全审批] 指令 ${event.ticket.toolCall?.name || '工具'} 需确认：${event.ticket.reason || ''}\n`;
+        }
+      }
       if(event.type===SSE_EVENTS.TOOL_RESULT) {
         outgoing.toolResults = outgoing.toolResults || [];
         outgoing.toolResults.push(event);
@@ -2067,6 +2102,23 @@ document.addEventListener('click', async event => {
         break;
       }
       case 'remove-attachment': removeAttachment(id); break;
+      case 'decide-approval': {
+        const approved = control.dataset.decision === 'approve';
+        await api('/chat/approve', 'POST', {
+          ticketId: id,
+          approved,
+          reason: approved ? '用户点击允许执行' : '用户点击拒绝执行'
+        });
+        if (state.sending?.approvals) {
+          const item = state.sending.approvals.find(t => t.id === id);
+          if (item) item.status = approved ? 'approved' : 'rejected';
+          state.sending.phase = 'thinking';
+          state.sending.reasoning += `  ↳ 审批结果: ${approved ? '用户已允许执行' : '用户已拒绝执行'}\n`;
+          patchLiveReply(state.sending);
+        }
+        toast(approved ? '已允许执行该指令' : '已拒绝执行该指令', approved ? 'info' : 'error');
+        break;
+      }
       case 'preview-attachment': {
         const att = currentAttachments().find(a => a.id === id);
         if (att) previewAttachmentDialog(att);

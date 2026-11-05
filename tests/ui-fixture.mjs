@@ -60,6 +60,15 @@ export async function startOfflineServer({ port = 0, dbPath = ':memory:' } = {})
     if(request.tools?.some(item=>item.function.name==='plan_turn')) return new Response(JSON.stringify({choices:[{index:0,message:{content:null,tool_calls:[call]},finish_reason:'tool_calls'}]}),{headers:{'content-type':'application/json'}});
     return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(plan)}}]}),{headers:{'content-type':'application/json'}});
   }
+  if (question.includes('严格审批演示') && !tool && request.tools?.some(item => item.function.name === 'get_system_time') && request.tool_choice !== 'none') {
+    const call = { id: 'offline_time_call', type: 'function', function: { name: 'get_system_time', arguments: '{}' } };
+    if (!request.stream) return new Response(JSON.stringify({ choices: [{ index: 0, message: { content: null, tool_calls: [call] }, finish_reason: 'tool_calls' }] }), { headers: { 'content-type': 'application/json' } });
+    const frames = [
+      { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: call.id, type: call.type, function: { name: call.function.name, arguments: call.function.arguments } }] } }] },
+      { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
+    ];
+    return new Response(frames.map(frame => `data: ${JSON.stringify(frame)}\n\n`).join('') + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
+  }
   if (question.includes('多轮计算与审核演示') && !tool && request.tools?.some(item => item.function.name === 'calculator') && request.tool_choice !== 'none') {
     const call = { id: 'offline_calc_call', type: 'function', function: { name: 'calculator', arguments: JSON.stringify({ expression: '128 * 1.25' }) } };
     if (!request.stream) return new Response(JSON.stringify({ choices: [{ index: 0, message: { content: null, tool_calls: [call] }, finish_reason: 'tool_calls' }] }), { headers: { 'content-type': 'application/json' } });
@@ -77,10 +86,13 @@ export async function startOfflineServer({ port = 0, dbPath = ':memory:' } = {})
       { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '片刻"}' } }] } }] },
       { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
     ];
-    return new Response(frames.map(frame => `data: ${JSON.stringify(frame)}\n\n`).join('') + 'data: [DONE]\n\n', { headers: { 'content-type': 'application/json' } });
+    return new Response(frames.map(frame => `data: ${JSON.stringify(frame)}\n\n`).join('') + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
   }
   let content;
-  if (question.includes('多轮计算与审核演示') && tool) {
+  if (question.includes('严格审批演示') && tool) {
+    const result = JSON.parse(tool.content);
+    content = result.rejected ? '由于你拒绝了时间读取指令，我未执行该操作。' : `已获授权查询系统时间：${result.iso || '2026-11-05'}。`;
+  } else if (question.includes('多轮计算与审核演示') && tool) {
     content = hasCriticFeedback
       ? '计算结果是 160。以下是为您补充的验证代码：\n\n```js\nconsole.log(128 * 1.25); // 160\n```'
       : '计算结果是 160。';
