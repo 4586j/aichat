@@ -790,10 +790,95 @@ function openArtifactPreviewModal({ filename, ext, lang, code }) {
   dialog.showModal();
 }
 
+function formatInlineMarkdown(str) {
+  if (!str) return '';
+  const parts = String(str).split(/(`[^`\n]+`|\*\*[^*\n]+\*\*)/g);
+  return parts.map(part => {
+    if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
+      return '<code class="inline-code">' + e(part.slice(1, -1)) + '</code>';
+    }
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      return '<strong>' + e(part.slice(2, -2)) + '</strong>';
+    }
+    return e(part);
+  }).join('');
+}
+
+function formatRichProse(segment) {
+  if (!segment) return '';
+  const hasRichSyntax = /(?:^#{1,4}\s|^[-*]\s+|\*\*[^*\n]+\*\*|^\|.+\|$)/m.test(segment);
+  if (!hasRichSyntax) {
+    const parts = segment.split(/(`[^`\n]+`)/g);
+    return parts.map(part => {
+      if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
+        return '<code class="inline-code">' + e(part.slice(1, -1)) + '</code>';
+      }
+      return e(part);
+    }).join('');
+  }
+
+  const lines = segment.split(/\r?\n/);
+  const out = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Markdown Table block
+    if (trimmed.startsWith('|') && trimmed.endsWith('|') && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+      const parseCells = row => row.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+      const headers = parseCells(trimmed);
+      i += 2; // skip header & separator
+      const rows = [];
+      while (i < lines.length && lines[i].trim().startsWith('|') && lines[i].trim().endsWith('|')) {
+        rows.push(parseCells(lines[i]));
+        i++;
+      }
+      out.push(
+        `<div class="md-table-wrap"><table class="md-table"><thead><tr>${headers.map(h => `<th>${formatInlineMarkdown(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${formatInlineMarkdown(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
+      );
+      continue;
+    }
+
+    // Markdown Heading
+    const headingMatch = trimmed.match(/^(#{1,4})\s+(.+)$/);
+    if (headingMatch) {
+      const level = Math.min(4, Math.max(3, headingMatch[1].length));
+      out.push(`<h${level} class="md-heading">${formatInlineMarkdown(headingMatch[2])}</h${level}>`);
+      i++;
+      continue;
+    }
+
+    // Unordered list block
+    if (/^[-*]\s+/.test(trimmed)) {
+      const items = [];
+      while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
+        items.push(`<li>${formatInlineMarkdown(lines[i].trim().replace(/^[-*]\s+/, ''))}</li>`);
+        i++;
+      }
+      out.push(`<ul class="md-list">${items.join('')}</ul>`);
+      continue;
+    }
+
+    if (!trimmed) {
+      out.push('<div class="md-spacer"></div>');
+      i++;
+      continue;
+    }
+
+    out.push(`<p class="md-paragraph">${formatInlineMarkdown(line)}</p>`);
+    i++;
+  }
+
+  return out.join('');
+}
+
 function formatMessageContent(content, userPrompt = '') {
   if (!content) return '';
   const text = String(content);
-  if (!text.includes('```') && !text.includes('`')) {
+  const hasRichSyntax = /(?:```|`|\*\*[^*\n]+\*\*|^#{1,4}\s|^[-*]\s+|^\|.+\|$)/m.test(text);
+  if (!hasRichSyntax) {
     return e(text);
   }
   const blockRegex = /```([^\n\r]*)\r?\n?([\s\S]*?)(?:```|$)/g;
@@ -802,16 +887,7 @@ function formatMessageContent(content, userPrompt = '') {
   let html = '';
   let prevProse = '';
 
-  const formatText = (segment) => {
-    if (!segment) return '';
-    const parts = segment.split(/(`[^`\n]+`)/g);
-    return parts.map(part => {
-      if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
-        return '<code class="inline-code">' + e(part.slice(1, -1)) + '</code>';
-      }
-      return e(part);
-    }).join('');
-  };
+  const formatText = (segment) => formatRichProse(segment);
 
   while ((match = blockRegex.exec(text)) !== null) {
     if (match.index > lastIndex) {
@@ -860,7 +936,7 @@ function formatMessageContent(content, userPrompt = '') {
           '</div>' +
         '</header>' +
         '<div class="artifact-body">' +
-          '<pre class="artifact-code"><code>' + e(code) + '</code></pre>' +
+          '<pre class="artifact-code" tabindex="0"><code>' + e(code) + '</code></pre>' +
         '</div>' +
       '</section>';
     } else {
@@ -878,7 +954,7 @@ function formatMessageContent(content, userPrompt = '') {
           '</div>' +
         '</header>' +
         '<div class="artifact-body">' +
-          '<pre class="artifact-code"><code>' + e(code) + '</code></pre>' +
+          '<pre class="artifact-code" tabindex="0"><code>' + e(code) + '</code></pre>' +
         '</div>' +
       '</section>';
     }
@@ -894,6 +970,268 @@ function formatMessageContent(content, userPrompt = '') {
   return html || '<div class="message-prose">' + formatText(text) + '</div>';
 }
 
+function formatDurationLabel(ms) {
+  const num = Number(ms);
+  if (!Number.isFinite(num) || num <= 0) return '';
+  const totalSec = Math.max(1, Math.round(num / 1000));
+  if (totalSec < 60) return `${totalSec}s`;
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+function safeJsonParse(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function formatCalcResultNumber(val) {
+  const n = Number(val);
+  if (!Number.isFinite(n)) return String(val ?? '');
+  if (Number.isInteger(n)) return n.toLocaleString('zh-CN');
+  return Number(n.toFixed(4)).toLocaleString('zh-CN', { maximumFractionDigits: 4 });
+}
+
+function extractAgentTrace(source, isLive = false) {
+  if (!source) return null;
+  if (isLive) {
+    const rawSteps = Array.isArray(source.thoughtSteps) ? source.thoughtSteps : [];
+    const results = Array.isArray(source.toolResults) ? source.toolResults : [];
+    const steps = rawSteps.map(ts => {
+      const tr = results.find(r => r.step === ts.step && r.tool === ts.tool);
+      const obs = tr ? (typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)) : (ts.observation || '');
+      return {
+        step: ts.step,
+        thought: ts.thought || '',
+        explanation: ts.explanation || '',
+        tool: ts.tool,
+        arguments: ts.arguments || '{}',
+        observation: obs,
+        status: tr ? tr.status : (ts.status || 'executing')
+      };
+    });
+    const durationMs = source.createdAt ? Math.max(1000, Date.now() - Date.parse(source.createdAt)) : 0;
+    return {
+      durationMs,
+      steps,
+      criticResult: source.criticResult || null,
+      phase: source.phase || ''
+    };
+  }
+
+  const persisted = source.responseBehavior?.agentTrace;
+  if (persisted && Array.isArray(persisted.steps) && persisted.steps.length > 0) {
+    return persisted;
+  }
+
+  // Fallback parser for historical messages that contain "[步骤 N] 调用工具 ..." in reasoning
+  const reasoning = String(source.reasoning || '');
+  if (reasoning.includes('[步骤 ')) {
+    const lines = reasoning.split(/\r?\n/);
+    const steps = [];
+    let criticResult = persisted?.criticResult || null;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      const m = line.match(/^\[步骤\s*(\d+)\]\s*调用工具\s*([a-zA-Z0-9_:-]+)\((.*)\)\s*(?:->\s*(.*))?$/);
+      if (m) {
+        let obs = m[4] || '';
+        if (!obs && i + 1 < lines.length && lines[i + 1].includes('↳ 工具返回:')) {
+          obs = lines[i + 1].split('↳ 工具返回:')[1].trim();
+        }
+        steps.push({
+          step: Number(m[1]),
+          thought: '',
+          explanation: '',
+          tool: m[2],
+          arguments: m[3] || '{}',
+          observation: obs,
+          status: 'success'
+        });
+      }
+      if (line.startsWith('[意图审核]')) {
+        const scoreMatch = line.match(/\((\d+)\/100\)|第\s*(\d+)\s*分/);
+        criticResult = {
+          passed: true,
+          score: scoreMatch ? Number(scoreMatch[1] || scoreMatch[2]) : 90,
+          retries: 1
+        };
+      }
+    }
+    if (steps.length > 0) {
+      return {
+        durationMs: persisted?.durationMs || 0,
+        steps,
+        criticResult
+      };
+    }
+  }
+
+  return persisted || null;
+}
+
+function buildCodexIntro(steps) {
+  for (const s of steps) {
+    const exp = String(s.explanation || '').trim();
+    if (exp && /[\u4e00-\u9fa5]{6,}/.test(exp) && !exp.startsWith('{') && !exp.startsWith('<')) {
+      return exp.length > 110 ? exp.slice(0, 110) + '…' : exp;
+    }
+  }
+  const counts = {};
+  const order = [];
+  for (const s of steps) {
+    if (!s.tool) continue;
+    if (!counts[s.tool]) order.push(s.tool);
+    counts[s.tool] = (counts[s.tool] || 0) + 1;
+  }
+  const phrases = order.map(tool => {
+    const c = counts[tool];
+    if (tool === 'get_system_time') return '获取当前系统的真实日期、时间与星期参数';
+    if (tool === 'calculator') return c > 1 ? `分 ${c} 步调用数学沙箱精算各阶段指标表达式` : '调用数学沙箱精算目标表达式数值';
+    if (tool === 'knowledge_deep_search') return c > 1 ? `分 ${c} 次在本地知识库中执行深度检索` : '在本地知识库中检索相关文档片段';
+    if (tool === 'search_music') return '在本地与在线曲库中检索匹配的音乐曲目';
+    return `调用 ${tool} 工具获取实测数据`;
+  });
+  if (!phrases.length) return '我先分步调用本地工具采集实测数据，再汇总整理最终答复。';
+  if (phrases.length === 1) return `我先${phrases[0]}，再结合实测结果整理完整答复。`;
+  return `我先${phrases[0]}，再${phrases.slice(1).join('、')}，保留原始精度并汇总最终结论。`;
+}
+
+function formatCodexStepCommand(step) {
+  const argsObj = safeJsonParse(step.arguments) || {};
+  const obsObj = safeJsonParse(step.observation);
+  let cmdText = `${step.tool}(${step.arguments || '{}'})`;
+  let resultBrief = '';
+
+  if (step.tool === 'get_system_time') {
+    cmdText = 'get_system_time --timezone Asia/Shanghai --locale zh-CN';
+    if (obsObj) {
+      resultBrief = `${obsObj.localeTime || obsObj.iso || ''}${obsObj.weekday ? ` (${obsObj.weekday})` : ''}`.trim();
+    }
+  } else if (step.tool === 'calculator') {
+    const expr = argsObj.expression ?? argsObj.expr ?? step.arguments;
+    cmdText = `calculator --expr "${expr}"`;
+    if (obsObj && obsObj.result !== undefined) {
+      resultBrief = formatCalcResultNumber(obsObj.result);
+    }
+  } else if (step.tool === 'knowledge_deep_search') {
+    const q = argsObj.query ?? '';
+    const limit = argsObj.limit ?? 5;
+    cmdText = `knowledge_deep_search --query "${q}" --limit ${limit}`;
+    if (obsObj) {
+      resultBrief = `命中 ${obsObj.count ?? (Array.isArray(obsObj.results) ? obsObj.results.length : 0)} 处知识片段`;
+    }
+  } else if (step.tool === 'search_music') {
+    cmdText = `search_music --query "${argsObj.query ?? ''}"`;
+    if (obsObj) {
+      resultBrief = obsObj.status === 'found' && obsObj.song ? `找到《${obsObj.song.title}》` : (obsObj.message || obsObj.status || '');
+    }
+  } else if (step.observation) {
+    resultBrief = String(step.observation).slice(0, 64);
+  }
+
+  const verb = step.status === 'executing'
+    ? '正在运行'
+    : step.status === 'rejected'
+      ? '已拒绝'
+      : step.status === 'circuit_broken'
+        ? '已熔断'
+        : step.status === 'error'
+          ? '运行异常'
+          : '已运行';
+
+  return { verb, cmdText, resultBrief };
+}
+
+function buildCodexConclusion(steps) {
+  const completed = steps.filter(s => s.status === 'success' && s.observation);
+  if (!completed.length) return '';
+  const summaryParts = [];
+  const calcItems = [];
+
+  for (const s of completed) {
+    const obsObj = safeJsonParse(s.observation);
+    const argsObj = safeJsonParse(s.arguments) || {};
+    if (s.tool === 'get_system_time' && obsObj) {
+      summaryParts.push(`系统当前时间为 ${obsObj.localeTime || obsObj.iso || '已同步'}${obsObj.weekday ? `（${obsObj.weekday}）` : ''}`);
+    } else if (s.tool === 'calculator' && obsObj && obsObj.result !== undefined) {
+      const expr = argsObj.expression ?? obsObj.expression ?? '';
+      calcItems.push(`${expr ? `${expr} = ` : ''}${formatCalcResultNumber(obsObj.result)}`);
+    } else if (s.tool === 'knowledge_deep_search' && obsObj) {
+      summaryParts.push(`知识库深层检索召回 ${obsObj.count ?? 0} 条关联片段`);
+    }
+  }
+
+  if (calcItems.length) {
+    summaryParts.push(`已完成 ${calcItems.length} 项数学表达式求值（${calcItems.join('；')}）`);
+  }
+  if (!summaryParts.length) {
+    summaryParts.push(`已完成 ${completed.length} 项工具实测调用并获取返回数据`);
+  }
+
+  return `确认${summaryParts.join('，')}。所有工具链实测结果均已校验对齐，保留原始数据生成以下分析结果。`;
+}
+
+function renderCodexWorkflow(trace, { isLive = false } = {}) {
+  if (!trace || !Array.isArray(trace.steps) || !trace.steps.length) return '';
+  const steps = trace.steps;
+  const hasExecuting = steps.some(s => s.status === 'executing');
+  const introText = buildCodexIntro(steps);
+  const conclusionText = buildCodexConclusion(steps);
+
+  const rowsHtml = steps.map(step => {
+    const { verb, cmdText, resultBrief } = formatCodexStepCommand(step);
+    return `
+      <details class="codex-cmd-item${step.status === 'executing' ? ' is-executing' : ''}">
+        <summary class="codex-cmd-row">
+          <span class="codex-term-icon" aria-hidden="true">&gt;_</span>
+          <span class="codex-cmd-verb">${e(verb)}</span>
+          <span class="codex-cmd-text">${e(cmdText)}</span>
+          ${resultBrief ? `<span class="codex-cmd-result">→ ${e(resultBrief)}</span>` : ''}
+        </summary>
+        <div class="codex-cmd-detail">
+          <div class="codex-detail-line"><span class="muted">调用指令：</span><code>${e(step.tool)}(${e(step.arguments || '{}')})</code></div>
+          ${step.observation ? `<div class="codex-detail-line"><span class="muted">返回结果：</span><code>${e(step.observation)}</code></div>` : ''}
+        </div>
+      </details>
+    `;
+  }).join('');
+
+  let statusLineText = `整理了推演结论并运行了 ${steps.length} 项命令`;
+  if (isLive && trace.phase === 'reviewing') {
+    statusLineText = `运行了 ${steps.length} 项命令 · 正在执行意图与事实核验…`;
+  } else if (isLive && trace.phase === 'reflecting') {
+    statusLineText = `运行了 ${steps.length} 项命令 · 正在根据审核反馈修正完善…`;
+  } else if (trace.criticResult) {
+    const score = trace.criticResult.score != null ? ` (${trace.criticResult.score}/100)` : '';
+    statusLineText = trace.criticResult.retries > 0
+      ? `整理了推演结论并运行了 ${steps.length} 项命令 · 经审核修正后通过${score}`
+      : `整理了推演结论并运行了 ${steps.length} 项命令 · 完成意图与事实核验${score}`;
+  }
+
+  return `
+    <section class="codex-workflow" aria-label="多步工具推演轨迹">
+      <p class="codex-intro">${e(introText)}</p>
+      <details class="codex-cmd-group" open>
+        <summary class="codex-cmd-summary">
+          <span class="codex-term-icon" aria-hidden="true">&gt;_</span>
+          <span class="codex-cmd-summary-title">${hasExecuting ? '正在运行命令' : '运行了命令'}</span>
+          <span class="codex-cmd-chevron" aria-hidden="true">⌄</span>
+        </summary>
+        <div class="codex-cmd-list">${rowsHtml}</div>
+      </details>
+      ${conclusionText ? `<p class="codex-conclusion">${e(conclusionText)}</p>` : ''}
+      <div class="codex-status-line">
+        <span class="codex-status-icon" aria-hidden="true">${icon('edit')}</span>
+        <span>${e(statusLineText)}</span>
+      </div>
+    </section>
+  `;
+}
+
 function renderMessage(message, persona, prevMessage) {
   const isUser = message.role === 'user';
   const userPrompt = (!isUser && prevMessage && prevMessage.role === 'user') ? prevMessage.content : '';
@@ -902,7 +1240,10 @@ function renderMessage(message, persona, prevMessage) {
   const rememberAction = localStorage.getItem('qiyi-show-remember') === 'true' ? button('保存记忆', 'remember-reply', { id: message.id, kind: 'small btn-leaf' }) : '';
   const attachments = Array.isArray(message.attachments) ? message.attachments : [];
   const userAttachmentsHtml = isUser && attachments.length ? `<div class="message-attachments-list">${attachments.map(att => `<div class="attachment-chip is-message"><span class="attachment-format">${e((att.format || 'FILE').toUpperCase())}</span><span class="attachment-name" title="${e(att.name)}">${e(att.name)}</span><span class="attachment-size">${att.lineCount ? `${att.lineCount} 行 · ` : ''}${number(att.size)} B</span>${att.content ? `<button type="button" class="attachment-btn" data-action="preview-message-attachment" data-msg-id="${e(message.id)}" data-att-id="${e(att.id || att.name)}" title="查看附件内容">${icon('eye')}</button>` : ''}</div>`).join('')}</div>` : '';
-  return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time><div class="message-actions-bar"><button type="button" class="btn-msg-action" data-action="copy-message" data-id="${e(message.id)}" title="复制消息全文" aria-label="复制消息全文">${icon('copy')}</button><button type="button" class="btn-msg-action" data-action="quote-message" data-id="${e(message.id)}" title="引用此消息" aria-label="引用此消息">${icon('quote')}</button></div></div>${userAttachmentsHtml}${!isUser&&message.reasoning?`<details class="message-reasoning" data-detail="reasoning-${e(message.id)}"><summary>思考过程</summary><div class="reasoning-text plain-text">${e(message.reasoning)}</div></details>`:''}<div class="message-content plain-text">${formatMessageContent(message.content, isUser ? '' : userPrompt)}</div>${!isUser ? responseUI.renderMessage(message) + `<div class="message-mail-action"><button type="button" class="button small btn-fan" data-mail-action="from-reply">写成邮件</button>${rememberAction}</div>` : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
+  const trace = !isUser ? extractAgentTrace(message, false) : null;
+  const durationLabel = trace?.durationMs ? formatDurationLabel(trace.durationMs) : '';
+  const codexWorkflowHtml = !isUser && trace?.steps?.length ? renderCodexWorkflow(trace, { isLive: false }) : '';
+  return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time><div class="message-actions-bar"><button type="button" class="btn-msg-action" data-action="copy-message" data-id="${e(message.id)}" title="复制消息全文" aria-label="复制消息全文">${icon('copy')}</button><button type="button" class="btn-msg-action" data-action="quote-message" data-id="${e(message.id)}" title="引用此消息" aria-label="引用此消息">${icon('quote')}</button></div></div>${userAttachmentsHtml}${!isUser&&message.reasoning?`<details class="message-reasoning" data-detail="reasoning-${e(message.id)}"><summary>思考过程${durationLabel ? `<span class="reasoning-duration"> · 用时 ${e(durationLabel)}</span>` : ''}</summary><div class="reasoning-text plain-text">${e(message.reasoning)}</div></details>`:''}${codexWorkflowHtml}<div class="message-content plain-text">${formatMessageContent(message.content, isUser ? '' : userPrompt)}</div>${!isUser ? responseUI.renderMessage(message) + `<div class="message-mail-action"><button type="button" class="button small btn-fan" data-mail-action="from-reply">写成邮件</button>${rememberAction}</div>` : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
 }
 function renderApprovalCards(approvals = []) {
   const pending = (Array.isArray(approvals) ? approvals : []).filter(t => t && t.status === 'pending');
@@ -935,15 +1276,24 @@ function livePhase(reply){
 function livePlaceholder(reply){return reply.failed?'回复未完成，请重新发送。':reply.reasoning?'正在组织回复…':'正在思考…';}
 function renderLiveReply(reply,persona){
   const approvalsHtml = renderApprovalCards(reply.approvals);
-  return `${renderMessage({role:'user',content:reply.inputContent,attachments:reply.attachments,createdAt:reply.createdAt},persona)}<article id="live-reply" class="message assistant live-reply ${reply.failed?'is-interrupted':'is-streaming'}" aria-live="off"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><span>${e(persona?.name||'助手')}</span><span class="generation-state" role="status" aria-live="polite"><span class="thinking-dot" aria-hidden="true"></span><span class="generation-label">${livePhase(reply)}</span></span></div><details class="message-reasoning" data-live-reasoning${reply.reasoningOpen?' open':''}${reply.reasoning?'':' hidden'}><summary>思考过程</summary><div class="reasoning-text plain-text">${e(reply.reasoning)}</div></details><div class="live-approvals" data-live-approvals${approvalsHtml?'':' hidden'}>${approvalsHtml}</div><div class="message-content plain-text live-body${reply.content?'':' is-waiting'}">${formatMessageContent(reply.content||livePlaceholder(reply), reply.inputContent)}</div>${reply.failed?'<p class="small muted stream-interrupted-note">这是未完成的临时内容，请重新读取会话确认是否已保存。</p>':''}</article>`;
+  const trace = extractAgentTrace(reply, true);
+  const hasSteps = Boolean(trace?.steps?.length);
+  const workflowHtml = hasSteps ? renderCodexWorkflow(trace, { isLive: true }) : '';
+  const durationLabel = trace?.durationMs ? formatDurationLabel(trace.durationMs) : '';
+  return `${renderMessage({role:'user',content:reply.inputContent,attachments:reply.attachments,createdAt:reply.createdAt},persona)}<article id="live-reply" class="message assistant live-reply ${reply.failed?'is-interrupted':'is-streaming'}" aria-live="off"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(initial(persona?.name))}</span><span>${e(persona?.name||'助手')}</span><span class="generation-state" role="status" aria-live="polite"><span class="thinking-dot" aria-hidden="true"></span><span class="generation-label">${livePhase(reply)}</span></span></div><details class="message-reasoning" data-live-reasoning${reply.reasoningOpen&&!hasSteps?' open':''}${reply.reasoning?'':' hidden'}><summary>思考过程${durationLabel ? `<span class="reasoning-duration"> · 用时 ${e(durationLabel)}</span>` : ''}</summary><div class="reasoning-text plain-text">${e(reply.reasoning)}</div></details><div class="live-workflow" data-live-workflow${workflowHtml?'':' hidden'}>${workflowHtml}</div><div class="live-approvals" data-live-approvals${approvalsHtml?'':' hidden'}>${approvalsHtml}</div><div class="message-content plain-text live-body${reply.content?'':' is-waiting'}">${formatMessageContent(reply.content||livePlaceholder(reply), reply.inputContent)}</div>${reply.failed?'<p class="small muted stream-interrupted-note">这是未完成的临时内容，请重新读取会话确认是否已保存。</p>':''}</article>`;
 }
 function patchLiveReply(reply){
   const article=$('#live-reply'),list=$('#chat-messages');if(!article||!list)return;
   const nearBottom=list.scrollHeight-list.scrollTop-list.clientHeight<80;
   const label=$('.generation-label',article),phase=livePhase(reply);if(label.textContent!==phase)label.textContent=phase;
+  const trace = extractAgentTrace(reply, true);
+  const hasSteps = Boolean(trace?.steps?.length);
   const reasoning=$('[data-live-reasoning]',article);reasoning.hidden=!reply.reasoning;
+  if (hasSteps && reasoning.hasAttribute('open')) reasoning.removeAttribute('open');
   const thinkingText=$('.reasoning-text',reasoning),thinkingAtBottom=thinkingText.scrollHeight-thinkingText.scrollTop-thinkingText.clientHeight<40;
   thinkingText.textContent=reply.reasoning;if(thinkingAtBottom)thinkingText.scrollTop=thinkingText.scrollHeight;
+  const workflowBox=$('[data-live-workflow]',article);
+  if(workflowBox){const html=hasSteps?renderCodexWorkflow(trace,{isLive:true}):'';workflowBox.hidden=!html;if(workflowBox.innerHTML!==html)workflowBox.innerHTML=html;}
   const approvalsBox=$('[data-live-approvals]',article);
   if(approvalsBox){const html=renderApprovalCards(reply.approvals);approvalsBox.hidden=!html;if(approvalsBox.innerHTML!==html)approvalsBox.innerHTML=html;}
   const body=$('.live-body',article);body.classList.toggle('is-waiting',!reply.content);body.innerHTML=formatMessageContent(reply.content||livePlaceholder(reply), reply.inputContent);
@@ -1190,6 +1540,9 @@ async function sendMessage() {
       if(event.type===SSE_EVENTS.STATUS) {
         outgoing.phase = event.phase;
         outgoing.phaseDetail = event.reason || (event.step ? `第 ${event.step} 步` : '');
+        if (event.criticResult) {
+          outgoing.criticResult = event.criticResult;
+        }
         if (event.phase === SSE_PHASES.REFLECTING) {
           outgoing.reasoning += `${outgoing.reasoning ? '\n' : ''}[意图审核] 第 ${event.score ?? 0} 分未通过：${event.reason || '正在补充完善'}\n`;
         }

@@ -146,9 +146,21 @@ test.describe('栖忆 (QiYi) 真实用户全链路操作模拟测试套件', () 
     await expect(assistantMsg.locator('.artifact-card')).toBeVisible();
     await expect(assistantMsg.locator('.artifact-code')).toContainText('128 * 1.25');
 
+    // 验证 Codex 风格的多步工具推演轨迹面板完整展示
+    const codexWorkflow = assistantMsg.locator('.codex-workflow');
+    await expect(codexWorkflow).toBeVisible();
+    await expect(codexWorkflow.locator('.codex-intro')).toContainText('调用数学沙箱精算');
+    await expect(codexWorkflow.locator('.codex-cmd-summary')).toContainText('运行了命令');
+    await expect(codexWorkflow.locator('.codex-cmd-row').first()).toContainText('已运行');
+    await expect(codexWorkflow.locator('.codex-cmd-row').first()).toContainText('calculator --expr "128 * 1.25"');
+    await expect(codexWorkflow.locator('.codex-cmd-row').first()).toContainText('160');
+    await expect(codexWorkflow.locator('.codex-conclusion')).toContainText('128 * 1.25 = 160');
+    await expect(codexWorkflow.locator('.codex-status-line')).toContainText('经审核修正后通过');
+
     // 验证思考过程记录了工具调用与意图审核轨迹
     const reasoningDetails = assistantMsg.locator('details.message-reasoning');
     await expect(reasoningDetails).toBeVisible();
+    await expect(reasoningDetails.locator('summary')).toContainText('用时');
     await reasoningDetails.locator('summary').click();
     await expect(reasoningDetails.locator('.reasoning-text')).toContainText('[步骤 1] 调用工具 calculator');
     await expect(reasoningDetails.locator('.reasoning-text')).toContainText('[意图审核]');
