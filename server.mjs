@@ -1,4 +1,4 @@
-import http from 'node:http';
+﻿import http from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve, join } from 'node:path';
@@ -9,7 +9,7 @@ import { createService } from './lib/service.mjs';
 import { AppError } from './lib/model.mjs';
 import { PET_CATALOG } from './lib/pets.mjs';
 import { petSprite } from './public/pet-motion.js';
-import { petClipSprite } from './public/pet-clips.js';
+import { petClipSprite, PET_CLIPS } from './public/pet-clips.js';
 import { SSE_EVENTS, SSE_PHASES } from './public/sse-protocol.js';
 import { loadLocalEnvironment, readTunnelConfig, createTunnelManager } from './lib/startup.mjs';
 import { createLocalModelKey } from './lib/local-model-key.mjs';
@@ -42,6 +42,7 @@ const STATIC = new Map([
   ['/chat-state.css', ['chat-state.css', 'text/css; charset=utf-8']],
   ['/response-scenes.js', ['response-scenes.js', 'text/javascript; charset=utf-8']],
   ['/response-policy.js', ['response-policy.js', 'text/javascript; charset=utf-8']],
+  ['/autonomy-ui.js', ['autonomy-ui.js', 'text/javascript; charset=utf-8']],
   ['/response-policy.css', ['response-policy.css', 'text/css; charset=utf-8']],
   ['/llms.txt', ['../llms.txt', 'text/plain; charset=utf-8']],
   ['/memory-graph.js', ['memory-graph.js', 'text/javascript; charset=utf-8']],
@@ -51,7 +52,9 @@ const STATIC = new Map([
 for (const pet of PET_CATALOG) {
   STATIC.set(pet.image, [pet.image.slice(1), 'image/png']);
   STATIC.set(petSprite(pet.id), [petSprite(pet.id).slice(1), 'image/webp']);
-  STATIC.set(petClipSprite(pet.id), [petClipSprite(pet.id).slice(1), 'image/webp']);
+  for (const action of Object.keys(PET_CLIPS)) STATIC.set(petClipSprite(pet.id,action), [petClipSprite(pet.id,action).slice(1), 'image/webp']);
+  const legacy = `/assets/pets/${pet.id}-actions-v3.webp`;
+  STATIC.set(legacy, [legacy.slice(1), 'image/webp']);
 }
 const MAX_BODY = 12 * 1024 * 1024;
 
@@ -125,6 +128,12 @@ const STATIC_API_ROUTES = new Map([
   ['POST /api/memories/maintain', ({ api }) => api.memory.maintain()],
   ['POST /api/memories', ({ api, input }) => api.saveMemory(input)],
   ['POST /api/tasks', ({ api, input }) => api.saveTask(input)],
+  ['GET /api/autonomy/settings', ({ api }) => ({ autonomy: api.autonomy.settings() })],
+  ['PUT /api/autonomy/settings', ({ api, input }) => ({ autonomy: api.autonomy.update(input) })],
+  ['POST /api/autonomy/pause', ({ api, input }) => ({ autonomy: api.autonomy.pause(input?.paused !== false) })],
+  ['GET /api/autonomy/events', ({ api, query }) => api.autonomy.events(Number(query.get('limit')) || 50)],
+  ['GET /api/inbox', ({ api, query }) => api.autonomy.inbox({ since: Number(query.get('since')) || 0 })],
+  ['POST /api/inbox/read', ({ api, input }) => { api.autonomy.markRead(String(input?.conversationId || '')); return { ok: true }; }],
 ]);
 
 const RESOURCE_HANDLERS = {
@@ -187,12 +196,13 @@ export async function startServer({ port = 4317, dbPath = join(ROOT, 'data', 'ag
   const store = createStore(dbPath);
   const api = createService(store, modelOptions);
   let currentPort;
+  const sseClients = new Set();
   const server = http.createServer(async (request, response) => {
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Referrer-Policy', 'no-referrer');
     response.setHeader('X-Frame-Options', 'DENY');
     response.setHeader('Cache-Control', 'no-store');
-    response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'");
+    response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self'; frame-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'");
     const json = (status, data) => {
       if (response.destroyed) return;
       response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -237,6 +247,18 @@ export async function startServer({ port = 4317, dbPath = join(ROOT, 'data', 'ag
       if (url.pathname.startsWith('/api/')) {
         const method = request.method;
         const input = ['POST', 'PUT', 'DELETE'].includes(method) ? await readJson(request) : {};
+        if(method==='GET'&&url.pathname==='/api/events'){
+          const controller=new AbortController();
+          response.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','X-Accel-Buffering':'no'});
+          response.flushHeaders();
+          response.write('retry: 5000\n\n');
+          const unsubscribe=api.autonomy.subscribe(({type,...data})=>{if(!response.destroyed&&!response.writableNeedDrain)response.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);});
+          const heartbeat=setInterval(()=>{if(!response.destroyed&&!response.writableNeedDrain)response.write(': keepalive\n\n');},25000);
+          const cleanup=()=>{clearInterval(heartbeat);unsubscribe();controller.abort();};
+          response.once('close',cleanup);
+          sseClients.add(response);response.once('close',()=>sseClients.delete(response));
+          return;
+        }
         const streamPath=/^\/api\/conversations\/([^/]+)\/messages$/u.exec(url.pathname);
         if(method==='POST'&&streamPath&&request.headers.accept?.includes('text/event-stream')){
           const conversationId=decodeURIComponent(streamPath[1]);
@@ -322,6 +344,7 @@ export async function startServer({ port = 4317, dbPath = join(ROOT, 'data', 'ag
   return {
     server, store, api, url: `http://127.0.0.1:${currentPort}`,
     async close() {
+      for (const client of sseClients) client.destroy();
       await new Promise((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose()));
       await api.scheduler.stop();
       store.close();
@@ -356,3 +379,4 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     }
   } catch(error) { await shutdown(); throw error; }
 }
+

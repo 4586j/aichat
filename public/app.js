@@ -8,6 +8,7 @@ import { createPetsUI } from './pets.js';
 import { createChatStateUI } from './chat-state.js';
 import { createResponseUI } from './response-policy.js';
 import { SSE_EVENTS, SSE_PHASES } from './sse-protocol.js';
+import { createAutonomyUI } from './autonomy-ui.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -129,6 +130,16 @@ const mailUI = createMailUI({ request: api, toast, redraw: () => renderPage() })
 const guidesUI = createGuidesUI({ request: api, askInChat: beginGuideQuestion });
 const petsUI = createPetsUI({ request: api, toast, redraw: () => renderPage() });
 const chatStateUI = createChatStateUI({ request: api, redraw: () => { if (state.page === 'chat') renderPage(); }, onSaved: acceptStateSave });
+const autonomyUI = createAutonomyUI({ request: api, toast, redraw: () => { if (state.page === 'settings') renderPage(); }, onPush: event => receivePush(event) });
+function receivePush(event) {
+  const { conversationId, message } = event;
+  const list = state.messages.get(conversationId);
+  if (list && !list.some(item => item.id === message.id)) state.messages.set(conversationId, [...list, message]);
+  const viewing = state.page === 'chat' && state.conversationId === conversationId;
+  const persona = state.data?.personas?.find(item => item.id === event.personaId);
+  if (!viewing) toast(`：`);
+  void refreshData({ silent: true, background: true, draw: false }).then(() => { if (state.page === 'chat' && !isUserInteractingWithMain()) renderPage({ toBottom: viewing }); });
+}
 const responseUI = createResponseUI({ request:api, redraw:() => renderPage(), toast,
   onSettings:info => { state.data.responseSettings=info; },
   onFeedback:result => {
@@ -309,6 +320,7 @@ async function addFilesToChat(fileList) {
 function previewAttachmentDialog(att) {
   if (!att) return;
   dialogState = { type: 'attachment-preview' };
+  const isSafeImage = att.type === 'image' && typeof att.content === 'string' && /^(data:image\/(?:png|jpeg|jpg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/=]+$|blob:|https?:\/\/)/i.test(att.content.trim());
   dialog.innerHTML = `
     <div class="dialog-header">
       <h2 id="dialog-title">${e(att.name)}</h2>
@@ -320,7 +332,7 @@ function previewAttachmentDialog(att) {
         <span class="attachment-name">${e(att.name)}</span>
         <span class="attachment-size">${att.lineCount ? `${att.lineCount} 行 · ` : ''}${number(att.size)} B</span>
       </div>
-      ${att.type === 'image' ? `<img src="${att.content}" alt="${e(att.name)}" style="max-width:100%;max-height:400px;border-radius:4px;">` : `<pre class="artifact-preview-code"><code>${e(att.content)}</code></pre>`}
+      ${isSafeImage ? `<img src="${e(att.content)}" alt="${e(att.name)}" style="max-width:100%;max-height:400px;border-radius:4px;">` : `<pre class="artifact-preview-code"><code>${e(att.content)}</code></pre>`}
     </div>
   `;
   if (!dialog.open) dialog.showModal();
@@ -461,6 +473,7 @@ async function refreshData({ silent = false, draw = true, background = false } =
     guidesUI.sync(data.guides, Boolean(data.settings.model));
     petsUI.sync(data.pets);
     responseUI.sync(data.responseSettings);
+    autonomyUI.sync(data.autonomy);
     state.bootstrapError = '';
     state.lastSync = new Date().toISOString();
     if (!data.personas.some(p => p.id === state.personaId)) {
@@ -550,8 +563,8 @@ function renderPage({ toBottom = false } = {}) {
     chatStateUI.setContext({ personaId: state.personaId, conversationId: state.conversationId, roleName: currentPersona()?.name, canEdit: !(state.sending && !state.conversationId) }, state.lastSync);
     const currentState = chatStateUI.current();
     responseUI.setContext({conversationId:state.conversationId},currentState);
-    petsUI.setResponseBehavior(currentState,responseUI.settings().petLinked);
   }
+  petsUI.setResponseBehavior(chatStateUI.current(),responseUI.settings().petLinked);
   main.innerHTML = `${state.bootstrapError ? notice('最近一次数据同步失败，以下显示上次成功读取的数据。可使用右上角刷新重试。', 'warning') : ''}${views[state.page]()}${state.page === 'settings' ? responseUI.renderSettings() + mediaUI.renderSettings() + mailUI.renderSettings() + petsUI.renderSettings() : ''}`;
   placeGardenPlayer();
   const graphContainer = $('#memory-graph-container');
@@ -1243,7 +1256,7 @@ function renderMessage(message, persona, prevMessage) {
   const trace = !isUser ? extractAgentTrace(message, false) : null;
   const durationLabel = trace?.durationMs ? formatDurationLabel(trace.durationMs) : '';
   const codexWorkflowHtml = !isUser && trace?.steps?.length ? renderCodexWorkflow(trace, { isLive: false }) : '';
-  return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span><time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time><div class="message-actions-bar"><button type="button" class="btn-msg-action" data-action="copy-message" data-id="${e(message.id)}" title="复制消息全文" aria-label="复制消息全文">${icon('copy')}</button><button type="button" class="btn-msg-action" data-action="quote-message" data-id="${e(message.id)}" title="引用此消息" aria-label="引用此消息">${icon('quote')}</button></div></div>${userAttachmentsHtml}${!isUser&&message.reasoning?`<details class="message-reasoning" data-detail="reasoning-${e(message.id)}"><summary>思考过程${durationLabel ? `<span class="reasoning-duration"> · 用时 ${e(durationLabel)}</span>` : ''}</summary><div class="reasoning-text plain-text">${e(message.reasoning)}</div></details>`:''}${codexWorkflowHtml}<div class="message-content plain-text">${formatMessageContent(message.content, isUser ? '' : userPrompt)}</div>${!isUser ? responseUI.renderMessage(message) + `<div class="message-mail-action"><button type="button" class="button small btn-fan" data-mail-action="from-reply">写成邮件</button>${rememberAction}</div>` : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
+  return `<article class="message ${isUser ? 'user' : 'assistant'}"><div class="message-meta"><span class="avatar" aria-hidden="true">${e(isUser ? '我' : initial(persona?.name))}</span><span>${e(isUser ? '你' : persona?.name || '助手')}</span>${!isUser && message.origin && message.origin !== 'user' ? `<span class="pill origin-badge">${message.origin === 'task' ? '任务' : '主动'}</span>` : ''}<time datetime="${e(message.createdAt)}">${e(date(message.createdAt))}</time><div class="message-actions-bar"><button type="button" class="btn-msg-action" data-action="copy-message" data-id="${e(message.id)}" title="复制消息全文" aria-label="复制消息全文">${icon('copy')}</button><button type="button" class="btn-msg-action" data-action="quote-message" data-id="${e(message.id)}" title="引用此消息" aria-label="引用此消息">${icon('quote')}</button></div></div>${userAttachmentsHtml}${!isUser&&message.reasoning?`<details class="message-reasoning" data-detail="reasoning-${e(message.id)}"><summary>思考过程${durationLabel ? `<span class="reasoning-duration"> · 用时 ${e(durationLabel)}</span>` : ''}</summary><div class="reasoning-text plain-text">${e(message.reasoning)}</div></details>`:''}${codexWorkflowHtml}<div class="message-content plain-text">${formatMessageContent(message.content, isUser ? '' : userPrompt)}</div>${!isUser ? responseUI.renderMessage(message) + `<div class="message-mail-action"><button type="button" class="button small btn-fan" data-mail-action="from-reply">写成邮件</button>${rememberAction}</div>` : ''}${sources.length ? `<details class="evidence-group" data-detail="sources-${e(message.id)}"><summary>知识来源 · ${sources.length} 处引用</summary><div class="evidence-items">${sourceItems(sources)}</div></details>` : ''}${memories.length ? `<details class="evidence-group" data-detail="memories-${e(message.id)}"><summary>记忆依据 · ${memories.length} 条命中</summary><div class="evidence-items">${recalledItems(memories)}</div></details>` : ''}</article>`;
 }
 function renderApprovalCards(approvals = []) {
   const pending = (Array.isArray(approvals) ? approvals : []).filter(t => t && t.status === 'pending');
@@ -1411,6 +1424,7 @@ async function loadConversation(id) {
   try {
     const result = await api(`/conversations/${endpointId(id)}`);
     state.messages.set(id, result.messages || []);
+    if ((result.messages || []).some(m => m.origin && m.origin !== 'user' && !m.readAt)) void api('/inbox/read', 'POST', { conversationId: id }).catch(() => {});
     if (state.conversationId === id) void chatStateUI.refresh();
   } catch (error) { state.loadErrors.set(id, error.message); }
   finally { state.loadingConversations.delete(id); if (state.page === 'chat') renderPage(); }
@@ -1845,7 +1859,8 @@ function renderSettings() {
       <section class="card settings-card"><h2><span class="section-number">02</span>记忆设置</h2><div class="field-row"><div class="field"><label for="settings-memoryMessageThreshold">总结消息阈值 <span>条</span></label><input id="settings-memoryMessageThreshold" type="number" name="memoryMessageThreshold" required min="2" max="200" step="1" value="${e(s.memoryMessageThreshold)}"><small>会话中未总结的新消息达到该值时触发。</small></div><div class="field"><label for="settings-memoryIntervalHours">总结时间间隔 <span>小时</span></label><input id="settings-memoryIntervalHours" type="number" name="memoryIntervalHours" required min="1" max="720" step="1" value="${e(s.memoryIntervalHours)}"><small>有新消息且距上次总结达到该间隔时触发。</small></div></div><div class="field"><label for="settings-memoryBudget">每个角色的活跃记忆预算 <span>条</span></label><input id="settings-memoryBudget" type="number" name="memoryBudget" required min="10" max="5000" step="1" value="${e(s.memoryBudget)}"><small>超过预算时优先归档低分记忆。固定或处于保护期的条目可能使数量暂时超出预算，不会强制删除。</small></div></section>
       <section class="card settings-card"><h2><span class="section-number">03</span>Agent 推理与指令安全</h2><div class="field-row"><div class="field"><label for="settings-agentMaxSteps">最大推理思考轮数 <span>(0-100 轮)</span></label><input id="settings-agentMaxSteps" type="number" name="agentMaxSteps" required min="0" max="100" step="1" value="${e(s.agentMaxSteps ?? 20)}"><small>设置为 0 则关闭多轮循环推演；1～100 允许复杂任务深入思考与多步工具调用。</small></div><div class="field"><label for="settings-agentSecurityLevel">指令安全检测级别</label><select id="settings-agentSecurityLevel" name="agentSecurityLevel"><option value="standard"${selected(s.agentSecurityLevel, 'standard')}>标准模式（敏感/破坏性操作需同意）</option><option value="strict"${selected(s.agentSecurityLevel, 'strict')}>严格模式（所有工具调用均需确认）</option><option value="loose"${selected(s.agentSecurityLevel, 'loose')}>宽松模式（仅高危系统指令需确认）</option></select><small>写文件、删文档、执行终端命令等指令在实际运行前需人工审批确认。</small></div></div><div class="field-row"><div class="field"><label for="settings-agentDuplicateThreshold">连续调用熔断阈值 <span>次</span></label><input id="settings-agentDuplicateThreshold" type="number" name="agentDuplicateThreshold" required min="1" max="20" step="1" value="${e(s.agentDuplicateThreshold ?? 5)}"><small>检测到连续 5 次执行相同参数工具时触发熔断，防止陷入逻辑死循环。</small></div><div class="field"><label for="settings-agentFailureThreshold">连续失败阻断阈值 <span>次</span></label><input id="settings-agentFailureThreshold" type="number" name="agentFailureThreshold" required min="1" max="20" step="1" value="${e(s.agentFailureThreshold ?? 5)}"><small>工具调用连续异常 5 次时阻断重试，强制总结回答避免资源消耗。</small></div></div><div class="field-row"><div class="field"><label for="settings-criticEnabled">回答意图对齐审核器</label><select id="settings-criticEnabled" name="criticEnabled"><option value="true"${selected(String(s.criticEnabled ?? true), 'true')}>开启（回答后核验意图，未通过时自动反思）</option><option value="false"${selected(String(s.criticEnabled ?? true), 'false')}>关闭（直接输出候选回答，响应速度优先）</option></select><small>由独立 Critic 审核模型比对用户意图与工具事实，确保多目标任务不遗漏、数值准确。</small></div><div class="field"><label for="settings-criticMaxRetries">审核未通过时最大反思轮数 <span>(0-2 轮)</span></label><input id="settings-criticMaxRetries" type="number" name="criticMaxRetries" required min="0" max="2" step="1" value="${e(s.criticMaxRetries ?? 1)}"><small>审核判定不符合用户预期时，注入改进建议要求模型重思的上限轮数。</small></div></div></section>
       <section class="card settings-card garden-controls garden-appearance-card" aria-label="外观与主题设置"><h2><span class="section-number">04</span>园林外观与主题</h2><div class="field"><label>界面主题 <span>中国古典园林视觉色彩</span></label><div class="theme-options" role="group" aria-label="界面主题"><button type="button" class="button small inspector-btn btn-leaf" data-garden-theme-select="spring" aria-pressed="true">春园</button><button type="button" class="button small inspector-btn btn-leaf" data-garden-theme-select="autumn" aria-pressed="false">秋庭</button><button type="button" class="button small inspector-btn btn-leaf" data-garden-theme-select="night" aria-pressed="false">夜雨</button></div><small>春园为淡雅泥金水墨白昼；秋庭为温润澄黄熟宣秋色；夜雨为沉静幽深黛青夜景。</small></div><div class="field"><label>园林动态与视觉</label><div class="inspector-controls garden-setting-actions"><button type="button" class="button small inspector-btn btn-scroll" data-garden-action="scenes" aria-pressed="true">场景动画</button><button type="button" class="button small inspector-btn btn-scroll" data-garden-action="entrance">重播入场</button></div><small>控制全景游廊、荷塘游鱼、香炉檀烟等场景动态的播放与暂停；亦可随时重播入场启扉动画。</small></div></section>
-      ${errorHTML(state.settingsError)}<div class="settings-actions"><span class="muted">${state.settingsDirty ? '有尚未保存的修改；模型可在上方单独保存并测试' : '配置来自本地服务'}</span><button type="submit" class="button primary"${disabled(state.settingsSaving || state.testBusy)}>${state.settingsSaving ? '<span class="spinner"></span>' : icon('check')}${state.settingsSaving ? '正在保存…' : '保存设置'}</button></div></form>
+      ${errorHTML(state.settingsError)}${errorHTML(state.settingsError)}<div class="settings-actions"><span class="muted">${state.settingsDirty ? '有尚未保存的修改；模型可在上方单独保存并测试' : '配置来自本地服务'}</span><button type="submit" class="button primary"${disabled(state.settingsSaving || state.testBusy)}>${state.settingsSaving ? '<span class="spinner"></span>' : icon('check')}${state.settingsSaving ? '正在保存…' : '保存设置'}</button></div></form>
+    ${autonomyUI.renderCard()}
     <aside class="card settings-aside"><div class="eyebrow">YOUR DATA, YOUR CHOICE</div><h3>安心，来自清楚的边界。</h3><div class="boundary-item"><strong>${icon('lock')}留在这台设备</strong><p>角色、会话、提取后的文档、记忆与任务保存在本地 SQLite 中。本地存储不等于加密，请自行做好磁盘保护与备份。</p></div><div class="boundary-item"><strong>${icon('arrow')}何时发送到模型</strong><p>聊天、人物分析、记忆总结与 AI 任务会发送相应文本。聊天还可能携带相关知识片段和长期记忆，请只选择获准使用的内容。</p></div><div class="boundary-item"><strong>${icon('shield')}没有隐形的动作</strong><p>邮件由你填写收件人、预览并确认后才通过已配置的 SMTP 服务发送。AI 与定时任务不会自动发信。定时任务仅在本地服务运行时执行。</p></div><div class="boundary-item"><strong>${icon('leaf')}随时修正与遗忘</strong><p>模型可能误解你的意思。你可以查看记忆来源、修改、归档、恢复，或在明确确认后永久删除。</p></div></aside></div>`;
 }
 async function saveSettings({modelOnly=false,notify=true}={}) {
@@ -2601,6 +2616,7 @@ setInterval(() => {
 }, 60_000);
 renderPage();
 void refreshData({ silent: true });
+autonomyUI.connect();
 
 // Drag and Drop & Paste handling for Chat
 document.addEventListener('dragover', event => {

@@ -3679,3 +3679,8 @@ h4.md-heading {
 .md-table tr:last-child td {
   border-bottom: none;
 }
+
+/* Autonomy (no-prompt activation) settings card */
+.autonomy-card .autonomy-events { margin: 12px 0 0; padding-left: 18px; color: var(--ink); }
+.autonomy-card .autonomy-events li { margin: 2px 0; }
+.origin-badge { margin-left: 6px; color: var(--frame-accent); border-color: var(--frame-accent); }
