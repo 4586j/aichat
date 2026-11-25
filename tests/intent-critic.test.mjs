@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createIntentCritic } from '../lib/intent-critic.mjs';
+import { shouldAuditPrompt } from '../lib/agent-loop.mjs';
 
 test('createIntentCritic requires valid model instance', () => {
   assert.throws(() => createIntentCritic({}), /IntentCritic 需要注入有效的 model/);
@@ -83,4 +84,40 @@ test('auditCandidate propagates abort signal immediately', async () => {
     critic.auditCandidate({ prompt: 'test', candidateContent: 'test', signal: controller.signal }),
     /本次回复已取消|审核已取消/
   );
+});
+
+test('auditCandidate includes availableTools context and tool-rigor rule for unverified calculations', async () => {
+  let capturedMessages = null;
+  const mockModel = {
+    complete: async (messages) => {
+      capturedMessages = messages;
+      return JSON.stringify({
+        passed: false,
+        score: 30,
+        missingPoints: ['未调用 calculator 工具验证计算结果'],
+        factCheck: 'inconsistent',
+        feedbackToAgent: '请先调用 calculator 计算 345 * 28，不要自行心算。'
+      });
+    }
+  };
+
+  const critic = createIntentCritic({ model: mockModel });
+  const result = await critic.auditCandidate({
+    prompt: '345 * 28 等于多少？',
+    toolsExecuted: [],
+    availableTools: ['calculator', 'data_stats', 'date_calculator', 'get_system_time'],
+    candidateContent: '大概是 9660 吧。'
+  });
+
+  assert.equal(result.passed, false);
+  assert.ok(capturedMessages[0].content.includes('工具严谨性'));
+  assert.ok(capturedMessages[1].content.includes('calculator, data_stats, date_calculator, get_system_time'));
+});
+
+test('shouldAuditPrompt triggers on short math/time prompts but skips casual greetings', () => {
+  assert.equal(shouldAuditPrompt('你好', []), false);
+  assert.equal(shouldAuditPrompt('在吗？', []), false);
+  assert.equal(shouldAuditPrompt('345 * 28 等于多少？', []), true);
+  assert.equal(shouldAuditPrompt('今天星期几？', []), true);
+  assert.equal(shouldAuditPrompt('帮我算一下均值', []), true);
 });

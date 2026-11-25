@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { safeEvaluateMath, createToolRegistry } from '../lib/tool-registry.mjs';
-import { createMcpManager } from '../lib/mcp-manager.mjs';
+import { createMcpManager, createStdioMcpClient } from '../lib/mcp-manager.mjs';
 
 test('safeEvaluateMath computes valid math expressions and blocks unsafe execution', () => {
   // Valid math
@@ -10,6 +10,8 @@ test('safeEvaluateMath computes valid math expressions and blocks unsafe executi
   assert.equal(safeEvaluateMath('2 ^ 10'), 1024);
   assert.equal(safeEvaluateMath('Math.sqrt(144) + Math.abs(-10)'), 22);
   assert.equal(safeEvaluateMath('Math.round(3.14159 * 100) / 100'), 3.14);
+  assert.equal(safeEvaluateMath('0.1 + 0.2'), 0.3);
+  assert.equal(safeEvaluateMath('19.9 * 3'), 59.7);
 
   // Unsafe / malicious inputs
   assert.throws(() => safeEvaluateMath('process.exit(1)'), /未授权的函数或标识符|不允许的字符/);
@@ -94,4 +96,78 @@ test('createMcpManager syncs MCP tools into ToolRegistry and proxies calls', asy
   assert.equal(executionResult.content[0].text, '文件内容测试');
 
   mcpManager.closeAll();
+});
+
+test('createStdioMcpClient filters sensitive environment variables from spawned child process', async () => {
+  process.env.TEST_AI_API_KEY = 'secret_key_123';
+  process.env.TEST_APP_TOKEN = 'secret_token_456';
+  process.env.TEST_SAFE_VAR = 'safe_hello';
+  const childScript = `
+    process.stdin.on('data', chunk => {
+      try {
+        const msg = JSON.parse(chunk.toString().trim());
+        if (msg.method === 'initialize') {
+          process.stdout.write(JSON.stringify({
+            jsonrpc: '2.0',
+            id: msg.id,
+            result: {
+              hasApiKey: 'TEST_AI_API_KEY' in process.env,
+              hasToken: 'TEST_APP_TOKEN' in process.env,
+              safeVar: process.env.TEST_SAFE_VAR
+            }
+          }) + '\\n');
+        }
+      } catch {}
+    });
+  `;
+
+  const client = createStdioMcpClient({
+    name: 'test_env_filter',
+    command: process.execPath,
+    args: ['-e', childScript],
+    timeoutMs: 3000
+  });
+
+  try {
+    const res = await client.initialize();
+    assert.equal(res.hasApiKey, false);
+    assert.equal(res.hasToken, false);
+    assert.equal(res.safeVar, 'safe_hello');
+  } finally {
+    client.close();
+    delete process.env.TEST_AI_API_KEY;
+    delete process.env.TEST_APP_TOKEN;
+    delete process.env.TEST_SAFE_VAR;
+  }
+});
+
+test('createToolRegistry executes deterministic data_stats and date_calculator skills', async () => {
+  const registry = createToolRegistry();
+  assert.ok(registry.has('data_stats'));
+  assert.ok(registry.has('date_calculator'));
+  assert.equal(registry.getTool('data_stats').safe, true);
+  assert.equal(registry.getTool('date_calculator').safe, true);
+
+  const stats = await registry.execute('data_stats', { values: [0.1, 0.2, 0.3, 0.4] });
+  assert.equal(stats.count, 4);
+  assert.equal(stats.sum, 1);
+  assert.equal(stats.mean, 0.25);
+  assert.equal(stats.median, 0.25);
+  assert.equal(stats.min, 0.1);
+  assert.equal(stats.max, 0.4);
+  assert.equal(stats.range, 0.3);
+
+  await assert.rejects(() => registry.execute('data_stats', { values: [] }), /非空数字数组/);
+  await assert.rejects(() => registry.execute('data_stats', { values: ['abc'] }), /不是有限数值/);
+
+  const diff = await registry.execute('date_calculator', { mode: 'diff', startDate: '2026-11-01', endDate: '2026-11-23' });
+  assert.equal(diff.diffDays, 22);
+  assert.equal(diff.weeks, 3);
+  assert.equal(diff.remainingDays, 1);
+
+  const offset = await registry.execute('date_calculator', { mode: 'offset', baseDate: '2024-02-28', offsetDays: 2 });
+  assert.equal(offset.resultDate, '2024-03-01');
+  assert.equal(offset.weekday, '星期五');
+
+  await assert.rejects(() => registry.execute('date_calculator', { mode: 'diff', startDate: '2026-02-30', endDate: '2026-03-01' }), /不是合法的日历日期/);
 });
