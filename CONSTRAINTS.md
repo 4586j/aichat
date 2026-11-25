@@ -28,7 +28,7 @@
 ## 二、 技术选型与架构决策 (ADR)
 
 ### 1. 运行时与后端 (Runtime & Backend)
-- **选型**：`Node.js >= 22.0.0` (ESM 模块规范 `"type": "module"`)。
+- **选型**：`Node.js >= 22.18.0` (ESM 模块规范 `"type": "module"`)。
 - **依据**：
   - Node.js 22 内置了稳定的原生 SQLite 支持（`node:sqlite`），省去对 `better-sqlite3` 等需 C++ 本地编译依赖的繁琐安装。
   - 原生提供 `ReadableStream`、`TextEncoder/Decoder`、`fetch` 和 `crypto.randomBytes`，实现纯标准 Web API 兼容器件。
@@ -182,18 +182,28 @@ ai-companion/
 
 ## 五、 Git 提交与质量保障流线 (Quality Assurance Workflow)
 
-为保证项目代码健康度与回溯追踪，所有开发者与 AI 协同助手必须严格遵守以下协作流程：
+为保证项目代码健康度、敏捷迭代效率与可回溯性，所有开发者与 AI 协同助手必须严格遵守**两级质量门禁与任务拆解流线**：
 
 ```mermaid
 flowchart TD
-    A["开始开发任务"] --> B["检查当前 git status 确保工作区纯净"]
-    B --> C["分步编码实现特性或修复缺陷"]
-    C --> D["执行专项与回归测试 (node --test / Playwright)"]
+    A["特性开发需求"] --> B["拆解为独立子任务 (Task Decomposition)"]
+    B --> C["子任务开发：编码实现"]
+    C --> D["子任务专项测试 (Targeted Test，秒级反馈)"]
     D -->|测试失败| C
-    D -->|全部通过| E["运行 git status 确认改动范围无多余产物"]
-    E --> F["遵循 Conventional Commits 提交代码"]
-    F --> G["推送至远程仓库 (git push origin main)"]
+    D -->|专项通过| E{"是否还有未完成的子任务？"}
+    E -->|是| C
+    E -->|否，所有子任务完成| F["收官阶段：全量回归测试 (Full Test Suite)"]
+    F --> G["真实用户全链路模拟测试 (Playwright E2E)"]
+    G -->|发现破坏或回归| C
+    G -->|全量通过| H["清理测试报告与中间产物 (Cleanup Artifacts)"]
+    H --> I["确认 git status 无冗余文件"]
+    I --> J["遵循 Conventional Commits 提交代码"]
+    J --> K["推送至远程仓库 (git push origin main)"]
 ```
+
+### 两级测试执行标准
+1. **第一级（子任务门禁，轻量快速）**：开发中仅运行当前子任务涉及的模块专项测试（如 `node --test tests/xxx.test.mjs`），不进行耗时较长的全量 800+ 项测试与浏览器端到端模拟测试，保持极低调试时延与敏捷心流。
+2. **第二级（特性交付门禁，严密完整）**：当该特性的全部子任务开发完毕、准备整体合流提交时，必须统一执行全量测试套件（800+ 单元测试与 7 大用户旅程端到端模拟测试），并通过后及时清理测试临时产物。
 
 ### 提交格式标准 (Conventional Commits)
 - `feat(...)`: 新功能或扩展特性（如 `feat(agent): 实现多轮可解释推理循环引擎`）

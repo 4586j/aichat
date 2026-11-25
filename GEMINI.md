@@ -42,10 +42,35 @@ node ./node_modules/playwright/cli.js test tests/garden-browser.spec.mjs
 node ./node_modules/playwright/cli.js test tests/user-journey-simulation.spec.mjs
 ```
 
-### 3. Git 协同规范
+### 3. 分级测试与子任务开发工作流 (Two-Tier Testing & Task Decomposition)
+当进行功能开发或架构重构时，遵循**任务拆分、专项快验、最终全量回归**的两级质量验证机制：
+1. **任务拆解 (Decomposition)**：将大的功能特性拆解为若干独立可验证的子任务（如：数据模型/存储层 -> 核心算法/业务层 -> HTTP/SSE 协议层 -> 前端 UI/交互层）。
+2. **子任务开发期（专项测试，秒级反馈）**：
+   - 每个子任务开发与调试过程中，**无需运行全量测试**；
+   - 必须针对该任务涉及的具体模块运行**定向专项测试**（耗时控制在百毫秒至 1-2 秒内），确保本模块逻辑与边界覆盖完整：
+     ```bash
+     # 示例：仅针对当前子任务涉及的模块执行测试
+     node --test tests/agent-loop.test.mjs
+     node --test tests/instruction-inspector.test.mjs tests/tool-registry.test.mjs
+     node ./node_modules/playwright/cli.js test tests/pet-motion-browser.spec.mjs
+     ```
+3. **特性收官与提交前（全量回归与测试产物清理）**：
+   - 当该特性的所有子任务全部开发完成、准备合流交付时，**必须执行全量回归验证**；
+   - 运行全部单元测试（800+ 项）与真实用户全链路模拟测试，并按规范清理测试产生的截图与临时日志：
+     ```bash
+     # 1. 运行全量单元与集成测试
+     node --test (Get-ChildItem tests/*.test.mjs).FullName
+
+     # 2. 运行真实用户全链路模拟测试（如涉及端到端交互）
+     node ./node_modules/playwright/cli.js test tests/user-journey-simulation.spec.mjs
+
+     # 3. 清理测试产物（test-reports/、playwright-report/ 等临时目录）
+     ```
+
+### 4. Git 协同规范
 - **开发前**：必须运行 `git status` 确保工作区纯净，了解分支状态。
-- **开发中**：每完成一个独立模块或修复，必须先运行自动化测试验证。
-- **提交时**：验证通过后立即提交，遵循 Conventional Commits 格式（如 `feat(...)`, `fix(...)`, `docs(...)` 等）。
+- **子任务中**：各子任务完成并经专项测试验证后，可形成清晰的局部提交或暂存。
+- **提交时**：所有子任务收官、全量回归测试通过后正式提交，遵循 Conventional Commits 格式（如 `feat(...)`, `fix(...)`, `docs(...)` 等）。
 - **同步**：开发完成并验证无误后，推送到远程仓库 `git push origin main`。
 
 ---
@@ -53,7 +78,7 @@ node ./node_modules/playwright/cli.js test tests/user-journey-simulation.spec.mj
 ## 三、 技术选型与架构决策 (ADR)
 
 ### 1. 运行时与后端 (Node.js ESM)
-- **选型**：`Node.js >= 22.0.0` (ESM 模块规范 `"type": "module"`，文件后缀 `.mjs`)。
+- **选型**：`Node.js >= 22.18.0` (ESM 模块规范 `"type": "module"`，文件后缀 `.mjs`)。
 - **依据**：Node.js 22 内置原生的 SQLite (`node:sqlite`)、`fetch`、`ReadableStream` 与加密库，免除了跨平台本地 C++ 二进制包编译问题。
 
 ### 2. 存储与状态引擎 (node:sqlite)
@@ -73,7 +98,9 @@ node ./node_modules/playwright/cli.js test tests/user-journey-simulation.spec.mj
 
 ### 5. 统一工具注册中心 (Skill) 与 MCP 客户端
 - **内置 Skill**：
-  - `calculator`：采用词法白名单 + 严格沙箱解析器 [`safeEvaluateMath`](file:///e:/tools/wangshen/ai-companion/lib/tool-registry.mjs#L1-L20)，完全防止代码注入与沙箱逃逸。
+  - `calculator`：采用词法白名单 + 严格沙箱解析器 [`safeEvaluateMath`](file:///e:/tools/wangshen/ai-companion/lib/tool-registry.mjs#L103-L137)，带 IEEE-754 浮点精度规范化，完全防止代码注入与沙箱逃逸。
+  - `data_stats`：纯原生确定性批量数据描述性统计（计数、求和、均值、中位数、极值、极差、方差、标准差）。
+  - `date_calculator`：纯原生确定性日历天数差值（`diff`）与日期偏移推算（`offset`）。
   - `knowledge_deep_search`：两段式知识库精细化检索。
   - `get_system_time`：系统时间标准化受控输出。
 - **MCP (Model Context Protocol) 支持**：
@@ -147,6 +174,7 @@ ai-companion/
 2. **禁止裸代码执行**：严禁直接使用裸 `eval()`、`new Function(rawUserInput)` 执行不可信代码。数学表达式计算必须经过词法分析白名单过滤。
 3. **外部输入屏障隔离**：用户导入的文档、外部检索的网页、历史记忆片段在组装进 Prompt 时，一律包裹在系统级指令边界标签内，并明确告知模型为不可信参考数据，防止 Prompt 注入攻击。
 4. **敏感指令强审批**：凡涉及执行外部系统命令、覆写本地文件、删除持久化数据或向外发送邮件的工具调用，必须挂起并签发 Ticket，等待用户明确确认。
+5. **确定性优先（代码/工具优先于模型心算）**：凡涉及非平凡数学计算、批量统计聚合、精确日期/星期推算、当前系统时间或本地资料精确核实，**必须交由确定性代码或只读工具完成**（并在首轮 System Prompt 与 Intent Critic 审核中强制约束），严禁由大模型通过概率心算或凭记忆猜测代劳。
 
 ### 2. 状态并发与生命周期控制
 1. **会话单并发互斥锁**：针对同一 `conversationId`，在模型生成期间必须上锁（`chatLocks.add(id)`），阻断并发重叠提问，生成完成或异常终止时必须在 `finally` 块释放。
