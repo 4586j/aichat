@@ -24,6 +24,7 @@ const STATIC = new Map([
   ['/sse-protocol.js', ['sse-protocol.js', 'text/javascript; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/garden.css', ['garden.css', 'text/css; charset=utf-8']],
+  ['/garden-v4.css', ['garden-v4.css', 'text/css; charset=utf-8']],
   ['/garden-ui.js', ['garden-ui.js', 'text/javascript; charset=utf-8']],
   ['/entrance.css', ['entrance.css', 'text/css; charset=utf-8']],
   ['/entrance.js', ['entrance.js', 'text/javascript; charset=utf-8']],
@@ -43,10 +44,15 @@ const STATIC = new Map([
   ['/response-scenes.js', ['response-scenes.js', 'text/javascript; charset=utf-8']],
   ['/response-policy.js', ['response-policy.js', 'text/javascript; charset=utf-8']],
   ['/autonomy-ui.js', ['autonomy-ui.js', 'text/javascript; charset=utf-8']],
+  ['/social-ui.js', ['social-ui.js', 'text/javascript; charset=utf-8']],
   ['/response-policy.css', ['response-policy.css', 'text/css; charset=utf-8']],
   ['/llms.txt', ['../llms.txt', 'text/plain; charset=utf-8']],
   ['/memory-graph.js', ['memory-graph.js', 'text/javascript; charset=utf-8']],
   ['/memory-graph.css', ['memory-graph.css', 'text/css; charset=utf-8']],
+  ['/usage-panel.js', ['usage-panel.js', 'text/javascript; charset=utf-8']],
+  ['/usage-panel.css', ['usage-panel.css', 'text/css; charset=utf-8']],
+  ['/workspace-extras.js', ['workspace-extras.js', 'text/javascript; charset=utf-8']],
+  ['/workspace-extras.css', ['workspace-extras.css', 'text/css; charset=utf-8']],
   ['/vendor/cytoscape.esm.min.mjs', ['../node_modules/cytoscape/dist/cytoscape.esm.min.mjs', 'text/javascript; charset=utf-8']],
 ]);
 for (const pet of PET_CATALOG) {
@@ -80,6 +86,8 @@ const STATIC_API_ROUTES = new Map([
   ['POST /api/chat/approve', ({ api, input }) => api.approveAction(input.ticketId, { approved: Boolean(input.approved), reason: input.reason })],
   ['GET /api/chat/pending-approvals', ({ api, query }) => ({ approvals: api.getPendingApprovals(query.get('conversationId') || null) })],
   ['GET /api/traces', ({ api, query }) => api.getTraces({ conversationId: query.get('conversationId') || null, limit: query.get('limit') })],
+  ['GET /api/usage', ({ api, query }) => api.getUsageAnalytics({ range: query.get('range') || '7d', conversationId: query.get('conversationId') || null })],
+  ['DELETE /api/usage', ({ api }) => api.clearUsageLogs()],
   ['GET /api/tools', ({ api }) => ({ tools: api.toolRegistry.listDefinitions() })],
   ['POST /api/agent/run', ({ api, input }) => api.runAgentTask(input)],
   ['GET /api/chat-state', ({ api, query }) => api.getChatState({ personaId: query.get('personaId'), conversationId: query.get('conversationId') || null })],
@@ -134,6 +142,17 @@ const STATIC_API_ROUTES = new Map([
   ['GET /api/autonomy/events', ({ api, query }) => api.autonomy.events(Number(query.get('limit')) || 50)],
   ['GET /api/inbox', ({ api, query }) => api.autonomy.inbox({ since: Number(query.get('since')) || 0 })],
   ['POST /api/inbox/read', ({ api, input }) => { api.autonomy.markRead(String(input?.conversationId || '')); return { ok: true }; }],
+  ['GET /api/social/settings', ({ api }) => ({ social: api.social.settings() })],
+  ['PUT /api/social/settings', ({ api, input }) => ({ social: api.social.update(input) })],
+  ['GET /api/social/status', ({ api }) => api.social.status()],
+  ['POST /api/social/draft', ({ api, input }) => api.social.draft(input)],
+  ['GET /api/messages/search', ({ api, query }) => api.searchMessages({ q: query.get('q') || '', kind: query.get('kind') || 'all', personaId: query.get('personaId') || '', limit: Number(query.get('limit')) || 30 })],
+  ['PUT /api/relationships', ({ api, input }) => api.saveRelationship(input)],
+  ['POST /api/bookmarks', ({ api, input }) => api.toggleBookmark(input)],
+  ['POST /api/web/clip', ({ api, input }) => api.clipWebpage(input)],
+  ['POST /api/personas/import-card', ({ api, input }) => api.importPersonaCard(input)],
+  ['GET /api/backup/export', ({ api }) => api.exportBackup()],
+  ['POST /api/backup/import', ({ api, input }) => api.importBackup(input)],
 ]);
 
 const RESOURCE_HANDLERS = {
@@ -156,13 +175,29 @@ const RESOURCE_HANDLERS = {
       if (method === 'DELETE' && action) return api.media.remove(action);
     }
   },
-  personas: ({ api, method, itemId, action, input }) => {
+  personas: ({ api, method, itemId, action, input, query }) => {
     if (method === 'PUT' && itemId && !action) return api.savePersona(input, itemId);
+    if (method === 'GET' && itemId && action === 'card') {
+      return api.exportPersonaCard(itemId, { includeMemories: query.get('includeMemories') === 'true' });
+    }
+  },
+  journals: ({ api, method, itemId, action, input }) => {
+    if (method === 'PUT' && itemId && !action) return api.saveJournal(itemId, input);
+    if (method === 'POST' && itemId && action === 'generate') return api.generateJournal(itemId, input);
   },
   conversations: ({ api, method, itemId, action, input }) => {
     if (method === 'GET' && itemId && !action) return api.getConversation(itemId);
+    if (method === 'PUT' && itemId && !action) return api.updateConversation(itemId, input);
+    if (method === 'POST' && itemId && action === 'branch') return api.branchConversation(itemId, input);
     if (method === 'POST' && itemId && action === 'messages') return api.sendMessage(itemId, input);
     if (method === 'POST' && itemId && action === 'music-feedback') return api.musicFeedback(itemId, input);
+  },
+  relationships: ({ api, method, itemId, action }) => {
+    if (method === 'DELETE' && itemId && !action) return api.deleteRelationship(itemId);
+  },
+  bookmarks: ({ api, method, itemId, action, input }) => {
+    if (method === 'PUT' && itemId && !action) return api.updateBookmark(itemId, input);
+    if (method === 'DELETE' && itemId && !action) return api.deleteBookmark(itemId);
   },
   documents: ({ api, method, itemId, action }) => {
     if (method === 'DELETE' && itemId && !action) return api.deleteDocument(itemId);
@@ -212,9 +247,24 @@ export async function startServer({ port = 4317, dbPath = join(ROOT, 'data', 'ag
       const allowedHosts = [`127.0.0.1:${currentPort}`, `localhost:${currentPort}`];
       const host = request.headers.host;
       if (!allowedHosts.includes(host)) throw new AppError('仅接受本机地址访问。', 403);
-      if (request.headers.origin && request.headers.origin !== `http://${host}`) throw new AppError('拒绝跨站访问。', 403);
-      if (request.headers['sec-fetch-site'] === 'cross-site') throw new AppError('拒绝跨站访问。', 403);
       const url = new URL(request.url, `http://${host}`);
+      const origin = request.headers.origin;
+      const isSocialExt = url.pathname.startsWith('/api/social/')
+        && typeof origin === 'string'
+        && /^chrome-extension:\/\/[a-z]{32}$/u.test(origin);
+      if (isSocialExt) {
+        response.setHeader('Access-Control-Allow-Origin', origin);
+        response.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
+        response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        response.setHeader('Vary', 'Origin');
+        if (request.method === 'OPTIONS') {
+          response.writeHead(204);
+          return response.end();
+        }
+      } else {
+        if (origin && origin !== `http://${host}`) throw new AppError('拒绝跨站访问。', 403);
+        if (request.headers['sec-fetch-site'] === 'cross-site') throw new AppError('拒绝跨站访问。', 403);
+      }
       if (['GET', 'HEAD'].includes(request.method) && /^\/guides\/[a-z]+\.md$/.test(url.pathname)) {
         const doc = api.guides.get(url.pathname.slice(8, -3));
         const content = Buffer.from(doc.content + '\n');

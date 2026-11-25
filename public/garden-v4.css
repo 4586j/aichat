@@ -1,0 +1,1176 @@
+@charset "UTF-8";
+
+/* ==========================================================================
+   栖忆 (QiYi) · 典藏版 v4 古典园林视觉体系
+   - 全量隔离在 html[data-ui-style="v4"] 下；切换「原有风格」(classic) 即零损耗还原原版界面
+   - 支持 春园(spring) / 秋庭(autumn) / 夜雨(night) 三套配色与 320px~1440px 全视口适配
+   ========================================================================== */
+
+/* 原有风格 (classic) 下隐藏 v4 专属微缩装饰元素，确保原版界面 100% 不受影响 */
+html[data-ui-style="classic"] .theme-mini-window,
+html[data-ui-style="classic"] .usage-ring-niche,
+html[data-ui-style="classic"] .usage-hero-save {
+  display: none !important;
+}
+
+/* ==========================================================================
+   1. 三境高定色彩令牌 (Spring / Autumn / Night — color-mix in oklab)
+   ========================================================================== */
+html[data-ui-style="v4"],
+html[data-ui-style="v4"][data-garden-theme="spring"] {
+  --paper: #f7f3e8;
+  --paper-deep: #ece4d3;
+  --paper-card: #fdfbf5;
+  --paper-tint: #edf3ee;
+  --ink: #1e2421;
+  --text: #27302c;
+  --muted: #616c66;
+  --bamboo: #27584d;
+  --bamboo-dark: #193e36;
+  --bamboo-soft: #e2ede7;
+  --celadon: #537c70;
+  --cinnabar: #ad3125;
+  --cinnabar-dark: #7f1e15;
+  --cinnabar-soft: #faeae7;
+  --gold: #bc9654;
+  --gold-soft: #f5ebd5;
+  --line: #cfc3ab;
+  --line-strong: #a7997f;
+  --line-soft: #e4dccb;
+  --frame-accent: #8f7245;
+
+  --v4-wood: #3a281e;
+  --v4-wood-mid: #5a3e2e;
+  --v4-shelf-bg: #483124;
+  --v4-gold-bright: #dfc080;
+  --v4-gold-line: color-mix(in oklab, #bc9654 42%, transparent);
+  --v4-gold-faint: color-mix(in oklab, #bc9654 22%, transparent);
+  --v4-user-bg-1: #214e44;
+  --v4-user-bg-2: #173a32;
+  --v4-user-ink: #faf4e6;
+  --v4-nav-edge: #ad3125;
+  --v4-roller: #5e2219;
+  --v4-shanshui-sky: linear-gradient(180deg, #e3eee7 0%, #f6efe0 72%, #e9dfc9 100%);
+  --v4-niche-bg: linear-gradient(180deg, #fdfbf5 0%, #f3ecdc 100%);
+  --v4-code-bg: #202825;
+  --v4-code-fg: #e7efe9;
+  --v4-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", SimSun, Georgia, serif;
+  --v4-kai: "KaiTi", "FangSong", var(--v4-serif);
+  --serif: var(--v4-serif);
+}
+
+html[data-ui-style="v4"][data-garden-theme="autumn"] {
+  --paper: #fbf5ea;
+  --paper-deep: #f0e4d0;
+  --paper-card: #fffcf6;
+  --paper-tint: #f6ecdb;
+  --ink: #2b201b;
+  --text: #3a2c25;
+  --muted: #78655a;
+  --bamboo: #8a3d27;
+  --bamboo-dark: #622616;
+  --bamboo-soft: #f4e4d6;
+  --celadon: #9c6b30;
+  --cinnabar: #b83324;
+  --cinnabar-dark: #851e13;
+  --cinnabar-soft: #fbeae5;
+  --gold: #c29248;
+  --gold-soft: #f8ecd2;
+  --line: #d4c1a5;
+  --line-strong: #b39268;
+  --line-soft: #e8dac4;
+  --frame-accent: #9c6b30;
+
+  --v4-wood: #4b231b;
+  --v4-wood-mid: #6e3b2e;
+  --v4-shelf-bg: #53271e;
+  --v4-gold-bright: #ecc57a;
+  --v4-gold-line: color-mix(in oklab, #c29248 45%, transparent);
+  --v4-gold-faint: color-mix(in oklab, #c29248 24%, transparent);
+  --v4-user-bg-1: #7d3522;
+  --v4-user-bg-2: #5c2214;
+  --v4-user-ink: #fff7eb;
+  --v4-nav-edge: #e8be6c;
+  --v4-roller: #4d1e15;
+  --v4-shanshui-sky: linear-gradient(180deg, #f3e2c7 0%, #fbf3e4 74%, #efe0c7 100%);
+  --v4-niche-bg: linear-gradient(180deg, #fffdf8 0%, #f5ead7 100%);
+  --v4-code-bg: #261e1a;
+  --v4-code-fg: #f3e8d8;
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] {
+  --paper: #161210;
+  --paper-deep: #100d0c;
+  --paper-card: #1f1a17;
+  --paper-tint: #26201c;
+  --ink: #f2eadb;
+  --text: #e4dac8;
+  --muted: #9a8e7c;
+  --bamboo: #357067;
+  --bamboo-dark: #214c46;
+  --bamboo-soft: #223735;
+  --celadon: #69b8ae;
+  --cinnabar: #c54233;
+  --cinnabar-dark: #8e2418;
+  --cinnabar-soft: #3c211e;
+  --gold: #d6b270;
+  --gold-soft: #30271b;
+  --line: #3d332a;
+  --line-strong: #5c4d3c;
+  --line-soft: #2c241e;
+  --frame-accent: #7a684a;
+
+  --v4-wood: #2a211b;
+  --v4-wood-mid: #4a3a2c;
+  --v4-shelf-bg: #0f0c0b;
+  --v4-gold-bright: #f0d49a;
+  --v4-gold-line: color-mix(in oklab, #d6b270 36%, transparent);
+  --v4-gold-faint: color-mix(in oklab, #d6b270 16%, transparent);
+  --v4-user-bg-1: #1c3d39;
+  --v4-user-bg-2: #1a242b;
+  --v4-user-ink: #eef8f6;
+  --v4-nav-edge: #69b8ae;
+  --v4-roller: #4d1c16;
+  --v4-shanshui-sky: linear-gradient(180deg, #121618 0%, #1d1915 100%);
+  --v4-niche-bg: radial-gradient(ellipse 90% 58% at 50% 0%, rgba(214, 178, 112, 0.12), #1d1815 68%, #161210 100%);
+  --v4-code-bg: #111515;
+  --v4-code-fg: #dbe9e5;
+}
+
+/* ==========================================================================
+   2. 宣纸/漆器大底与连体苏工隔扇框架
+   ========================================================================== */
+html[data-ui-style="v4"] body {
+  background-color: var(--paper);
+  background-image:
+    radial-gradient(ellipse 75% 40% at 50% 0%, color-mix(in oklab, var(--bamboo) 8%, transparent), transparent 62%),
+    radial-gradient(ellipse 50% 45% at 92% 94%, color-mix(in oklab, var(--gold) 8%, transparent), transparent 58%);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] body {
+  background-image:
+    radial-gradient(circle at 20% 8%, rgba(214, 168, 84, 0.08), transparent 42%),
+    radial-gradient(circle at 84% 92%, rgba(105, 184, 174, 0.09), transparent 46%);
+}
+
+html[data-ui-style="v4"] .app-shell {
+  border: 2px solid var(--v4-wood);
+  box-shadow: inset 0 0 0 1px var(--v4-gold-line);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .app-shell {
+  border-color: var(--v4-gold-line);
+}
+
+/* ==========================================================================
+   3. 左侧栏：四眼线装书脊 + 探出式燕尾书签 + 精简月洞伴宠窗
+   ========================================================================== */
+html[data-ui-style="v4"] .leak-window-strip,
+html[data-ui-style="v4"] .sidebar-bonsai {
+  display: none !important;
+}
+
+html[data-ui-style="v4"] .sidebar {
+  background:
+    linear-gradient(90deg, transparent 10px, var(--v4-gold-faint) 10px, var(--v4-gold-faint) 11px, transparent 11px),
+    linear-gradient(180deg, color-mix(in oklab, var(--bamboo) 5%, var(--paper-deep)) 0%, var(--paper-deep) 100%);
+  border-right: 2px solid var(--v4-wood);
+  box-shadow: inset -3px 0 0 var(--paper-card), inset -4px 0 0 var(--v4-gold-line);
+  padding-left: 16px;
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .sidebar {
+  background:
+    linear-gradient(90deg, transparent 10px, var(--v4-gold-faint) 10px, var(--v4-gold-faint) 11px, transparent 11px),
+    linear-gradient(180deg, #1f1916 0%, #151110 100%);
+  border-right-color: var(--v4-gold-line);
+  box-shadow: inset -3px 0 0 #14100f, inset -4px 0 0 var(--v4-gold-faint);
+}
+
+/* 品牌木匾 */
+html[data-ui-style="v4"] .brand.brand-plaque {
+  background: var(--paper-card);
+  border: 1px solid var(--v4-wood-mid);
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 2px var(--paper-card), inset 0 0 0 3px var(--v4-gold-line);
+}
+
+html[data-ui-style="v4"] .brand-mark {
+  background: linear-gradient(145deg, var(--bamboo), var(--bamboo-dark));
+  color: #faf3e4;
+  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+  border-radius: 0;
+  border: none;
+}
+
+html[data-ui-style="v4"] .brand-mark svg {
+  color: #faf3e4 !important;
+}
+
+/* 燕尾书签导航 */
+html[data-ui-style="v4"] .garden-nav .nav-item {
+  border-radius: 2px;
+  border: 1px solid transparent;
+  transition: transform 0.2s cubic-bezier(.22, 1, .36, 1), background-color 0.2s ease;
+}
+
+html[data-ui-style="v4"] .garden-nav .nav-item:hover:not([aria-current="page"]) {
+  background: color-mix(in oklab, var(--bamboo) 9%, var(--paper-card));
+  border-color: var(--v4-gold-faint);
+  transform: translateX(2px);
+}
+
+html[data-ui-style="v4"] .garden-nav .nav-item[aria-current="page"] {
+  background: linear-gradient(95deg, var(--bamboo-dark) 0%, var(--bamboo) 85%, color-mix(in oklab, var(--bamboo) 86%, #fff) 100%);
+  color: #fbf5e8;
+  font-family: var(--v4-serif);
+  font-weight: 600;
+  border-left: 3.5px solid var(--v4-nav-edge);
+  border-radius: 0;
+  clip-path: polygon(0 0, 100% 0, calc(100% - 10px) 50%, 100% 100%, 0 100%);
+  padding-right: 18px;
+  box-shadow: 0 4px 12px color-mix(in oklab, var(--bamboo-dark) 26%, transparent);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .garden-nav .nav-item[aria-current="page"] {
+  background: linear-gradient(95deg, rgba(105, 184, 174, 0.28) 0%, rgba(176, 155, 214, 0.2) 56%, rgba(214, 178, 112, 0.22) 100%);
+  color: #faf5ea;
+  border-left: 3.5px solid #69b8ae;
+}
+
+html[data-ui-style="v4"] .garden-nav .nav-item[aria-current="page"] .nav-number,
+html[data-ui-style="v4"] .garden-nav .nav-item[aria-current="page"] .nav-icon-frame,
+html[data-ui-style="v4"] .garden-nav .nav-item[aria-current="page"] svg {
+  color: var(--v4-gold-bright) !important;
+  opacity: 1;
+}
+
+/* 关闭旧版 garden.css 在按钮上叠放的伪元素框景层，确保 v4 器物按钮文字 100% 清晰锐利 */
+html[data-ui-style="v4"] .button::before,
+html[data-ui-style="v4"] .button::after,
+html[data-ui-style="v4"] .icon-button::before,
+html[data-ui-style="v4"] .icon-button::after {
+  display: none !important;
+  content: none !important;
+}
+
+/* 左侧伴宠月洞窗 + 团扇小键 */
+html[data-ui-style="v4"] .sidebar .pet-companion {
+  background: var(--v4-niche-bg);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 2px var(--paper-card), inset 0 0 0 3px var(--v4-gold-line);
+}
+
+html[data-ui-style="v4"] .sidebar .pet-companion::before,
+html[data-ui-style="v4"] .sidebar .pet-companion::after {
+  display: none;
+}
+
+html[data-ui-style="v4"] .sidebar .moon-gate-stage {
+  border: 2.5px solid var(--v4-wood);
+  box-shadow: 0 0 0 2px var(--paper-card), 0 0 0 3.5px var(--gold), inset 0 6px 14px color-mix(in oklab, var(--bamboo-dark) 18%, transparent);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .sidebar .moon-gate-stage {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px #171311, 0 0 18px rgba(214, 158, 74, 0.22);
+}
+
+html[data-ui-style="v4"] .pet-companion-actions {
+  gap: 8px;
+}
+
+html[data-ui-style="v4"] .pet-companion-actions .button {
+  border-radius: 999px;
+  min-height: 28px;
+  padding: 2px 10px;
+  background: var(--paper-card);
+  border: 1.2px solid var(--gold);
+  color: var(--ink);
+  font-family: var(--v4-serif);
+  font-weight: 600;
+  box-shadow: 0 3px 0 -1px var(--v4-wood-mid);
+  transition: transform 0.16s ease, background-color 0.16s ease;
+}
+
+html[data-ui-style="v4"] .pet-companion-actions .button:first-child {
+  background: linear-gradient(145deg, var(--bamboo), var(--bamboo-dark));
+  color: #faf3e4;
+  border-color: var(--v4-gold-bright);
+}
+
+html[data-ui-style="v4"] .pet-companion-actions .button:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+html[data-ui-style="v4"] .button.bamboo-primary {
+  background: linear-gradient(180deg, var(--bamboo) 0%, var(--bamboo-dark) 100%);
+  color: #faf3e4;
+  border: 1.2px solid var(--gold);
+  border-radius: 3px;
+  font-family: var(--v4-serif);
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--v4-gold-bright) 38%, transparent);
+}
+
+/* 页面标题栏与 v4 隔扇风格统一 */
+html[data-ui-style="v4"] .page-heading {
+  background: linear-gradient(180deg, var(--paper-card) 0%, color-mix(in oklab, var(--paper) 92%, var(--gold)) 100%);
+  border: 1.5px solid var(--v4-wood-mid);
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 2px var(--paper-card), inset 0 0 0 3px var(--v4-gold-faint);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .page-heading {
+  border-color: var(--v4-gold-line);
+  box-shadow: inset 0 0 0 2px #161210, inset 0 0 0 3px var(--v4-gold-faint);
+}
+
+html[data-ui-style="v4"] .page-heading::before,
+html[data-ui-style="v4"] .page-heading::after {
+  display: none !important;
+}
+
+/* ==========================================================================
+   4. 顶栏透雕挂落 + 弧形折扇工具坞 (Curved Folding-Fan Toolbar)
+   ========================================================================== */
+html[data-ui-style="v4"] .topbar {
+  background: linear-gradient(180deg, var(--paper-card) 0%, color-mix(in oklab, var(--paper) 94%, var(--gold)) 100%);
+  border-bottom: 1.5px solid var(--v4-gold-line);
+}
+
+html[data-ui-style="v4"] .topbar-dougong-strip {
+  opacity: 0.55;
+  background:
+    repeating-linear-gradient(90deg, var(--gold) 0 1px, transparent 1px 18px),
+    linear-gradient(180deg, color-mix(in oklab, var(--gold) 18%, transparent), transparent);
+}
+
+/* 顶栏按钮化为柔和弧形折扇片（悬停微扬） */
+html[data-ui-style="v4"] .topbar-tools {
+  gap: 5px;
+}
+
+html[data-ui-style="v4"] .topbar-tools .icon-button {
+  width: 34px;
+  height: 32px;
+  border-radius: 12px 12px 3px 3px;
+  border: 1px solid var(--v4-gold-line);
+  background: linear-gradient(180deg, var(--paper-card) 0%, var(--paper-deep) 100%);
+  color: var(--ink);
+  box-shadow: 0 2px 6px color-mix(in oklab, var(--v4-wood) 10%, transparent);
+  transition: transform 0.2s cubic-bezier(.22, 1, .36, 1), border-color 0.2s ease, background-color 0.2s ease;
+}
+
+html[data-ui-style="v4"] .topbar-tools .icon-button:nth-of-type(1) { transform: rotate(-3.5deg) translateY(1px); }
+html[data-ui-style="v4"] .topbar-tools .icon-button:nth-of-type(2) { transform: rotate(-1.2deg); }
+html[data-ui-style="v4"] .topbar-tools .icon-button:nth-of-type(3) { transform: rotate(0deg); }
+html[data-ui-style="v4"] .topbar-tools .icon-button:nth-of-type(4) { transform: rotate(1.2deg); }
+html[data-ui-style="v4"] .topbar-tools .icon-button:nth-of-type(5) { transform: rotate(2.2deg); }
+html[data-ui-style="v4"] .topbar-tools .icon-button:nth-of-type(6) { transform: rotate(3.2deg) translateY(1px); }
+html[data-ui-style="v4"] .topbar-tools .icon-button:nth-of-type(7) { transform: rotate(4deg) translateY(1px); }
+
+html[data-ui-style="v4"] .topbar-tools .icon-button:hover:not(:disabled) {
+  transform: translateY(-3px) rotate(0deg);
+  border-color: var(--gold);
+  background: var(--paper-card);
+  color: var(--bamboo);
+}
+
+html[data-ui-style="v4"] .topbar-tools #usage-toggle-btn.is-active {
+  background: linear-gradient(180deg, var(--bamboo) 0%, var(--bamboo-dark) 100%);
+  border-color: var(--v4-gold-bright);
+  color: #faf3e4;
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .topbar-tools #usage-toggle-btn.is-active {
+  background: linear-gradient(135deg, rgba(105, 184, 174, 0.4), rgba(176, 155, 214, 0.28));
+  border-color: #8ad6cb;
+  color: #f0fbf9;
+}
+
+/* 主按钮：苏工包金双线牌匾 */
+html[data-ui-style="v4"] .button.primary {
+  background: linear-gradient(180deg, var(--bamboo) 0%, var(--bamboo-dark) 100%);
+  color: #faf3e4;
+  border: 1.2px solid var(--gold);
+  border-radius: 3px;
+  font-family: var(--v4-serif);
+  letter-spacing: 0.06em;
+  box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--bamboo-dark) 75%, transparent), inset 0 0 0 2.8px color-mix(in oklab, var(--v4-gold-bright) 48%, transparent), 0 3px 10px color-mix(in oklab, var(--bamboo-dark) 22%, transparent);
+}
+
+html[data-ui-style="v4"] .button.primary svg {
+  color: #faf3e4;
+}
+
+html[data-ui-style="v4"] .button.btn-scroll,
+html[data-ui-style="v4"] .button.btn-leaf {
+  border-radius: 4px;
+  border: 1px solid var(--v4-gold-line);
+  background: linear-gradient(180deg, var(--paper-card), var(--paper-deep));
+  color: var(--ink);
+  font-family: var(--v4-serif);
+}
+
+html[data-ui-style="v4"] .button.btn-scroll:hover:not(:disabled),
+html[data-ui-style="v4"] .button.btn-leaf:hover:not(:disabled) {
+  border-color: var(--gold);
+  background: var(--paper-card);
+  color: var(--bamboo);
+}
+
+/* ==========================================================================
+   5. 中央对话主画幅：器物气泡 + 经折装推演 + 双轴审批卷 + 飞檐端砚发送坞
+   ========================================================================== */
+html[data-ui-style="v4"] .marble-balustrade-bar,
+html[data-ui-style="v4"] .scroll-dowel {
+  display: none !important;
+}
+
+html[data-ui-style="v4"] .chat-panel.card-begonia {
+  background: var(--paper);
+  border: 1.5px solid var(--v4-wood-mid);
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 2px var(--paper-card), inset 0 0 0 3px var(--v4-gold-line), var(--shadow);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .chat-panel.card-begonia {
+  border-color: var(--v4-gold-line);
+  box-shadow: inset 0 0 0 2px #161210, inset 0 0 0 3px var(--v4-gold-faint), 0 12px 34px rgba(0, 0, 0, 0.48);
+}
+
+html[data-ui-style="v4"] .chat-panel.card-begonia::before,
+html[data-ui-style="v4"] .chat-panel.card-begonia::after {
+  display: none;
+}
+
+html[data-ui-style="v4"] .chat-toolbar {
+  background: linear-gradient(180deg, var(--paper-card) 0%, color-mix(in oklab, var(--paper) 88%, var(--paper-card)) 100%);
+  border-bottom: 1px solid var(--v4-gold-line);
+}
+
+/* 用户气泡：四角真实内凹「海棠委角青玉牌」+ 泥金内丝 */
+html[data-ui-style="v4"] .message.user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+html[data-ui-style="v4"] .message.user .message-meta {
+  width: 100%;
+  justify-content: flex-end;
+}
+
+html[data-ui-style="v4"] .message.user .message-meta time {
+  margin-left: 0;
+  margin-right: 6px;
+}
+
+html[data-ui-style="v4"] .message.user .message-content {
+  position: relative;
+  max-width: min(84%, 680px);
+  padding: 12px 20px;
+  border: none;
+  border-radius: 0;
+  color: var(--v4-user-ink);
+  background:
+    radial-gradient(circle 9px at 0 0, transparent 8.5px, var(--v4-user-bg-1) 9px) top left / 51% 51% no-repeat,
+    radial-gradient(circle 9px at 100% 0, transparent 8.5px, var(--v4-user-bg-1) 9px) top right / 51% 51% no-repeat,
+    radial-gradient(circle 9px at 0 100%, transparent 8.5px, var(--v4-user-bg-2) 9px) bottom left / 51% 51% no-repeat,
+    radial-gradient(circle 9px at 100% 100%, transparent 8.5px, var(--v4-user-bg-2) 9px) bottom right / 51% 51% no-repeat;
+  filter: drop-shadow(0 5px 12px color-mix(in oklab, var(--v4-user-bg-2) 24%, transparent));
+}
+
+html[data-ui-style="v4"] .message.user .message-content::before {
+  content: "";
+  position: absolute;
+  inset: 3.5px;
+  pointer-events: none;
+  border: 1px solid color-mix(in oklab, var(--v4-gold-bright) 52%, transparent);
+  clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px), calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px);
+}
+
+html[data-ui-style="v4"] .message.user .message-content a,
+html[data-ui-style="v4"] .message.user .message-content code {
+  color: var(--v4-gold-bright);
+}
+
+/* 夜雨用户气泡：螺钿八角如意云肩漆牌 */
+html[data-ui-style="v4"][data-garden-theme="night"] .message.user .message-content {
+  background: linear-gradient(135deg, #1b3b37 0%, #162629 58%, #211c26 100%);
+  clip-path: polygon(11px 0, calc(100% - 11px) 0, 100% 11px, 100% calc(100% - 11px), calc(100% - 11px) 100%, 11px 100%, 0 calc(100% - 11px), 0 11px);
+  box-shadow: inset 0 0 0 1.5px rgba(105, 184, 174, 0.55);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .message.user .message-content::before {
+  border-color: rgba(214, 178, 112, 0.45);
+}
+
+/* 助手回复：双层蝉翼宣纸花笺 + 朱砂版心左界栏 + 泥金内框 */
+html[data-ui-style="v4"] .message.assistant .message-content {
+  position: relative;
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-left: 3.5px solid var(--cinnabar);
+  border-radius: 2px 6px 6px 2px;
+  padding: 15px 20px 15px 22px;
+  color: var(--ink);
+  box-shadow:
+    3px 3px 0 0 color-mix(in oklab, var(--gold) 22%, var(--paper-deep)),
+    0 6px 18px color-mix(in oklab, var(--v4-wood) 8%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--v4-gold-bright) 48%, transparent);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .message.assistant .message-content {
+  background: linear-gradient(180deg, rgba(214, 178, 112, 0.06) 0%, #1f1a17 16%, #1a1513 100%);
+  border-color: var(--v4-gold-line);
+  border-left: 3.5px solid var(--gold);
+  box-shadow:
+    3px 3px 0 0 #120f0e,
+    inset 0 1.5px 0 rgba(240, 212, 154, 0.34),
+    0 10px 26px rgba(0, 0, 0, 0.42);
+}
+
+/* 石刻代码块 */
+html[data-ui-style="v4"] .artifact-card {
+  background: var(--v4-code-bg);
+  color: var(--v4-code-fg);
+  border: 1px solid color-mix(in oklab, var(--gold) 30%, transparent);
+  border-left: 3px solid var(--gold);
+  border-radius: 3px;
+}
+
+/* 经折装 ReAct 工具推演轨迹 (Accordion-Folded Paper Pleats) */
+html[data-ui-style="v4"] .codex-workflow {
+  margin: 8px 0 10px;
+  padding: 10px 14px;
+  background:
+    repeating-linear-gradient(90deg,
+      color-mix(in oklab, var(--paper-card) 96%, var(--gold)) 0%,
+      color-mix(in oklab, var(--paper-deep) 88%, var(--gold)) 33.3%,
+      color-mix(in oklab, var(--paper-card) 96%, var(--gold)) 66.6%
+    );
+  border-top: 1.5px solid var(--v4-gold-line);
+  border-bottom: 1.5px solid var(--v4-gold-line);
+  border-left: 3px solid var(--bamboo);
+  border-right: 2px solid var(--cinnabar);
+  border-radius: 2px;
+  box-shadow: 0 3px 10px color-mix(in oklab, var(--v4-wood) 8%, transparent);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .codex-workflow {
+  background: linear-gradient(90deg, #241f1b 0%, #181412 48%, #241f1b 100%);
+  border-left-color: #69b8ae;
+  border-right-color: var(--gold);
+}
+
+html[data-ui-style="v4"] .codex-cmd-item {
+  border-bottom: 1px dashed var(--v4-gold-faint);
+}
+
+/* 敏感指令审批卡：双紫檀卷轴审批卷 */
+html[data-ui-style="v4"] .approval-ticket-card {
+  border-radius: 3px !important;
+  border-top: 2px solid var(--cinnabar) !important;
+  border-bottom: 2px solid var(--cinnabar) !important;
+  border-left: 8px solid var(--v4-roller) !important;
+  border-right: 8px solid var(--v4-roller) !important;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--paper-card) 94%, var(--gold)), var(--paper-deep)) !important;
+  box-shadow: 0 6px 18px color-mix(in oklab, var(--cinnabar) 16%, transparent) !important;
+}
+
+html[data-ui-style="v4"] .approval-ticket-card [data-decision="approve"] {
+  background: linear-gradient(180deg, #c23f31, #8d2217);
+  border-color: #6b150d;
+  color: #fff7ec;
+}
+
+/* 飞檐端砚输入区 + 圆形朱泥发送印 */
+html[data-ui-style="v4"] .composer-wrap {
+  background: linear-gradient(180deg, var(--paper-card) 0%, var(--paper-deep) 100%);
+  border-top: 2px solid var(--v4-wood);
+  box-shadow: inset 0 2px 0 var(--v4-gold-line);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .composer-wrap {
+  border-top-color: var(--v4-gold-line);
+}
+
+html[data-ui-style="v4"] .composer {
+  background: var(--paper-card);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  box-shadow: inset 0 1px 4px color-mix(in oklab, var(--v4-wood) 8%, transparent);
+}
+
+html[data-ui-style="v4"] #chat-form button[type="submit"] {
+  min-width: 56px;
+  min-height: 36px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 25%, #d14939, #9d261b 75%);
+  border: 1.5px solid #faf3e4;
+  box-shadow: 0 0 0 1.5px var(--cinnabar), inset 0 0 0 1.5px rgba(255, 244, 230, 0.36), 0 4px 10px color-mix(in oklab, var(--cinnabar-dark) 32%, transparent);
+  color: #fff8ee;
+  font-family: var(--v4-serif);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+
+html[data-ui-style="v4"] #chat-form button[type="submit"]:active:not(:disabled) {
+  transform: scale(0.96) translateY(1px);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--cinnabar) 28%, transparent);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] #chat-form button[type="submit"] {
+  border-radius: 0;
+  clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 10px 100%, 0 50%);
+  padding: 6px 18px;
+  border: none;
+  box-shadow: 0 0 16px rgba(197, 66, 51, 0.42);
+}
+
+/* 输入框折叠控制：上滑自动隐藏、月洞玉环向上箭头、手动隐藏键 */
+html[data-ui-style="v4"] .chat-scroll-bottom {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1.2px solid var(--v4-gold-line);
+  background: linear-gradient(180deg, var(--paper-card), var(--paper-deep));
+  color: var(--ink);
+  box-shadow: 0 8px 20px color-mix(in oklab, var(--v4-wood) 18%, transparent);
+}
+
+html[data-ui-style="v4"] .chat-composer-show {
+  width: 44px;
+  height: 44px;
+  border: 1.5px solid var(--v4-wood);
+  background: radial-gradient(circle at 35% 28%, var(--paper-card), var(--paper-deep) 84%);
+  color: var(--bamboo);
+  box-shadow:
+    0 0 0 2px var(--paper-card),
+    0 0 0 3.2px var(--v4-gold-line),
+    0 10px 24px color-mix(in oklab, var(--v4-wood) 26%, transparent);
+}
+
+html[data-ui-style="v4"] .chat-composer-show:hover {
+  border-color: var(--cinnabar);
+  color: var(--cinnabar);
+  box-shadow:
+    0 0 0 2px var(--paper-card),
+    0 0 0 3.5px color-mix(in oklab, var(--cinnabar) 55%, var(--gold)),
+    0 12px 26px color-mix(in oklab, var(--cinnabar-dark) 26%, transparent);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .chat-composer-show {
+  border-color: var(--v4-gold-line);
+  background: radial-gradient(circle at 35% 28%, #21312c, #131f1b 86%);
+  color: #e2c27e;
+  box-shadow:
+    0 0 0 2px #14201c,
+    0 0 0 3.2px rgba(105, 184, 174, 0.45),
+    0 10px 24px rgba(0, 0, 0, 0.48);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .chat-composer-show:hover {
+  border-color: #e2c27e;
+  color: #f4dfb0;
+  box-shadow:
+    0 0 0 2px #14201c,
+    0 0 0 3.5px rgba(217, 179, 108, 0.65),
+    0 12px 28px rgba(0, 0, 0, 0.56);
+}
+
+html[data-ui-style="v4"] .composer-hide-btn {
+  border: 1px solid var(--v4-gold-line);
+  background: color-mix(in oklab, var(--paper-card) 88%, var(--gold) 12%);
+  color: var(--ink);
+}
+
+html[data-ui-style="v4"] .composer-hide-btn:hover {
+  border-color: var(--cinnabar);
+  color: var(--cinnabar);
+  background: color-mix(in oklab, var(--paper-card) 82%, var(--cinnabar) 10%);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .composer-hide-btn {
+  background: color-mix(in oklab, var(--paper-card) 86%, #69b8ae 14%);
+  color: var(--ink);
+}
+
+html[data-ui-style="v4"] .composer-pin-tag {
+  border-color: color-mix(in oklab, var(--bamboo) 42%, var(--v4-gold-line));
+  background: color-mix(in oklab, var(--bamboo) 14%, var(--paper-card));
+  color: var(--bamboo);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .composer-pin-tag {
+  color: #82cec3;
+  border-color: rgba(105, 184, 174, 0.45);
+  background: rgba(105, 184, 174, 0.14);
+}
+
+/* 群聊 / 情景剧舞台 v4 园林美学适配 */
+html[data-ui-style="v4"] .narrator-stage-card {
+  border: 1px solid var(--v4-gold-line);
+  border-left: 3px solid var(--gold);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--paper-card) 92%, var(--gold) 8%), var(--paper-deep));
+  box-shadow: 0 4px 12px color-mix(in oklab, var(--v4-wood) 10%, transparent);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .narrator-stage-card {
+  background: linear-gradient(180deg, #1d2824 0%, #151e1b 100%);
+  border-color: var(--v4-gold-line);
+}
+
+html[data-ui-style="v4"] .group-member-chip {
+  border-color: var(--v4-gold-line);
+  background: var(--v4-niche-bg);
+}
+
+html[data-ui-style="v4"] .composer-narrator-btn.is-active {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 26%, var(--paper-card)), color-mix(in oklab, var(--gold) 16%, var(--paper-deep)));
+  border-color: var(--gold);
+}
+
+/* ==========================================================================
+   6. 右侧多宝阁博古架（角色与记忆右栏 + Token 用量与缓存原位右栏）
+   ========================================================================== */
+html[data-ui-style="v4"] .chat-aside {
+  background: var(--v4-shelf-bg);
+  border: 1.5px solid var(--v4-wood);
+  border-radius: 4px;
+  padding: 5px !important;
+  gap: 5px !important;
+  box-shadow: inset 0 0 0 1px var(--v4-gold-line);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .chat-aside {
+  border-color: var(--v4-gold-line);
+}
+
+html[data-ui-style="v4"] .chat-aside .persona-summary,
+html[data-ui-style="v4"] .chat-aside .garden-memory,
+html[data-ui-style="v4"] .chat-aside .music-empty,
+html[data-ui-style="v4"] .chat-aside .music-dock {
+  background: var(--v4-niche-bg);
+  border: 1px solid var(--v4-gold-faint);
+  border-radius: 2px;
+  box-shadow: inset 0 2px 8px color-mix(in oklab, var(--v4-wood) 12%, transparent);
+}
+
+html[data-ui-style="v4"] .chat-aside .card-begonia::before,
+html[data-ui-style="v4"] .chat-aside .card-begonia::after {
+  display: none;
+}
+
+/* 用量与缓存原位右栏 → 明清多宝阁算力展柜 */
+html[data-ui-style="v4"] .usage-side-pane,
+html[data-ui-style="v4"] .usage-side-pane.is-in-aside {
+  background: var(--v4-shelf-bg);
+  border: 2px solid var(--v4-wood);
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--v4-gold-line), 0 12px 30px color-mix(in oklab, var(--v4-wood) 20%, transparent);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .usage-side-pane,
+html[data-ui-style="v4"][data-garden-theme="night"] .usage-side-pane.is-in-aside {
+  border-color: var(--v4-gold-line);
+}
+
+html[data-ui-style="v4"] .usage-pane-header {
+  background: var(--v4-niche-bg);
+  border-bottom: 2px solid var(--v4-shelf-bg);
+  padding: 9px 10px;
+}
+
+html[data-ui-style="v4"] .usage-pane-body {
+  padding: 6px;
+  gap: 6px;
+  background: var(--v4-shelf-bg);
+}
+
+/* 顶部错落两格：左圆月洞缓存玉璧环 + 右总算力格 */
+html[data-ui-style="v4"] .usage-bogu-top {
+  display: grid;
+  grid-template-columns: 102px minmax(0, 1fr);
+  gap: 6px;
+}
+
+html[data-ui-style="v4"] .usage-ring-niche {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  background: radial-gradient(circle at 50% 50%, var(--paper-card) 56%, var(--v4-shelf-bg) 59%);
+  border: 1px solid var(--v4-gold-faint);
+}
+
+html[data-ui-style="v4"] .usage-cache-ring-svg {
+  width: 86px;
+  height: 86px;
+  display: block;
+}
+
+html[data-ui-style="v4"] .usage-ring-track {
+  fill: var(--paper-card);
+  stroke: var(--line-soft);
+  stroke-width: 6.5;
+}
+
+html[data-ui-style="v4"] .usage-ring-fill {
+  fill: none;
+  stroke: var(--bamboo);
+  stroke-width: 6.5;
+  stroke-linecap: round;
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .usage-ring-fill {
+  stroke: #69b8ae;
+}
+
+html[data-ui-style="v4"] .usage-ring-inner {
+  fill: none;
+  stroke: var(--gold);
+  stroke-width: 0.9;
+  stroke-dasharray: 2 2;
+  opacity: 0.7;
+}
+
+html[data-ui-style="v4"] .usage-ring-pct {
+  font-family: var(--v4-serif);
+  font-size: 14px;
+  font-weight: 700;
+  fill: var(--ink);
+}
+
+html[data-ui-style="v4"] .usage-ring-lbl {
+  font-size: 9px;
+  fill: var(--muted);
+}
+
+html[data-ui-style="v4"] .usage-hero {
+  background: var(--v4-niche-bg);
+  border: 1px solid var(--v4-gold-faint);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+html[data-ui-style="v4"] .usage-hero-value {
+  font-size: 26px;
+}
+
+html[data-ui-style="v4"] .usage-hero-save {
+  margin: 4px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cinnabar);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .usage-hero-save {
+  color: #8ad6cb;
+}
+
+/* 博古展格内各分块 */
+html[data-ui-style="v4"] .usage-model-list,
+html[data-ui-style="v4"] .usage-section {
+  background: var(--v4-niche-bg);
+  border: 1px solid var(--v4-gold-faint);
+  border-top: 1px solid var(--v4-gold-faint);
+  padding: 10px 12px;
+  box-shadow: inset 0 2px 8px color-mix(in oklab, var(--v4-wood) 10%, transparent);
+}
+
+html[data-ui-style="v4"] .usage-chart-wrap {
+  background: var(--v4-shanshui-sky);
+  border: 1px solid var(--v4-gold-faint);
+  border-radius: 2px;
+  padding: 4px;
+}
+
+html[data-ui-style="v4"] .usage-shanshui-sun {
+  fill: color-mix(in oklab, var(--v4-gold-bright) 72%, #fff);
+  opacity: 0.78;
+}
+
+html[data-ui-style="v4"] .usage-metric {
+  background: color-mix(in oklab, var(--paper-card) 86%, var(--paper-deep));
+  border: 1px solid var(--line-soft);
+  border-left: 2.5px solid var(--bamboo);
+  padding: 6px 8px;
+}
+
+html[data-ui-style="v4"] .usage-metric.is-savings {
+  border-left-color: var(--cinnabar);
+}
+
+/* ==========================================================================
+   7. 非对话页面：知识库线装书盒、人设挂轴卡、设置页月窗选景卡与玉扣开关
+   ========================================================================== */
+/* 知识库文档行 → 线装古籍装订风 */
+html[data-ui-style="v4"] .document-row {
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--bamboo);
+  border-radius: 2px 6px 6px 2px;
+  background:
+    linear-gradient(90deg, transparent 8px, var(--v4-gold-line) 8px, var(--v4-gold-line) 9px, transparent 9px),
+    var(--paper-card);
+  padding-left: 18px;
+}
+
+html[data-ui-style="v4"] .document-row .file-badge {
+  background: var(--paper-deep);
+  color: var(--cinnabar);
+  border: 1px solid color-mix(in oklab, var(--cinnabar) 45%, transparent);
+  font-family: var(--v4-serif);
+  border-radius: 2px;
+}
+
+/* 人设卡片 → 立轴挂画风 */
+html[data-ui-style="v4"] .persona-card {
+  background: var(--v4-niche-bg);
+  border-left: 1px solid var(--v4-gold-line);
+  border-right: 1px solid var(--v4-gold-line);
+  border-top: 6px solid var(--v4-wood);
+  border-bottom: 7px solid var(--v4-wood);
+  border-radius: 2px;
+  box-shadow: 0 8px 20px color-mix(in oklab, var(--v4-wood) 12%, transparent);
+}
+
+html[data-ui-style="v4"][data-garden-theme="night"] .persona-card {
+  border-top-color: var(--gold);
+  border-bottom-color: var(--gold);
+}
+
+html[data-ui-style="v4"] .persona-card .avatar {
+  border-radius: 50%;
+  border: 1.5px solid var(--gold);
+  background: linear-gradient(145deg, var(--bamboo), var(--bamboo-dark));
+  color: #faf3e4;
+}
+
+html[data-ui-style="v4"] .persona-card .avatar.has-image,
+html[data-ui-style="v4"] .persona-summary .avatar.has-image {
+  background: var(--paper-card);
+}
+
+/* 记忆卡片 → 竹简条风格 */
+html[data-ui-style="v4"] .memory-card {
+  border-radius: 3px;
+  border: 1px solid var(--v4-gold-line);
+  border-left: 4px solid var(--bamboo);
+  background: var(--paper-card);
+}
+
+/* 设置页：实景月窗主题卡 + 界面风格切换 + 翠玉平安扣开关 */
+html[data-ui-style="v4"] .settings-card {
+  border-radius: 4px;
+  border: 1px solid var(--line-strong);
+  box-shadow: inset 0 0 0 2px var(--paper-card), inset 0 0 0 3px var(--v4-gold-faint), var(--shadow);
+}
+
+html[data-ui-style="v4"] .garden-theme-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+html[data-ui-style="v4"] .theme-card-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 9px 12px;
+  min-height: 54px;
+  border-radius: 4px;
+  border: 1.5px solid var(--v4-gold-line);
+  background: var(--paper-card);
+  color: var(--ink);
+  font-family: var(--v4-serif);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+html[data-ui-style="v4"] .theme-card-btn[aria-pressed="true"] {
+  border-color: var(--bamboo);
+  background: color-mix(in oklab, var(--bamboo) 12%, var(--paper-card));
+  color: var(--ink);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--bamboo) 24%, transparent);
+}
+
+html[data-ui-style="v4"] .theme-mini-window {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 1.5px solid var(--v4-wood);
+  box-shadow: 0 0 0 1.5px var(--paper-card), 0 0 0 2.5px var(--gold);
+  flex-shrink: 0;
+}
+
+html[data-ui-style="v4"] .theme-mini-window svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+html[data-ui-style="v4"] .ui-style-options [data-ui-style-select][aria-pressed="true"] {
+  background: linear-gradient(180deg, var(--bamboo), var(--bamboo-dark));
+  color: #faf3e4;
+  border-color: var(--gold);
+}
+
+/* 翠玉朱点平安扣开关 */
+html[data-ui-style="v4"] .bamboo-track,
+html[data-ui-style="v4"] .switch-track {
+  border: 1.2px solid var(--gold);
+}
+
+html[data-ui-style="v4"] .bamboo-switch[aria-checked="true"] .bamboo-track,
+html[data-ui-style="v4"] .switch[aria-checked="true"] .switch-track {
+  background: linear-gradient(90deg, var(--bamboo-dark), var(--bamboo));
+}
+
+html[data-ui-style="v4"] .bamboo-knob {
+  background: radial-gradient(circle, var(--cinnabar) 0 24%, #f8fbf9 28% 100%);
+  border: 1px solid var(--v4-gold-bright);
+}
+
+/* 典藏版 v4 自定义下拉框：宣纸描金框 + 漆木微阴影弹出卡片 */
+@supports (appearance: base-select) {
+  html[data-ui-style="v4"] select:not(.persona-native-select) {
+    border: 1.2px solid var(--line-strong);
+    border-radius: 6px;
+    background: linear-gradient(180deg, var(--paper-card) 0%, color-mix(in oklab, var(--paper-card) 88%, var(--paper-deep)) 100%);
+    box-shadow: inset 0 1px 0 color-mix(in oklab, var(--paper-card) 85%, transparent);
+    color: var(--ink);
+  }
+
+  html[data-ui-style="v4"] select:not(.persona-native-select):hover:not(:disabled) {
+    border-color: var(--gold);
+    background: linear-gradient(180deg, var(--paper-card) 0%, color-mix(in oklab, var(--paper-card) 84%, var(--gold) 10%) 100%);
+  }
+
+  html[data-ui-style="v4"] select:not(.persona-native-select):open,
+  html[data-ui-style="v4"] select:not(.persona-native-select):focus {
+    border-color: var(--bamboo);
+    box-shadow:
+      0 0 0 3px color-mix(in oklab, var(--bamboo) 13%, transparent),
+      inset 0 0 0 1px var(--v4-gold-faint);
+  }
+
+  html[data-ui-style="v4"] select:not(.persona-native-select)::picker(select) {
+    border: 1.2px solid var(--v4-wood-mid);
+    border-radius: 8px;
+    padding: 6px;
+    background: linear-gradient(180deg, var(--paper-card) 0%, color-mix(in oklab, var(--paper-card) 92%, var(--paper-deep)) 100%);
+    box-shadow:
+      inset 0 0 0 1px var(--v4-gold-faint),
+      0 14px 32px color-mix(in oklab, var(--v4-wood) 22%, transparent),
+      0 2px 6px color-mix(in oklab, var(--v4-wood) 10%, transparent);
+  }
+
+  html[data-ui-style="v4"] select:not(.persona-native-select) option {
+    padding: 8px 12px;
+    border-radius: 5px;
+    color: var(--ink);
+  }
+
+  html[data-ui-style="v4"] select:not(.persona-native-select) option + option {
+    margin-top: 2px;
+  }
+
+  html[data-ui-style="v4"] select:not(.persona-native-select) option:hover,
+  html[data-ui-style="v4"] select:not(.persona-native-select) option:focus-visible {
+    background: color-mix(in oklab, var(--gold) 15%, var(--paper-card));
+    color: var(--ink);
+  }
+
+  html[data-ui-style="v4"] select:not(.persona-native-select) option:checked {
+    background: color-mix(in oklab, var(--bamboo) 13%, var(--paper-card));
+    color: var(--bamboo);
+    font-weight: 600;
+    box-shadow: inset 2.5px 0 0 var(--bamboo);
+  }
+
+  html[data-ui-style="v4"][data-garden-theme="night"] select:not(.persona-native-select) {
+    border-color: var(--v4-gold-line);
+    background: linear-gradient(180deg, var(--paper-card) 0%, #151e1b 100%);
+  }
+
+  html[data-ui-style="v4"][data-garden-theme="night"] select:not(.persona-native-select):open,
+  html[data-ui-style="v4"][data-garden-theme="night"] select:not(.persona-native-select):focus {
+    border-color: #69b8ae;
+    box-shadow: 0 0 0 3px rgba(105, 184, 174, 0.18);
+  }
+
+  html[data-ui-style="v4"][data-garden-theme="night"] select:not(.persona-native-select)::picker(select) {
+    border-color: var(--v4-gold-line);
+    background: linear-gradient(180deg, #1d2925 0%, #141d1a 100%);
+    box-shadow:
+      inset 0 0 0 1px rgba(217, 179, 108, 0.16),
+      0 16px 36px rgba(0, 0, 0, 0.56);
+  }
+
+  html[data-ui-style="v4"][data-garden-theme="night"] select:not(.persona-native-select) option:hover,
+  html[data-ui-style="v4"][data-garden-theme="night"] select:not(.persona-native-select) option:focus-visible {
+    background: rgba(217, 179, 108, 0.14);
+    color: var(--ink);
+  }
+
+  html[data-ui-style="v4"][data-garden-theme="night"] select:not(.persona-native-select) option:checked {
+    background: rgba(105, 184, 174, 0.18);
+    color: #88d6cb;
+    box-shadow: inset 2.5px 0 0 #e2c27e;
+  }
+}
+
+/* ==========================================================================
+   8. 暗色保护、移动端适配与减弱动效降级
+   ========================================================================== */
+html[data-ui-style="v4"] dialog:not([open]) {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  html[data-ui-style="v4"] .app-shell {
+    border-width: 0;
+    box-shadow: none;
+  }
+  html[data-ui-style="v4"] .garden-nav .nav-item[aria-current="page"] {
+    clip-path: none;
+    padding-right: 10px;
+    border-radius: 4px;
+    border-left: none;
+    border-bottom: 2.5px solid var(--v4-nav-edge);
+  }
+  html[data-ui-style="v4"] .topbar-tools .icon-button {
+    transform: none !important;
+    border-radius: 8px;
+  }
+  html[data-ui-style="v4"] .garden-theme-cards {
+    grid-template-columns: 1fr;
+  }
+  html[data-ui-style="v4"] .usage-bogu-top {
+    grid-template-columns: 88px minmax(0, 1fr);
+  }
+  html[data-ui-style="v4"] .usage-cache-ring-svg {
+    width: 74px;
+    height: 74px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui-style="v4"] * {
+    transition-duration: 0.01ms !important;
+  }
+  html[data-ui-style="v4"] .topbar-tools .icon-button:hover,
+  html[data-ui-style="v4"] .garden-nav .nav-item:hover,
+  html[data-ui-style="v4"] .pet-companion-actions .button:hover {
+    transform: none !important;
+  }
+}

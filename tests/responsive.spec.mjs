@@ -44,7 +44,9 @@ test.describe('responsive touch layouts', () => {
         expect(navigation.y).toBeLessThan(100);
         for (const link of await page.locator('#navigation a').all()) expect((await link.boundingBox()).height).toBeGreaterThanOrEqual(42);
         await nav(page, '对话').click();
-        await expect(page.locator('.chat-aside')).toBeVisible();
+        await expect(page.locator('.chat-aside')).toBeHidden();
+        await expect(page.locator('.persona-summary')).toBeHidden();
+        await expect(page.locator('.garden-memory')).toBeHidden();
         await expect(async () => {
           const send = await page.getByRole('button', { name: '发送', exact: true }).boundingBox();
           expect(send.y).toBeGreaterThan(navigation.y + navigation.height); expect(send.y + send.height).toBeLessThan(viewport.height);
@@ -73,7 +75,7 @@ test.describe('responsive touch layouts', () => {
     const input = page.getByLabel('发送给当前角色的消息', { exact: true });
     await expect(page.locator('#startup-screen')).toHaveCount(0);
     const initialHeight = (await page.locator('.chat-panel').boundingBox()).height;
-    await expect(page.locator('.chat-aside')).toBeVisible();
+    await expect(page.locator('.chat-aside')).toBeHidden();
     await input.fill('第一行');
     await expect(async () => {
       expect((await page.locator('.chat-panel').boundingBox()).height).toBeLessThanOrEqual(initialHeight + 1);

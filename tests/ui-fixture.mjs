@@ -38,7 +38,44 @@ export async function startOfflineServer({ port = 0, dbPath = ':memory:' } = {})
   const instruction = request.messages[0].content;
   const question = request.messages.findLast(message => message.role === 'user')?.content || '';
   const tool = request.messages.findLast(message => message.role === 'tool');
-  const hasCriticFeedback = request.messages.some(message => message.role === 'system' && message.content?.includes('[审核员质检未通过]'));
+  const hasCriticFeedback = request.messages.some(message => message.role === 'system' && (message.content?.includes('[审核员质检未通过]') || message.content?.includes('[复核改进提示]')));
+  if (instruction.includes('你是多角色群聊的场记导演')) {
+    const raw = (request.messages[1]?.content || '').replace(/^<untrusted_dialogue>\s*|\s*<\/untrusted_dialogue>$/gu, '');
+    let data = {};
+    try { data = JSON.parse(raw); } catch {}
+    const candidates = Array.isArray(data.candidates) ? data.candidates : [];
+    const dialogueText = (data.recentDialogue || []).map(d => d.content).join('\n');
+    const lastText = data.recentDialogue?.at(-1)?.content || '';
+    let decision = { shouldReply: false, speakerPersonaId: null, intent: 'silence', cue: '', reason: '本轮互动自然收尾' };
+    if (data.stepIndex === 0) {
+      if (!data.continueScene && /(?:不用回复|静默演示)/u.test(lastText)) {
+        decision = { shouldReply: false, speakerPersonaId: null, intent: 'silence', cue: '', reason: '用户表示无需插话，全员保持安静' };
+      } else if (candidates[0]) {
+        decision = { shouldReply: true, speakerPersonaId: candidates[0].id, intent: 'answer', cue: '自然回应当前话题', reason: `由 ${candidates[0].name} 回应` };
+      }
+    } else if (data.stepIndex === 1 && candidates[0] && (data.continueScene || /(?:大家聊聊|互动演示|情景剧)/u.test(dialogueText))) {
+      decision = { shouldReply: true, speakerPersonaId: candidates[0].id, intent: 'chime_in', cue: '接梗补充一句', reason: `由 ${candidates[0].name} 接话互动` };
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(decision) } }] }), { headers: { 'content-type': 'application/json' } });
+  }
+  if (instruction.includes('你正在参与一场多角色群聊 / 情景剧')) {
+    const speakerName = /当前唯一要扮演的角色是「([^」]+)」/u.exec(instruction)?.[1] || '伙伴';
+    const reply = `(${speakerName} 接话) 已在情景群聊中收到，当前以 ${speakerName} 视角参与讨论。`;
+    if (request.stream) return streamingResponse(reply, question, options.signal);
+    return new Response(JSON.stringify({ choices: [{ message: { content: reply } }] }), { headers: { 'content-type': 'application/json' } });
+  }
+  if (instruction.includes('今日对话与思绪小结')) {
+    return new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            summary: '今天在园林里聊了茶与日常，心情平和而充实。',
+            companionComment: '愿今夜微风伴你入眠，明日继续同行。'
+          })
+        }
+      }]
+    }), { headers: { 'content-type': 'application/json' } });
+  }
   if (instruction.includes('高精度的回答意图对齐审核器')) {
     if (question.includes('多轮计算与审核演示') && !question.includes('```js')) {
       return new Response(JSON.stringify({
@@ -149,6 +186,14 @@ export async function startOfflineServer({ port = 0, dbPath = ':memory:' } = {})
         calls.media.push({ url: String(url), method: init?.method || 'GET' });
         return mockMediaFetch(url, init);
       },
+      dnsLookupImpl: async hostname => {
+        if (['localhost', '127.0.0.1'].includes(hostname)) return [{ address: '127.0.0.1', family: 4 }];
+        return [{ address: '93.184.216.34', family: 4 }];
+      },
+      webFetchImpl: async url => new Response(
+        '<!doctype html><html><head><title>江南园林营造录</title><script>window.__xss=1</script></head><body><h1>江南园林营造录</h1><p>叠山理水，移步换景。来源：' + String(url) + '</p></body></html>',
+        { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }
+      ),
       petClock: () => (petTestTime += 1100),
       guideFetchImpl: async url => {
         calls.guides.push(String(url));
@@ -184,7 +229,8 @@ export async function startOfflineServer({ port = 0, dbPath = ':memory:' } = {})
   else {
     for (let attempt=0;attempt<10;attempt++) {
       try { await start(randomInt(49152,65536),true); break; }
-      catch(error) { if(error.code!=='EADDRINUSE' || attempt===9) throw error; }
+      // Windows may reserve high ports as well as having ports already in use.
+      catch(error) { if(!['EADDRINUSE','EACCES'].includes(error.code) || attempt===9) throw error; }
     }
   }
   return {
