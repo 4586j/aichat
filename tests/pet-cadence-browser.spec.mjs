@@ -1,6 +1,6 @@
 import { test, expect } from './ui-test.mjs';
 
-test('a held stretch keeps moving without blending two different poses',async({page},info)=>{
+test('dense stretches keep changing real poses without a long frozen hold',async({page},info)=>{
   await page.clock.install({time:new Date('2026-10-26T00:00:00Z')});
   await page.clock.pauseAt(new Date('2026-10-26T08:00:00Z'));
   await page.emulateMedia({reducedMotion:'no-preference'});
@@ -12,12 +12,12 @@ test('a held stretch keeps moving without blending two different poses',async({p
     // Allow first load, then restart so the same held-pose interval is sampled for every pet.
     await page.evaluate(id=>window.pet.update({id,animations:true,reaction:'stretch',reactionKey:3}),id);await page.clock.runFor(350);
     const samples=[];
-    // Span multiple paint ticks while every sample stays inside the held pose.
+    // Span multiple authored middle poses, rather than stretching one pose into a long hold.
     for(let i=0;i<5;i++){
       samples.push(await portrait.evaluate(stage=>({column:stage.dataset.petClipFrame,progress:stage.dataset.petClipProgress,image:stage.querySelector('canvas').toDataURL()})));
       if(i<4)await page.clock.runFor(64);
     }
-    expect(new Set(samples.map(sample=>sample.column)).size).toBe(1);expect(samples[0].column).toBe('1:3');
+    expect(new Set(samples.map(sample=>sample.column)).size).toBeGreaterThanOrEqual(4);
     expect(new Set(samples.map(sample=>sample.image)).size,JSON.stringify(samples.map(({column,progress})=>({column,progress})))).toBe(5);
     await portrait.screenshot({path:info.outputPath(`${id}-clear-stretch.png`)});
   }

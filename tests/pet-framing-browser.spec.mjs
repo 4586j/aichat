@@ -33,11 +33,11 @@ for(const id of ['cream-cat','shiba','lop-rabbit','little-fox'])test(`${id} keep
   for(const reaction of ['wave','stretch','feed','play']){
     await page.evaluate(()=>window.updatePet({animations:false,reaction:''}));const idle=await bounds(page);
     await page.evaluate(next=>window.updatePet(next),{animations:true,reaction,reactionKey:++key});await expect(portrait).toHaveAttribute('data-pet-clip',reaction);
-    await page.clock.runFor(65);await expect(portrait).toHaveAttribute('data-pet-clip-frame',/^[0-3]:0$/);
+    await page.clock.runFor(20);await expect(portrait).toHaveAttribute('data-pet-clip-frame',/^[0-3]:0$/);
     const entry=await bounds(page);
     if(reaction==='wave')await portrait.screenshot({path:info.outputPath(`${id}-action-entry-size.png`)});
-    await page.evaluate(next=>window.updatePet(next),{reactionKey:++key});await page.clock.runFor(PET_ACTIONS[reaction].duration-40);
-    await expect(portrait).toHaveAttribute('data-pet-clip-frame',/^[0-3]:5$/);const exit=await bounds(page);
+    await page.evaluate(next=>window.updatePet(next),{reactionKey:++key});await page.clock.runFor(PET_ACTIONS[reaction].duration-20);
+    await expect(portrait).toHaveAttribute('data-pet-clip-frame',/^[0-3]:23$/);const exit=await bounds(page);
     for(const actual of [entry,exit]){
       expect(Math.abs(actual.height/idle.height-1),`${reaction}: resting height changes`).toBeLessThan(.045);
       expect(Math.abs(actual.width/idle.width-1),`${reaction}: resting width changes`).toBeLessThan(.055);

@@ -1,5 +1,5 @@
 // The sprite strip contains five registered faces, then two transparent eye-only blink frames.
-import { PET_CLIP_LAYOUT, petClipSprite, petClipFrame, petClipDuration } from './pet-clips.js';
+import { PET_CLIP_LAYOUT, petClipSprite, petClipFrame, petClipDuration, petClipAction } from './pet-clips.js';
 import { PET_FRAMING } from './pet-framing.js';
 export const PET_FACES = { natural: 0, warm: 1, happy: 2, focused: 3, sleepy: 4 };
 export const PET_ACTIONS = {
@@ -101,7 +101,11 @@ export function petVertex(x, y, { id, time, motion, gesture = '', gestureProgres
   if (action === 'feed') dy+=(envelope*.013+wiggle*.012)*head;
   if (action === 'reply') dy+=wave*.014*head;
   if (action === 'look') tilt=wave*.2;
-  if (action === 'shake') { tilt=Math.sin(p*Math.PI*6)*envelope*.1; dx+=wiggle*.007*head; }
+  if (action === 'shake') {
+    const rapid = Boolean(PET_ACTIONS[motion]);
+    tilt = Math.sin(p * Math.PI * (rapid ? 6 : 2)) * envelope * (rapid ? .1 : .04);
+    dx += (rapid ? wiggle * .007 : Math.sin(p * Math.PI * 2) * envelope * .004) * head;
+  }
   if (action === 'stretch') {
     dy-=envelope*.025*head; dx+=(x-.48)*envelope*.035*anchor;
     for (const [px,py] of profile.paws) { const w=influence(x,y,px,py,.14,.18); dx+=(px<.48 ? -.014 : .014)*envelope*w; dy+=envelope*.016*w; }
@@ -193,7 +197,7 @@ function drawRegistered(ctx, image, framing, clip=null) {
   ctx.rotate(clip?.angle || 0);ctx.scale(1,1+(clip?.scaleY || 0));ctx.translate(-framing.anchor.x,-framing.anchor.y);
   if(clip){
     const row=framing.rows[clip.row];ctx.translate(row.x,row.y);ctx.scale(row.scale,row.scale);
-    ctx.drawImage(image,clip.column*size,clip.row*size,size,size,0,0,size,size);
+    ctx.drawImage(image,clip.spriteColumn*clip.size,clip.spriteRow*clip.size,clip.size,clip.size,0,0,size,size);
   }else ctx.drawImage(image,0,0,size,size);
   ctx.restore();
 }
@@ -204,6 +208,8 @@ export function createPetMotion() {
   const supported = Boolean(baseCtx && outputCtx);
   const reduced = matchMedia('(prefers-reduced-motion: reduce)'), mobile = matchMedia('(max-width: 700px)');
   const cache = new Map(), clipCache = new Map(), stages = new Map(), blink = new PetBlink(), gestures = new PetGestures();
+  // Eight 1536x1024 RGBA atlases cap decoded action artwork at approximately 48 MiB.
+  const clipCacheLimit = 8;
   let state = {}, presentation = petPresentation(), frame = null, clock = 0, lastTime = null, lastPaint = -Infinity;
   let selected = '', face = '', faceSince = 0, pendingFace = '', actionAt = 0, dirty = true, queued = false, disposed = false;
   const moving = () => state.animations !== false && !reduced.matches && !document.hidden;
@@ -211,42 +217,88 @@ export function createPetMotion() {
   const activeStages = () => [...stages.keys()].filter(visible);
   function stop() { if (frame !== null) cancelAnimationFrame(frame); frame = null; lastTime = null; }
   function resetIdle() { blink.reset(clock); if (selected) gestures.reset(selected,clock); }
+  async function decode(resource, width, height, onReady) {
+    try {
+      if (resource.image.naturalWidth !== width || resource.image.naturalHeight !== height) throw new Error('Invalid pet artwork size');
+      // onload alone can leave a large atlas to be decoded synchronously by the first drawImage.
+      await resource.image.decode?.();
+      if (disposed) return;
+      await onReady?.();
+      if (disposed) return;
+      resource.ready = true;
+    } catch { resource.failed = true; }
+    if (disposed) return;
+    dirty = true; refresh();
+  }
   function load(id) {
     if (cache.has(id)) return cache.get(id);
     const resource = { image: new Image(), ready: false, failed: false }; cache.set(id, resource);
-    resource.image.onload = () => {
-      resource.ready = resource.image.naturalWidth === size*7 && resource.image.naturalHeight === size;
-      resource.failed = !resource.ready; dirty = true; refresh();
-    };
+    resource.image.onload = () => { void decode(resource, size*7, size); };
     resource.image.onerror = () => { resource.failed = true; refresh(); };
     resource.image.decoding = 'async'; resource.image.src = petSprite(id);
     return resource;
   }
-  function loadClips(id) {
-    if (clipCache.has(id)) return clipCache.get(id);
-    const resource={image:new Image(),ready:false,failed:false}; clipCache.set(id,resource);
-    resource.image.onload=()=>{
-      resource.ready=resource.image.naturalWidth===size*PET_CLIP_LAYOUT.columns && resource.image.naturalHeight===size*PET_CLIP_LAYOUT.rows;
-      resource.failed=!resource.ready;
+  function loadClips(id, action) {
+    const key = `${id}:${action}`;
+    if (clipCache.has(key)) {
+      const resource = clipCache.get(key); clipCache.delete(key); clipCache.set(key,resource); return resource;
+    }
+    const resource={image:new Image(),ready:false,failed:false}; clipCache.set(key,resource);
+    while (clipCache.size>clipCacheLimit) {
+      const [oldKey,oldResource]=clipCache.entries().next().value;
+      clipCache.delete(oldKey); releaseClip(oldResource);
+    }
+    const active = () => !disposed && clipCache.get(key)===resource;
+    const ready = () => {
+      if (!active()) return;
       // Start a user's first action at its beginning if the artwork arrived during loading.
-      if (resource.ready && selected===id && petClipFrame(presentation.motion,0) && clock-actionAt<PET_ACTIONS[presentation.motion].duration) actionAt=clock;
-      dirty=true; refresh();
+      if (selected===id && petClipAction(presentation.motion)===action && clock-actionAt<PET_ACTIONS[presentation.motion].duration) actionAt=clock;
+      if (selected===id && petClipAction(gestures.running?.kind)===action) gestures.running.start=clock;
     };
+    if (typeof createImageBitmap === 'function') {
+      // Decode the fetched bytes to a reusable raster off the drawing path. Cropping an
+      // HTMLImageElement can otherwise rasterize the large WebP atlas on its first draw.
+      resource.controller = new AbortController();
+      void (async () => {
+        try {
+          const response = await fetch(petClipSprite(id,action), { signal: resource.controller.signal });
+          if (!response.ok) throw new Error('Unable to load pet artwork');
+          const bitmap = await createImageBitmap(await response.blob());
+          if (!active() || bitmap.width !== PET_CLIP_LAYOUT.size*PET_CLIP_LAYOUT.columns || bitmap.height !== PET_CLIP_LAYOUT.size*PET_CLIP_LAYOUT.rows) {
+            bitmap.close();
+            if (active()) throw new Error('Invalid pet artwork size');
+            return;
+          }
+          resource.bitmap = bitmap; resource.ready = true; ready();
+        } catch { resource.failed = true; }
+        if (active()) { dirty = true; refresh(); }
+      })();
+      return resource;
+    }
+    resource.image.onload=()=>{ void decode(resource, PET_CLIP_LAYOUT.size*PET_CLIP_LAYOUT.columns, PET_CLIP_LAYOUT.size*PET_CLIP_LAYOUT.rows, ready); };
     resource.image.onerror=()=>{resource.failed=true;dirty=true;refresh();};
-    resource.image.decoding='async'; resource.image.src=petClipSprite(id);
+    resource.image.decoding='async'; resource.image.src=petClipSprite(id,action);
     return resource;
+  }
+  function releaseClip(resource) {
+    resource.image.onload=resource.image.onerror=null;
+    resource.controller?.abort(); resource.bitmap?.close(); resource.ready=false;
+    if (resource.image.src) resource.image.src='';
   }
   function compose(resource, expression, eyelid) {
     baseCtx.clearRect(0,0,size,size);
     baseCtx.drawImage(resource.image,PET_FACES[expression]*size,0,size,size,0,0,size,size);
     if (eyelid !== 'open') baseCtx.drawImage(resource.image,(eyelid === 'half' ? 5 : 6)*size,0,size,size,0,0,size,size);
   }
-  function draw() {
-    const targets = activeStages(); if (!targets.length) return;
+  function draw(targets = activeStages()) {
+    if (!targets.length) return;
     if (!supported) { for (const stage of targets) stage.dataset.petRenderer='fallback'; return; }
     const resource = cache.get(selected),framing=PET_FRAMING[selected];
     if (!resource?.ready) {
-      for (const stage of targets) { stage.dataset.petRenderer = resource?.failed ? 'fallback' : 'loading'; stage.dataset.blink = 'open'; }
+      for (const stage of targets) {
+        stage.dataset.petRenderer = resource?.failed ? 'fallback' : 'loading'; stage.dataset.blink = 'open';
+        stage.dataset.petClip = 'none'; stage.dataset.petClipFrame = 'none'; stage.dataset.petClipProgress = '0';
+      }
       return;
     }
     if (pendingFace && (!moving() || clock-faceSince >= 1400)) { face=pendingFace; pendingFace=''; faceSince=clock; blink.reset(clock); dirty=true; }
@@ -255,17 +307,18 @@ export function createPetMotion() {
     const actionProgress=Math.min(1,(clock-actionAt)/(PET_ACTIONS[presentation.motion]?.duration || 1400));
     const config={id:selected,time:clock,motion:presentation.motion,actionProgress,gesture:ambient?.kind || '',gestureProgress:ambient?.progress || 0};
     const direct=Boolean(PET_ACTIONS[presentation.motion]);
-    const clip=moving() && clipCache.get(selected)?.ready ? petClipFrame(direct?presentation.motion:ambient?.kind,direct?actionProgress:ambient?.progress) : null;
+    const kind=direct?presentation.motion:null, action=petClipAction(kind);
+    const body=moving() && action ? loadClips(selected,action) : null;
+    const clip=body?.ready ? petClipFrame(kind,direct?actionProgress:ambient?.progress) : null;
     const eyelid=moving() && !clip ? blink.frame(clock,expression) : 'open';
     if (clip) blink.reset(clock); // Full-body artwork already includes its own face; eye patches are for the resting pose.
     if(!clip || clip.opacity<1)compose(resource,expression,eyelid);
     if (clip) {
       outputCtx.clearRect(0,0,size,size);
       if(clip.opacity<1){outputCtx.globalAlpha=1-clip.opacity;drawRegistered(outputCtx,base,framing);}
-      const body=clipCache.get(selected);
       outputCtx.globalAlpha=clip.opacity;
       outputCtx.globalCompositeOperation='lighter';
-      drawRegistered(outputCtx,body.image,framing,clip);
+      drawRegistered(outputCtx,body.bitmap || body.image,framing,clip);
       outputCtx.globalCompositeOperation='source-over';outputCtx.globalAlpha=1;
     } else if (moving() && presentation.motion !== 'rest') warp(outputCtx,base,config);
     else { outputCtx.clearRect(0,0,size,size); drawRegistered(outputCtx,base,framing); }
@@ -289,12 +342,15 @@ export function createPetMotion() {
   }
   function tick(now) {
     frame=null;
-    if (!moving() || !activeStages().length || !cache.get(selected)?.ready) { lastTime=null; return; }
+    if (!moving() || !cache.get(selected)?.ready) { lastTime=null; return; }
     if (lastTime !== null) clock += Math.min(100,now-lastTime);
     lastTime=now;
     const period=1000/(mobile.matches ? 30 : 60), elapsed=now-lastPaint;
     if (dirty || elapsed>=period-.5) {
-      const forced=dirty;draw();
+      // Visibility reads can force layout; skip them on refresh ticks with no scheduled paint.
+      const targets=activeStages();
+      if (!targets.length) { stop(); resetIdle(); dirty=true; return; }
+      const forced=dirty;draw(targets);
       lastPaint=forced||!Number.isFinite(elapsed)?now:lastPaint+Math.max(1,Math.floor((elapsed+.5)/period))*period;
     }
     frame=requestAnimationFrame(tick);
@@ -319,7 +375,7 @@ export function createPetMotion() {
       stage.dataset.phase=presentation.phase;
     }
     if (supported && selected && stages.size) load(selected);
-    if (supported && selected && moving() && activeStages().length && !['rest','comfort','focus','thinking'].includes(presentation.motion)) loadClips(selected);
+    if (supported && selected && moving() && activeStages().length && !['rest','comfort','focus','thinking'].includes(presentation.motion)) loadClips(selected,petClipAction(presentation.motion) || 'wave');
     dirty=true; wake();
   }
   function queueRefresh() { if (!queued) { queued=true; queueMicrotask(refresh); } }
@@ -349,8 +405,9 @@ export function createPetMotion() {
     destroy() {
       disposed=true; stop(); observer.disconnect(); mutations.disconnect();
       document.removeEventListener('visibilitychange',pause); reduced.removeEventListener('change',pause); window.removeEventListener('resize',queueRefresh);
-      for (const resource of cache.values()) resource.image.onload=resource.image.onerror=null;
-      for (const resource of clipCache.values()) resource.image.onload=resource.image.onerror=null;
+      for (const resource of cache.values()) { resource.image.onload=resource.image.onerror=null; resource.image.src=''; }
+      for (const resource of clipCache.values()) releaseClip(resource);
+      cache.clear(); clipCache.clear();
       for (const [stage,record] of stages) { record.canvas.remove(); delete stage.dataset.petRenderer; }
       stages.clear();
     },

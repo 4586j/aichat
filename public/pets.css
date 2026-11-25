@@ -26,7 +26,7 @@
 .pet-settings-entry .button { flex-shrink: 0; }
 .pet-mobile-companion { display: none; }
 .pet-home { width: min(940px, calc(100vw - 36px)); max-width: 940px; }
-.pet-home .dialog-header { position: sticky; top: 0; background: #f9faf4; z-index: 2; }
+.pet-home .dialog-header { position: sticky; top: 0; background: var(--paper-card); z-index: 2; }
 .pet-home .dialog-header p { margin: 8px 0 0; }
 .pet-home .dialog-header .icon-button { font-size: 27px; flex-shrink: 0; }
 .pet-home-body { padding: 25px 28px 28px; }

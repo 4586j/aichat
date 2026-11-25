@@ -332,19 +332,22 @@ test.describe('fresh garden entrance', () => {
         const problems = [];
         const rect = selector => document.querySelector(selector).getBoundingClientRect();
         if (document.documentElement.scrollWidth > innerWidth + 1 || document.documentElement.scrollHeight > innerHeight + 1) problems.push('document overflows viewport');
-        for (const element of document.querySelectorAll('.persona-summary, .garden-memory, .composer-wrap')) {
+        for (const element of document.querySelectorAll('.composer-wrap')) {
           if (element.scrollHeight > element.clientHeight + 2 || element.scrollWidth > element.clientWidth + 2) problems.push(`${element.className} clips its content`);
+        }
+        for (const selector of ['.chat-aside', '.persona-summary', '.garden-memory']) {
+          const el = document.querySelector(selector);
+          if (el && getComputedStyle(el).display !== 'none') problems.push(`${selector} should be hidden on phone`);
         }
         const pairs = [
           ['.sidebar', '.topbar'], ['.topbar', '.page-heading'],
           ['.page-heading', '.chat-panel'], ['#chat-messages', '.composer-wrap'],
-          ['.composer-wrap', '.chat-aside'], ['.persona-summary', '.garden-memory'],
           ['#chat-input', '#chat-form button[type="submit"]'],
         ];
         const overlaps = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1
           && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
         for (const [a, b] of pairs) if (overlaps(rect(a), rect(b))) problems.push(`${a} overlaps ${b}`);
-        const controls = [...document.querySelectorAll('#navigation a, .garden-memory button, #chat-input, #chat-form button[type="submit"]')];
+        const controls = [...document.querySelectorAll('#navigation a, #chat-input, #chat-form button[type="submit"]')];
         controls.forEach((element, index) => {
           const box = element.getBoundingClientRect();
           const label = element.id || element.textContent.trim();

@@ -159,19 +159,19 @@ for(const id of ids)test(`${id} plays four real body clips, visits authored pose
     await page.evaluate(next=>window.updatePet(next),{reaction,animations:true,scene:'normal',reactionKey:row+1});
     await expect(stage(page)).toHaveAttribute('data-pet-clip',reaction);
     const columns=new Set(),frames=new Set();
-    for(let i=0;i<Math.ceil(PET_ACTIONS[reaction].duration/30)+4;i++){
+    for(let i=0;i<Math.ceil(PET_ACTIONS[reaction].duration/16)+4;i++){
       const name=await stage(page).getAttribute('data-pet-clip-frame');if(name!=='none')columns.add(Number(name.split(':')[1]));
-      if(name===`${row}:3`){frames.add(await pixels(page));if(frames.size===1)await stage(page).screenshot({path:info.outputPath(`${id}-${reaction}-full-body.png`)});}
-      await page.clock.runFor(30);
+      if(name===`${row}:13`){frames.add(await pixels(page));if(frames.size===1)await stage(page).screenshot({path:info.outputPath(`${id}-${reaction}-full-body.png`)});}
+      await page.clock.runFor(16);
     }
-    expect([...columns].sort()).toEqual([0,1,2,3,4,5]);expect(frames.size).toBeGreaterThan(0);
+    expect([...columns].sort((a,b)=>a-b)).toEqual(Array.from({length:24},(_,i)=>i));expect(frames.size).toBeGreaterThan(0);
     await expect(stage(page)).toHaveAttribute('data-pet-clip','none');
     await page.evaluate(()=>window.updatePet({reaction:'',scene:'comfort'}));await expect(stage(page)).toHaveAttribute('data-expression','warm');
   }
 });
 
 test('body artwork loads only for enabled visible motion, caches per pet, and stops under reduced motion',async({page})=>{
-  const loaded=[];page.on('request',r=>{if(r.url().endsWith('-actions-v3.webp'))loaded.push(r.url());});
+  const loaded=[];page.on('request',r=>{if(/-(wave|stretch|feed|play)-v4\.webp$/.test(r.url()))loaded.push(r.url());});
   await page.clock.install({time:new Date('2026-10-26T08:00:00Z')});await component(page,{animations:false});
   await page.clock.pauseAt(new Date('2026-10-26T08:00:01Z'));expect(loaded).toHaveLength(0);
   await page.emulateMedia({reducedMotion:'reduce'});await page.evaluate(()=>window.updatePet({animations:true}));expect(loaded).toHaveLength(0);
@@ -182,14 +182,14 @@ test('body artwork loads only for enabled visible motion, caches per pet, and st
   await page.clock.runFor(9000);expect(await pixels(page)).toBe(still);
   await page.evaluate(()=>window.updatePet({reaction:'',scene:'rest'}));await page.emulateMedia({reducedMotion:'no-preference'});
   await page.clock.runFor(6000);await expect(stage(page)).toHaveAttribute('data-pet-clip','none');await expect(stage(page)).toHaveAttribute('data-expression','sleepy');
-  await page.evaluate(()=>window.updatePet({reaction:'play',scene:'normal'}));await expect(stage(page)).toHaveAttribute('data-pet-clip','play');expect(loaded).toHaveLength(1);
+  await page.evaluate(()=>window.updatePet({reaction:'play',scene:'normal'}));await expect(stage(page)).toHaveAttribute('data-pet-clip','play');expect(loaded).toHaveLength(2);
   await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));});
   const hidden=await pixels(page);await page.clock.runFor(20000);expect(await pixels(page)).toBe(hidden);
 });
 
 for(const failure of ['missing','malformed'])test(`${failure} body artwork retains working expressions and local motion`,async({page})=>{
-  if(failure==='missing')await page.route('**/*-actions-v3.webp',route=>route.abort());
-  else await page.route('**/*-actions-v3.webp',async route=>route.fulfill({response:await page.request.get('/assets/pets/cream-cat-v1.png')}));
+  if(failure==='missing')await page.route('**/*-v4.webp',route=>route.abort());
+  else await page.route('**/*-v4.webp',async route=>route.fulfill({response:await page.request.get('/assets/pets/cream-cat-v1.png')}));
   await page.clock.install({time:new Date('2026-10-26T08:00:00Z')});await component(page,{reaction:'wave'});
   await page.clock.pauseAt(new Date('2026-10-26T08:00:01Z'));const before=await pixels(page);await page.clock.runFor(900);
   await expect(stage(page)).toHaveAttribute('data-pet-renderer','canvas');await expect(stage(page)).toHaveAttribute('data-pet-clip','none');expect(await pixels(page)).not.toBe(before);
@@ -210,7 +210,7 @@ test('direct body actions restart on a new interaction, then restore music or a 
 });
 
 test('changing the OS motion preference loads body artwork without another UI state update',async({page})=>{
-  const loaded=[];page.on('request',r=>{if(r.url().endsWith('-actions-v3.webp'))loaded.push(r.url());});
+  const loaded=[];page.on('request',r=>{if(/-(wave|stretch|feed|play)-v4\.webp$/.test(r.url()))loaded.push(r.url());});
   await component(page,{animations:false});await page.emulateMedia({reducedMotion:'reduce'});
   await page.evaluate(()=>window.updatePet({animations:true}));expect(loaded).toHaveLength(0);
   await page.emulateMedia({reducedMotion:'no-preference'});await expect.poll(()=>loaded.length).toBe(1);
