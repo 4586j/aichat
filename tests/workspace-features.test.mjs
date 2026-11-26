@@ -68,7 +68,7 @@ function request(app, path, { method = 'GET', json, headers = {} } = {}) {
 test('Schema v8 initializes relationships, bookmarks, journals, and FTS search tables', t => {
   const store = createStore(':memory:');
   t.after(() => store.close());
-  assert.equal(store.schemaVersion(), 8);
+  assert.equal(store.schemaVersion(), 10);
   const tables = store.all("SELECT name FROM sqlite_master WHERE type='table'").map(r => r.name);
   assert.ok(tables.includes('persona_relationships'));
   assert.ok(tables.includes('message_bookmarks'));

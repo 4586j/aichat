@@ -364,7 +364,7 @@ test('unified turn-pipeline in sendMessage strictly caps critic reflections by c
 
 test('store schemaVersion migrations and FTS5 chunks_fts stay synchronized on import and delete', async t => {
   const f = fixture(t, []);
-  assert.equal(f.store.schemaVersion(), 8);
+  assert.equal(f.store.schemaVersion(), 10);
   assert.equal(f.api.knowledge.stats().ftsEnabled, true);
 
   const rawText = '栖忆古典园林架构采用 SQLite FTS5 全文检索引擎与向量混合排序。';
