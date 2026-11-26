@@ -107,6 +107,41 @@ class QiYiRepository(
 
     suspend fun getConversation(id: String): ConversationEntity? = db.conversationDao().getById(id)
 
+    suspend fun deleteConversation(id: String) = db.conversationDao().deleteById(id)
+
+    suspend fun deleteMessage(id: Long) = db.messageDao().deleteById(id)
+
+    suspend fun updateConversationState(
+        conversationId: String,
+        userMood: String,
+        assistantStyle: String,
+        relationshipStage: String
+    ) {
+        db.conversationDao().updateChatState(
+            id = conversationId,
+            userMood = userMood.trim().take(60),
+            assistantStyle = assistantStyle.trim().take(60),
+            relationshipStage = relationshipStage.trim().ifEmpty { "初识" }.take(20),
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
+    fun buildMessageWithAttachments(userText: String, attachments: List<Pair<String, String>>): String {
+        if (attachments.isEmpty()) return userText
+        return buildString {
+            append(userText.trim())
+            for ((name, raw) in attachments) {
+                val cleanName = name.trim().ifEmpty { "attachment.txt" }.take(80)
+                val cleanBody = raw.trim().take(16000)
+                if (cleanBody.isNotEmpty()) {
+                    append("\n\n<user_attachment name=\"").append(cleanName).append("\">\n")
+                    append(cleanBody)
+                    append("\n</user_attachment>")
+                }
+            }
+        }
+    }
+
     suspend fun createConversation(personaId: String, title: String = "新的对话"): ConversationEntity {
         val now = System.currentTimeMillis()
         val conv = ConversationEntity(
@@ -298,10 +333,21 @@ class QiYiRepository(
         )
         val referenceBlock = KnowledgeEngine.buildReferenceContextBlock(knowledgeHits, memoryHits)
 
+        val conv = db.conversationDao().getById(conversationId)
         val sys = buildString {
             append("角色名称：").append(persona.name).append('\n')
             if (persona.tone.isNotBlank()) append("说话语气：").append(persona.tone).append('\n')
             append("人设设定：\n").append(persona.systemPrompt)
+            if (conv != null) {
+                val stateLines = buildList {
+                    if (conv.userMood.isNotBlank()) add("用户当前状态：${conv.userMood}")
+                    if (conv.assistantStyle.isNotBlank()) add("期望回复风格：${conv.assistantStyle}")
+                    if (conv.relationshipStage.isNotBlank()) add("当前关系阶段：${conv.relationshipStage}")
+                }
+                if (stateLines.isNotEmpty()) {
+                    append("\n\n当前对话状态：\n").append(stateLines.joinToString("\n"))
+                }
+            }
             if (isGroupChat) {
                 append("\n当前处于多角色群聊，请仅以「").append(persona.name).append("」的身份自然接话，无需重复他人已说内容，也不要在开头自报姓名。")
             }

@@ -50,6 +50,15 @@ interface ConversationDao {
     @Query("UPDATE conversations SET updatedAt = :updatedAt WHERE id = :id")
     suspend fun touch(id: String, updatedAt: Long)
 
+    @Query("UPDATE conversations SET userMood = :userMood, assistantStyle = :assistantStyle, relationshipStage = :relationshipStage, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateChatState(
+        id: String,
+        userMood: String,
+        assistantStyle: String,
+        relationshipStage: String,
+        updatedAt: Long
+    )
+
     @Query("DELETE FROM conversations WHERE id = :id")
     suspend fun deleteById(id: String)
 }
@@ -70,6 +79,9 @@ interface MessageDao {
 
     @Query("DELETE FROM messages WHERE conversationId = :conversationId")
     suspend fun deleteByConversation(conversationId: String)
+
+    @Query("DELETE FROM messages WHERE id = :id")
+    suspend fun deleteById(id: Long)
 
     @Insert
     suspend fun insert(message: MessageEntity): Long

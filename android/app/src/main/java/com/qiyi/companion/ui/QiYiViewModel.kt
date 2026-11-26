@@ -49,6 +49,11 @@ data class QuotaCheckpointState(
     val reason: String
 )
 
+data class DraftAttachment(
+    val name: String,
+    val content: String
+)
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
 
@@ -109,6 +114,9 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
 
     private val _quotaCheckpoint = MutableStateFlow<QuotaCheckpointState?>(null)
     val quotaCheckpoint: StateFlow<QuotaCheckpointState?> = _quotaCheckpoint.asStateFlow()
+
+    private val _draftAttachments = MutableStateFlow<List<DraftAttachment>>(emptyList())
+    val draftAttachments: StateFlow<List<DraftAttachment>> = _draftAttachments.asStateFlow()
 
     private val _availableModels = MutableStateFlow<List<String>>(emptyList())
     val availableModels: StateFlow<List<String>> = _availableModels.asStateFlow()
@@ -179,9 +187,32 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
         }
     }
 
+    fun addDraftAttachment(name: String, content: String) {
+        val cleanContent = content.trim()
+        if (cleanContent.isEmpty()) {
+            notify("附件内容为空，未添加。")
+            return
+        }
+        val current = _draftAttachments.value
+        if (current.size >= 4) {
+            notify("单次最多添加 4 个文本附件。")
+            return
+        }
+        _draftAttachments.value = current + DraftAttachment(name.trim().ifEmpty { "附件.txt" }, cleanContent.take(16000))
+        notify("已添加附件「${name.trim().ifEmpty { "附件.txt" }}」")
+    }
+
+    fun removeDraftAttachment(index: Int) {
+        val current = _draftAttachments.value
+        if (index in current.indices) {
+            _draftAttachments.value = current.filterIndexed { i, _ -> i != index }
+        }
+    }
+
     fun sendMessage(rawText: String) {
         val text = rawText.trim()
-        if (text.isEmpty() || _streaming.value.isStreaming) return
+        val attachments = _draftAttachments.value
+        if ((text.isEmpty() && attachments.isEmpty()) || _streaming.value.isStreaming) return
 
         cancelQuotaCheckpoint()
 
@@ -191,6 +222,7 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
 
             val responderIds: List<String>
             val convId: String
+            val pureQuery = text.ifEmpty { "请阅读我附带的文件并给出简明总结。" }
 
             if (isGroup && existingConv != null) {
                 val allMap = personas.value.associateBy { it.id }
@@ -201,7 +233,7 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
                     notify("群聊成员不存在，请重新创建群聊。")
                     return@launch
                 }
-                val responders = repository.resolveGroupResponders(text, participants)
+                val responders = repository.resolveGroupResponders(pureQuery, participants)
                 if (responders.any { repository.effectiveModelFor(it).isBlank() }) {
                     notify("请先在「设置」或「人设」中配置模型 ID。")
                     return@launch
@@ -229,13 +261,69 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
                 responderIds = listOf(persona.id)
             }
 
-            repository.saveUserMessage(convId, text)
+            val fullUserContent = repository.buildMessageWithAttachments(
+                userText = pureQuery,
+                attachments = attachments.map { it.name to it.content }
+            )
+            _draftAttachments.value = emptyList()
+            repository.saveUserMessage(convId, fullUserContent)
             runResponderQueue(
                 convId = convId,
                 responderIds = responderIds,
-                latestQuery = text,
+                latestQuery = pureQuery,
                 isGroupChat = isGroup
             )
+        }
+    }
+
+    fun regenerateAssistantMessage(message: MessageEntity) {
+        if (_streaming.value.isStreaming) {
+            notify("正在生成回复，请先停止当前生成。")
+            return
+        }
+        val convId = message.conversationId
+        viewModelScope.launch {
+            val conv = repository.getConversation(convId) ?: return@launch
+            val targetPersonaId = message.senderPersonaId ?: conv.personaId
+            repository.deleteMessage(message.id)
+            runResponderQueue(
+                convId = convId,
+                responderIds = listOf(targetPersonaId),
+                latestQuery = "",
+                isGroupChat = conv.isGroup
+            )
+        }
+    }
+
+    fun deleteConversation(conversationId: String) {
+        if (_streaming.value.isStreaming && _streaming.value.conversationId == conversationId) {
+            stopGeneration()
+        }
+        viewModelScope.launch {
+            runCatching { repository.deleteConversation(conversationId) }
+                .onSuccess {
+                    if (_activeConversationId.value == conversationId) {
+                        _activeConversationId.value = null
+                    }
+                    notify("已删除该段对话。")
+                }
+                .onFailure { notify(it.message ?: "删除对话失败。") }
+        }
+    }
+
+    fun updateChatState(userMood: String, assistantStyle: String, relationshipStage: String) {
+        viewModelScope.launch {
+            val convId = _activeConversationId.value ?: run {
+                val pid = _activePersonaId.value ?: personas.value.firstOrNull()?.id ?: return@launch
+                repository.createConversation(pid).id.also { _activeConversationId.value = it }
+            }
+            runCatching {
+                repository.updateConversationState(convId, userMood, assistantStyle, relationshipStage)
+            }.onSuccess {
+                notify("已更新当前对话状态。")
+            }.onFailure {
+                notify(it.message ?: "更新对话状态失败。")
+            }
         }
     }
 

@@ -1,5 +1,6 @@
 package com.qiyi.companion.ui.screens
 
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -7,6 +8,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +28,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -34,10 +37,15 @@ import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -45,8 +53,10 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -67,7 +77,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -105,6 +117,7 @@ fun ChatScreen(
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val streaming by viewModel.streaming.collectAsStateWithLifecycle()
     val quotaCheckpoint by viewModel.quotaCheckpoint.collectAsStateWithLifecycle()
+    val draftAttachments by viewModel.draftAttachments.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
 
     val personaMap = remember(personas) { personas.associateBy { it.id } }
@@ -113,12 +126,37 @@ fun ChatScreen(
     val isGroup = activeConversation?.isGroup == true
 
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     var draft by rememberSaveable { mutableStateOf("") }
     var composerCollapsed by rememberSaveable { mutableStateOf(false) }
+    var showChatStateDrawer by rememberSaveable { mutableStateOf(false) }
+    var showChatStateDialog by remember { mutableStateOf(false) }
     var personaMenuExpanded by remember { mutableStateOf(false) }
     var showHistorySheet by remember { mutableStateOf(false) }
     var showGroupDialog by remember { mutableStateOf(false) }
     var pendingExportMd by remember { mutableStateOf<String?>(null) }
+
+    val attachFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            var displayName = "附件.txt"
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0) displayName = cursor.getString(idx) ?: displayName
+                }
+            }
+            val text = context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                ?: throw IllegalStateException("无法读取附件文件。")
+            displayName to text
+        }.onSuccess { (name, text) ->
+            viewModel.addDraftAttachment(name, text)
+        }.onFailure {
+            viewModel.notify(it.message ?: "读取附件失败。")
+        }
+    }
 
     val exportMdLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/markdown")
@@ -304,13 +342,67 @@ fun ChatScreen(
                 Spacer(Modifier.width(8.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
+                    GardenWindowButton(
+                        text = "当前状态",
+                        onClick = { showChatStateDrawer = !showChatStateDrawer }
+                    )
                     GardenWindowButton(
                         text = "群聊",
                         onClick = { showGroupDialog = true }
                     )
-                    GardenTagPill(text = if (isGroup) "雅集群聊" else "当前对话")
+                }
+            }
+        }
+
+        // 2.5 Collapsible 「当前状态」 Strip (aligned with mobile web live-v4-6-mobile-390.png)
+        AnimatedVisibility(visible = showChatStateDrawer) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp),
+                color = garden.paperCard,
+                border = BorderStroke(0.8.dp, garden.lineSoft)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showChatStateDialog = true }
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            GardenTagPill(text = "你", accent = garden.paperCard, background = garden.bamboo)
+                            Text(
+                                text = activeConversation?.userMood?.ifBlank { null } ?: "暂不判断 · 点击设置当前状态",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = garden.text,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            GardenTagPill(text = "角色", accent = garden.paperCard, background = garden.gold)
+                            Text(
+                                text = activeConversation?.assistantStyle?.ifBlank { null } ?: "跟随人设 · 正常",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = garden.text,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    GardenTagPill(
+                        text = activeConversation?.relationshipStage?.ifBlank { null } ?: "初识",
+                        accent = garden.gold,
+                        background = garden.goldSoft
+                    )
                 }
             }
         }
@@ -353,7 +445,12 @@ fun ChatScreen(
                         speakerAvatar = senderRole?.avatar.orEmpty().ifBlank { senderRole?.name?.take(1) ?: "望" },
                         userAvatar = settings.userAvatar.ifBlank { "我" },
                         onBranch = { viewModel.branchFromMessage(msg.id) },
-                        onRemember = { viewModel.rememberFromChat(msg.content) }
+                        onRemember = { viewModel.rememberFromChat(msg.content) },
+                        onCopy = {
+                            clipboard.setText(AnnotatedString(msg.content))
+                            viewModel.notify("已复制到剪贴板")
+                        },
+                        onRegenerate = { viewModel.regenerateAssistantMessage(msg) }
                     )
                 }
 
@@ -428,12 +525,37 @@ fun ChatScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = "发送消息",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = garden.ink,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "发送消息",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = garden.ink,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { attachFileLauncher.launch(arrayOf("text/*", "application/json", "*/*")) }
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AttachFile,
+                            contentDescription = "添加文件",
+                            modifier = Modifier.size(14.dp),
+                            tint = garden.bamboo
+                        )
+                        Text(
+                            text = "+ 添加文件",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = garden.bamboo,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -481,6 +603,45 @@ fun ChatScreen(
                     border = BorderStroke(1.dp, garden.line)
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                        if (draftAttachments.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(bottom = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                draftAttachments.forEachIndexed { idx, att ->
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = garden.bambooSoft,
+                                        border = BorderStroke(0.8.dp, garden.lineStrong)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = att.name,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = garden.ink,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Spacer(Modifier.width(4.dp))
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "移除附件",
+                                                modifier = Modifier
+                                                    .size(14.dp)
+                                                    .clickable { viewModel.removeDraftAttachment(idx) },
+                                                tint = garden.muted
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -534,10 +695,10 @@ fun ChatScreen(
                             } else {
                                 CinnabarPillButton(
                                     text = "发送",
-                                    enabled = draft.isNotBlank(),
+                                    enabled = draft.isNotBlank() || draftAttachments.isNotEmpty(),
                                     onClick = {
                                         val toSend = draft.trim()
-                                        if (toSend.isNotEmpty()) {
+                                        if (toSend.isNotEmpty() || draftAttachments.isNotEmpty()) {
                                             draft = ""
                                             viewModel.sendMessage(toSend)
                                         }
@@ -574,9 +735,23 @@ fun ChatScreen(
                 onNewChat = {
                     showHistorySheet = false
                     viewModel.startNewConversation()
-                }
+                },
+                onDelete = { id -> viewModel.deleteConversation(id) }
             )
         }
+    }
+
+    if (showChatStateDialog) {
+        ChatStateEditorDialog(
+            initialMood = activeConversation?.userMood.orEmpty(),
+            initialStyle = activeConversation?.assistantStyle.orEmpty(),
+            initialStage = activeConversation?.relationshipStage.orEmpty().ifBlank { "初识" },
+            onDismiss = { showChatStateDialog = false },
+            onSave = { mood, style, stage ->
+                showChatStateDialog = false
+                viewModel.updateChatState(mood, style, stage)
+            }
+        )
     }
 
     if (showGroupDialog) {
@@ -700,7 +875,9 @@ private fun MessageBubble(
     speakerAvatar: String,
     userAvatar: String,
     onBranch: () -> Unit,
-    onRemember: () -> Unit
+    onRemember: () -> Unit,
+    onCopy: () -> Unit,
+    onRegenerate: () -> Unit
 ) {
     val isUser = message.role == "user"
     val garden = LocalGardenColors.current
@@ -812,33 +989,44 @@ private fun MessageBubble(
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                TextButton(
+                    onClick = onCopy,
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = "复制", modifier = Modifier.size(13.dp), tint = garden.muted)
+                    Spacer(Modifier.width(3.dp))
+                    Text("复制", style = MaterialTheme.typography.labelSmall, color = garden.muted)
+                }
+                TextButton(
+                    onClick = onRegenerate,
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = "重新生成", modifier = Modifier.size(14.dp), tint = garden.muted)
+                    Spacer(Modifier.width(3.dp))
+                    Text("重生成", style = MaterialTheme.typography.labelSmall, color = garden.muted)
+                }
                 TextButton(
                     onClick = onBranch,
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                     modifier = Modifier.height(28.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.CallSplit,
-                        contentDescription = "从此分支",
-                        modifier = Modifier.size(14.dp),
-                        tint = garden.muted
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text("从此分支", style = MaterialTheme.typography.labelSmall, color = garden.muted)
+                    Icon(Icons.AutoMirrored.Filled.CallSplit, contentDescription = "从此分支", modifier = Modifier.size(14.dp), tint = garden.muted)
+                    Spacer(Modifier.width(3.dp))
+                    Text("分支", style = MaterialTheme.typography.labelSmall, color = garden.muted)
                 }
                 TextButton(
                     onClick = onRemember,
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                     modifier = Modifier.height(28.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.BookmarkAdd,
-                        contentDescription = "记入长期记忆",
-                        modifier = Modifier.size(14.dp),
-                        tint = garden.muted
-                    )
-                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.Default.BookmarkAdd, contentDescription = "记入长期记忆", modifier = Modifier.size(14.dp), tint = garden.muted)
+                    Spacer(Modifier.width(3.dp))
                     Text("记住", style = MaterialTheme.typography.labelSmall, color = garden.muted)
                 }
             }
@@ -965,7 +1153,8 @@ private fun ConversationHistorySheet(
     conversations: List<ConversationEntity>,
     activeConversationId: String?,
     onSelect: (String) -> Unit,
-    onNewChat: () -> Unit
+    onNewChat: () -> Unit,
+    onDelete: (String) -> Unit
 ) {
     val garden = LocalGardenColors.current
     val formatter = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
@@ -1035,8 +1224,21 @@ private fun ConversationHistorySheet(
                                     color = garden.muted
                                 )
                             }
-                            if (conv.isGroup) {
-                                Icon(Icons.Default.Groups, contentDescription = null, tint = garden.bamboo, modifier = Modifier.size(18.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (conv.isGroup) {
+                                    Icon(Icons.Default.Groups, contentDescription = null, tint = garden.bamboo, modifier = Modifier.size(18.dp))
+                                }
+                                IconButton(
+                                    onClick = { onDelete(conv.id) },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DeleteOutline,
+                                        contentDescription = "删除对话",
+                                        tint = garden.cinnabar,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -1121,6 +1323,73 @@ private fun CreateGroupChatDialog(
                 enabled = selectedIds.size >= 2
             ) {
                 Text("创建群聊")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+@Composable
+private fun ChatStateEditorDialog(
+    initialMood: String,
+    initialStyle: String,
+    initialStage: String,
+    onDismiss: () -> Unit,
+    onSave: (mood: String, style: String, stage: String) -> Unit
+) {
+    var mood by remember { mutableStateOf(initialMood) }
+    var style by remember { mutableStateOf(initialStyle) }
+    var stage by remember { mutableStateOf(initialStage) }
+
+    val moodPresets = listOf("放松", "专注工作", "有些疲惫", "心情不错")
+    val stylePresets = listOf("跟随人设", "更温柔陪伴", "简洁直接", "深入拆解")
+    val stagePresets = listOf("初识", "熟稔", "知己")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("当前对话状态") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("你的当前状态", style = MaterialTheme.typography.labelMedium)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    moodPresets.forEach { preset ->
+                        FilterChip(selected = mood == preset, onClick = { mood = preset }, label = { Text(preset) })
+                    }
+                }
+                OutlinedTextField(
+                    value = mood,
+                    onValueChange = { mood = it },
+                    placeholder = { Text("或手动输入当前心情 / 精力") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text("角色回复风格", style = MaterialTheme.typography.labelMedium)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    stylePresets.forEach { preset ->
+                        FilterChip(selected = style == preset, onClick = { style = preset }, label = { Text(preset) })
+                    }
+                }
+                Text("默契关系阶段", style = MaterialTheme.typography.labelMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    stagePresets.forEach { preset ->
+                        FilterChip(selected = stage == preset, onClick = { stage = preset }, label = { Text(preset) })
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onSave(mood, style, stage) }) {
+                Text("应用状态")
             }
         },
         dismissButton = {

@@ -16,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         KnowledgeChunkEntity::class,
         MemoryEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class QiYiDatabase : RoomDatabase() {
@@ -86,6 +86,14 @@ abstract class QiYiDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `conversations` ADD COLUMN `userMood` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `conversations` ADD COLUMN `assistantStyle` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `conversations` ADD COLUMN `relationshipStage` TEXT NOT NULL DEFAULT '初识'")
+            }
+        }
+
         fun getInstance(context: Context): QiYiDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -93,7 +101,7 @@ abstract class QiYiDatabase : RoomDatabase() {
                     QiYiDatabase::class.java,
                     "qiyi_companion.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { instance = it }
             }

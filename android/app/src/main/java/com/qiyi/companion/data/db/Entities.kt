@@ -38,6 +38,9 @@ data class ConversationEntity(
     val branchedFromMessageId: Long? = null,
     val isGroup: Boolean = false,
     val participantIds: String = "",
+    val userMood: String = "",
+    val assistantStyle: String = "",
+    val relationshipStage: String = "初识",
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )
