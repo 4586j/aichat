@@ -8,9 +8,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,54 +24,66 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.AddComment
+import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.StopCircle
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qiyi.companion.data.db.ConversationEntity
 import com.qiyi.companion.data.db.MessageEntity
 import com.qiyi.companion.data.db.PersonaEntity
 import com.qiyi.companion.ui.QiYiViewModel
+import com.qiyi.companion.ui.QuotaCheckpointState
 import com.qiyi.companion.ui.StreamingState
+import com.qiyi.companion.ui.theme.BegoniaPlaqueShape
+import com.qiyi.companion.ui.theme.CinnabarPillButton
+import com.qiyi.companion.ui.theme.GardenSealAvatar
+import com.qiyi.companion.ui.theme.GardenTagPill
+import com.qiyi.companion.ui.theme.GardenWindowButton
 import com.qiyi.companion.ui.theme.LocalGardenColors
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -83,19 +97,35 @@ fun ChatScreen(
     val personas by viewModel.personas.collectAsStateWithLifecycle()
     val activePersonaId by viewModel.activePersonaId.collectAsStateWithLifecycle()
     val activeConversationId by viewModel.activeConversationId.collectAsStateWithLifecycle()
-    val conversations by viewModel.conversations.collectAsStateWithLifecycle()
+    val activeConversation by viewModel.activeConversation.collectAsStateWithLifecycle()
+    val allConversations by viewModel.allConversations.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val streaming by viewModel.streaming.collectAsStateWithLifecycle()
+    val quotaCheckpoint by viewModel.quotaCheckpoint.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
 
+    val personaMap = remember(personas) { personas.associateBy { it.id } }
     val activePersona = personas.firstOrNull { it.id == activePersonaId } ?: personas.firstOrNull()
     val effectiveModel = viewModel.effectiveModelFor(activePersona)
+    val isGroup = activeConversation?.isGroup == true
 
     var draft by rememberSaveable { mutableStateOf("") }
+    var composerCollapsed by rememberSaveable { mutableStateOf(false) }
     var personaMenuExpanded by remember { mutableStateOf(false) }
     var showHistorySheet by remember { mutableStateOf(false) }
+    var showGroupDialog by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+
+    val showScrollToBottom by remember {
+        derivedStateOf {
+            val total = listState.layoutInfo.totalItemsCount
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            total > 3 && lastVisible < total - 2
+        }
+    }
+
     LaunchedEffect(messages.size, streaming.content.length, streaming.reasoning.length) {
         val targetIndex = messages.size + if (streaming.isStreaming) 1 else 0
         if (targetIndex > 0) {
@@ -108,56 +138,106 @@ fun ChatScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(garden.paper)
             .imePadding()
     ) {
-        // Top Garden Header
+        // 1. Mobile-Web-Aligned Header Strip: 「今天，聊点什么？」 + 历史对话 / 新建对话
         Surface(
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 1.dp,
-            border = BorderStroke(0.5.dp, garden.subtleBorder)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            shape = RoundedCornerShape(10.dp),
+            color = garden.paperCard,
+            border = BorderStroke(1.dp, garden.line)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = if (isGroup) activeConversation?.title ?: "雅集群聊" else "今天，聊点什么？",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = garden.ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    GardenWindowButton(
+                        text = "历史对话",
+                        onClick = { showHistorySheet = true }
+                    )
+                    GardenWindowButton(
+                        text = "新建对话",
+                        primary = true,
+                        onClick = { viewModel.startNewConversation() }
+                    )
+                }
+            }
+        }
+
+        // 2. Persona Picker + Group Chat + Status Badge Strip
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp),
+            shape = RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp),
+            color = garden.paperCard,
+            border = BorderStroke(0.9.dp, garden.line)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Box(modifier = Modifier.weight(1f)) {
-                    Row(
+                    Surface(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { personaMenuExpanded = true }
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { personaMenuExpanded = true },
+                        shape = RoundedCornerShape(10.dp),
+                        color = garden.paper,
+                        border = BorderStroke(0.9.dp, garden.line)
                     ) {
-                        AvatarBadge(
-                            avatar = activePersona?.avatar.orEmpty().ifBlank { "🌿" },
-                            size = 36
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f, fill = false)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            GardenSealAvatar(
+                                label = if (isGroup) "群" else activePersona?.avatar.orEmpty().ifBlank { activePersona?.name?.take(1) ?: "望" },
+                                size = 30.dp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f, fill = false)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = if (isGroup) "群聊（${activeConversation?.participantIds?.split(",")?.size ?: 0}人）" else activePersona?.name ?: "望舒",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = garden.ink,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = "切换角色",
+                                        tint = garden.muted,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                                 Text(
-                                    text = activePersona?.name ?: "栖忆",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold,
+                                    text = if (isGroup) "支持 @角色名 点名发言" else if (effectiveModel.isNotBlank()) effectiveModel else "未配置模型",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isGroup || effectiveModel.isNotBlank()) garden.muted else garden.cinnabar,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                Icon(
-                                    imageVector = Icons.Default.ArrowDropDown,
-                                    contentDescription = "切换角色",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
                             }
-                            Text(
-                                text = if (effectiveModel.isNotBlank()) "模型：$effectiveModel" else "未配置模型（前往设置）",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (effectiveModel.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
                         }
                     }
 
@@ -171,13 +251,13 @@ fun ChatScreen(
                                     Column {
                                         Text(
                                             text = "${role.avatar.ifBlank { "🌿" }}  ${role.name}",
-                                            fontWeight = if (role.id == activePersona?.id) FontWeight.Bold else FontWeight.Normal
+                                            fontWeight = if (!isGroup && role.id == activePersona?.id) FontWeight.Bold else FontWeight.Normal
                                         )
                                         if (role.model.isNotBlank()) {
                                             Text(
                                                 text = "专属模型：${role.model}",
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.primary
+                                                color = garden.bamboo
                                             )
                                         }
                                     }
@@ -191,116 +271,258 @@ fun ChatScreen(
                     }
                 }
 
-                IconButton(onClick = { showHistorySheet = true }) {
-                    Icon(
-                        imageVector = Icons.Default.History,
-                        contentDescription = "历史对话",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                Spacer(Modifier.width(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    GardenWindowButton(
+                        text = "群聊",
+                        onClick = { showGroupDialog = true }
                     )
-                }
-                IconButton(onClick = { viewModel.startNewConversation() }) {
-                    Icon(
-                        imageVector = Icons.Default.AddComment,
-                        contentDescription = "新建对话",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                    GardenTagPill(text = if (isGroup) "雅集群聊" else "当前对话")
                 }
             }
         }
 
-        // Message List
-        LazyColumn(
-            state = listState,
+        // 3. HTTP 429 Quota Checkpoint & Auto-Resume Banner
+        quotaCheckpoint?.let { cp ->
+            QuotaCheckpointBanner(
+                checkpoint = cp,
+                onRetryNow = { viewModel.retryQuotaCheckpointNow() },
+                onCancel = { viewModel.cancelQuotaCheckpoint() }
+            )
+        }
+
+        // 4. Message List inside Xuan-paper Garden Canvas + Floating "↓ 回到最新回复" Pill
+        Box(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp)
+                .background(garden.paperCard.copy(alpha = 0.65f))
+                .border(0.8.dp, garden.lineSoft)
         ) {
-            if (messages.isEmpty() && !streaming.isStreaming) {
-                item(key = "welcome") {
-                    WelcomeCard(persona = activePersona, effectiveModel = effectiveModel)
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                if (messages.isEmpty() && !streaming.isStreaming) {
+                    item(key = "welcome") {
+                        WelcomeCard(persona = activePersona, effectiveModel = effectiveModel, isGroup = isGroup)
+                    }
+                }
+
+                items(messages, key = { it.id }) { msg ->
+                    val senderRole = msg.senderPersonaId?.let { personaMap[it] } ?: activePersona
+                    MessageBubble(
+                        message = msg,
+                        speakerName = msg.senderName?.ifBlank { null } ?: senderRole?.name ?: "望舒",
+                        speakerAvatar = senderRole?.avatar.orEmpty().ifBlank { senderRole?.name?.take(1) ?: "望" },
+                        userAvatar = settings.userAvatar.ifBlank { "我" },
+                        onBranch = { viewModel.branchFromMessage(msg.id) },
+                        onRemember = { viewModel.rememberFromChat(msg.content) }
+                    )
+                }
+
+                if (streaming.isStreaming) {
+                    item(key = "streaming") {
+                        StreamingBubble(
+                            streaming = streaming,
+                            onStop = { viewModel.stopGeneration() }
+                        )
+                    }
                 }
             }
 
-            items(messages, key = { it.id }) { msg ->
-                MessageBubble(
-                    message = msg,
-                    personaAvatar = activePersona?.avatar.orEmpty().ifBlank { "🌿" },
-                    userAvatar = settings.userAvatar.ifBlank { "我" },
-                    onBranch = { viewModel.branchFromMessage(msg.id) },
-                    onRemember = { viewModel.rememberFromChat(msg.content) }
-                )
-            }
-
-            if (streaming.isStreaming) {
-                item(key = "streaming") {
-                    StreamingBubble(
-                        streaming = streaming,
-                        personaAvatar = activePersona?.avatar.orEmpty().ifBlank { "🌿" },
-                        onStop = { viewModel.stopGeneration() }
-                    )
+            // Floating "↓ 回到最新回复" Pill (aligned with composer-6-mobile-pinned.png)
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showScrollToBottom,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 10.dp)
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .clickable {
+                            coroutineScope.launch {
+                                val last = (messages.size + if (streaming.isStreaming) 1 else 0 - 1).coerceAtLeast(0)
+                                listState.animateScrollToItem(last)
+                            }
+                        },
+                    shape = RoundedCornerShape(999.dp),
+                    color = garden.paperCard,
+                    shadowElevation = 4.dp,
+                    border = BorderStroke(1.dp, garden.line)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowDownward,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = garden.ink
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = "回到最新回复",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = garden.ink
+                        )
+                    }
                 }
             }
         }
 
-        // Bottom Composer
-        Surface(
-            color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(0.5.dp, garden.subtleBorder)
+        // 5. Mobile-Web-Aligned Collapsible Bottom Composer
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(garden.paper)
         ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.5.dp)
+                    .background(garden.ink.copy(alpha = 0.7f))
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.Bottom
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    modifier = Modifier.weight(1f),
-                    placeholder = {
-                        Text(
-                            text = "和${activePersona?.name ?: "栖忆"}说点什么…",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    },
-                    maxLines = 4,
-                    shape = RoundedCornerShape(18.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.background,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.background,
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = garden.subtleBorder
-                    )
+                Text(
+                    text = "发送消息",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = garden.ink,
+                    fontWeight = FontWeight.SemiBold
                 )
-                Spacer(Modifier.width(8.dp))
-                if (streaming.isStreaming) {
-                    FilledIconButton(
-                        onClick = { viewModel.stopGeneration() },
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.error,
-                            contentColor = MaterialTheme.colorScheme.onError
-                        )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "换行继续写，轻触发送",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = garden.muted
+                    )
+                    Surface(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .clickable { composerCollapsed = !composerCollapsed },
+                        shape = RoundedCornerShape(999.dp),
+                        color = garden.paperCard,
+                        border = BorderStroke(0.8.dp, garden.line)
                     ) {
-                        Icon(Icons.Default.StopCircle, contentDescription = "停止生成")
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (composerCollapsed) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = garden.muted
+                            )
+                            Text(
+                                text = if (composerCollapsed) "展开" else "隐藏",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = garden.muted
+                            )
+                        }
                     }
-                } else {
-                    FilledIconButton(
-                        onClick = {
-                            val toSend = draft.trim()
-                            if (toSend.isNotEmpty()) {
-                                draft = ""
-                                viewModel.sendMessage(toSend)
+                }
+            }
+
+            AnimatedVisibility(visible = !composerCollapsed) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 10.dp, end = 10.dp, bottom = 8.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    color = garden.paperCard,
+                    border = BorderStroke(1.dp, garden.line)
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp)
+                        ) {
+                            if (draft.isEmpty()) {
+                                Text(
+                                    text = if (isGroup) "在群聊中发言，或用 @角色名 指定回复..." else "和${activePersona?.name ?: "望舒"}聊聊今天的想法...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = garden.muted
+                                )
                             }
-                        },
-                        enabled = draft.isNotBlank(),
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
+                            BasicTextField(
+                                value = draft,
+                                onValueChange = { draft = it },
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(color = garden.text),
+                                cursorBrush = SolidColor(garden.bamboo),
+                                maxLines = 4,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        HorizontalDivider(color = garden.lineSoft)
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "对话保存在本地，发送时调用所选模型",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = garden.muted,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            if (streaming.isStreaming) {
+                                CinnabarPillButton(
+                                    text = "停止",
+                                    onClick = { viewModel.stopGeneration() },
+                                    icon = {
+                                        Icon(
+                                            imageVector = Icons.Default.StopCircle,
+                                            contentDescription = null,
+                                            tint = garden.paperCard,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                )
+                            } else {
+                                CinnabarPillButton(
+                                    text = "发送",
+                                    enabled = draft.isNotBlank(),
+                                    onClick = {
+                                        val toSend = draft.trim()
+                                        if (toSend.isNotEmpty()) {
+                                            draft = ""
+                                            viewModel.sendMessage(toSend)
+                                        }
+                                    },
+                                    icon = {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.Send,
+                                            contentDescription = null,
+                                            tint = garden.paperCard,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -310,10 +532,10 @@ fun ChatScreen(
     if (showHistorySheet) {
         ModalBottomSheet(
             onDismissRequest = { showHistorySheet = false },
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = garden.paperCard
         ) {
             ConversationHistorySheet(
-                conversations = conversations,
+                conversations = allConversations,
                 activeConversationId = activeConversationId,
                 onSelect = { id ->
                     showHistorySheet = false
@@ -326,52 +548,115 @@ fun ChatScreen(
             )
         }
     }
+
+    if (showGroupDialog) {
+        CreateGroupChatDialog(
+            personas = personas,
+            onDismiss = { showGroupDialog = false },
+            onCreate = { selectedIds, title ->
+                showGroupDialog = false
+                viewModel.createGroupConversation(selectedIds, title)
+            }
+        )
+    }
 }
 
 @Composable
-private fun WelcomeCard(persona: PersonaEntity?, effectiveModel: String) {
+private fun QuotaCheckpointBanner(
+    checkpoint: QuotaCheckpointState,
+    onRetryNow: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val garden = LocalGardenColors.current
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = garden.goldSoft,
+        border = BorderStroke(1.dp, garden.gold)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "额度受限 · 断点已存档",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = garden.cinnabarDark,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "将在 ${checkpoint.remainingSeconds} 秒后自动续跑（剩余 ${checkpoint.pendingPersonaIds.size} 位角色）",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = garden.text
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onRetryNow, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                    Text("立即重试", style = MaterialTheme.typography.labelSmall, color = garden.bamboo)
+                }
+                TextButton(onClick = onCancel, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                    Text("取消", style = MaterialTheme.typography.labelSmall, color = garden.muted)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WelcomeCard(persona: PersonaEntity?, effectiveModel: String, isGroup: Boolean) {
     val garden = LocalGardenColors.current
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, garden.subtleBorder)
+        shape = RoundedCornerShape(12.dp),
+        color = garden.paperCard,
+        border = BorderStroke(1.dp, garden.line)
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier.padding(18.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            AvatarBadge(avatar = persona?.avatar.orEmpty().ifBlank { "🌿" }, size = 56)
+            GardenSealAvatar(
+                label = if (isGroup) "群" else persona?.avatar.orEmpty().ifBlank { persona?.name?.take(1) ?: "望" },
+                size = 50.dp
+            )
             Spacer(Modifier.height(10.dp))
             Text(
-                text = persona?.name ?: "望舒",
+                text = if (isGroup) "多角色雅集群聊" else persona?.name ?: "望舒",
                 style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold
+                color = garden.ink
             )
-            if (!persona?.description.isNullOrBlank()) {
+            if (!isGroup && !persona?.description.isNullOrBlank()) {
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = persona!!.description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MaterialTheme.typography.bodySmall,
+                    color = garden.muted
                 )
             }
-            if (!persona?.greeting.isNullOrBlank()) {
-                Spacer(Modifier.height(12.dp))
-                HorizontalDivider(color = garden.subtleBorder)
-                Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
+            HorizontalDivider(color = garden.lineSoft)
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = if (isGroup) {
+                    "每位角色都将使用各自的人设与专属模型依次回应；发送消息时可用 @角色名 点名某位角色发言。"
+                } else {
+                    persona?.greeting.orEmpty().ifBlank { "你好呀，今天想聊点什么？" }
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = garden.text
+            )
+            if (!isGroup && effectiveModel.isBlank()) {
+                Spacer(Modifier.height(10.dp))
                 Text(
-                    text = persona!!.greeting,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-            if (effectiveModel.isBlank()) {
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    text = "提示：请先前往底部「设置」填写模型服务 Base URL、API Key 与模型 ID。",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.secondary
+                    text = "提示：请先前往顶部「设置」填写模型服务 Base URL、API Key 与默认模型 ID。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = garden.cinnabar
                 )
             }
         }
@@ -381,93 +666,152 @@ private fun WelcomeCard(persona: PersonaEntity?, effectiveModel: String) {
 @Composable
 private fun MessageBubble(
     message: MessageEntity,
-    personaAvatar: String,
+    speakerName: String,
+    speakerAvatar: String,
     userAvatar: String,
     onBranch: () -> Unit,
     onRemember: () -> Unit
 ) {
     val isUser = message.role == "user"
     val garden = LocalGardenColors.current
+    val timeFormatter = remember { SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()) }
     var reasoningExpanded by remember(message.id) { mutableStateOf(false) }
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
-        verticalAlignment = Alignment.Top
-    ) {
-        if (!isUser) {
-            AvatarBadge(avatar = personaAvatar, size = 32)
-            Spacer(Modifier.width(8.dp))
-        }
-
+    if (isUser) {
         Column(
-            modifier = Modifier.widthIn(max = 310.dp),
-            horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.End
         ) {
-            Surface(
-                shape = RoundedCornerShape(
-                    topStart = 16.dp,
-                    topEnd = 16.dp,
-                    bottomStart = if (isUser) 16.dp else 4.dp,
-                    bottomEnd = if (isUser) 4.dp else 16.dp
-                ),
-                color = if (isUser) garden.userBubble else garden.assistantBubble,
-                border = if (isUser) null else BorderStroke(0.8.dp, garden.subtleBorder)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(bottom = 5.dp)
             ) {
-                Column(modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp)) {
-                    if (!isUser && message.reasoning.isNotBlank()) {
-                        ReasoningBlock(
-                            reasoning = message.reasoning,
-                            expanded = reasoningExpanded,
-                            onToggle = { reasoningExpanded = !reasoningExpanded }
-                        )
-                        Spacer(Modifier.height(8.dp))
-                    }
-                    SelectionContainer {
+                Text(
+                    text = timeFormatter.format(Date(message.createdAt)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = garden.muted
+                )
+                Text(
+                    text = "你",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = garden.ink
+                )
+                GardenSealAvatar(label = userAvatar, size = 26.dp, isUser = true)
+            }
+
+            // Signature Begonia-Notched Bamboo Plaque User Bubble
+            val plaqueShape = remember { BegoniaPlaqueShape(8.dp) }
+            Box(
+                modifier = Modifier
+                    .widthIn(max = 310.dp)
+                    .clip(plaqueShape)
+                    .background(garden.userBubble)
+                    .border(1.dp, garden.gold.copy(alpha = 0.5f), plaqueShape)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                SelectionContainer {
+                    Text(
+                        text = message.content,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = garden.onUserBubble
+                    )
+                }
+            }
+        }
+    } else {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.Start
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(bottom = 6.dp)
+            ) {
+                GardenSealAvatar(label = speakerAvatar, size = 26.dp)
+                Text(
+                    text = speakerName,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                    color = garden.ink
+                )
+                Text(
+                    text = timeFormatter.format(Date(message.createdAt)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = garden.muted
+                )
+            }
+
+            if (message.reasoning.isNotBlank()) {
+                ReasoningBlock(
+                    reasoning = message.reasoning,
+                    expanded = reasoningExpanded,
+                    onToggle = { reasoningExpanded = !reasoningExpanded }
+                )
+                Spacer(Modifier.height(6.dp))
+            }
+
+            // Signature Xuan-paper Assistant Card with 3dp Cinnabar Left Vertical Accent Stripe
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(6.dp),
+                color = garden.assistantBubble,
+                border = BorderStroke(0.9.dp, garden.line)
+            ) {
+                Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .fillMaxHeight()
+                            .background(garden.cinnabar)
+                    )
+                    SelectionContainer(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 13.dp, vertical = 11.dp)
+                    ) {
                         Text(
                             text = message.content,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = if (isUser) garden.onUserBubble else garden.onAssistantBubble
+                            color = garden.onAssistantBubble
                         )
                     }
                 }
             }
 
-            if (!isUser) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(
-                        onClick = onBranch,
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                        modifier = Modifier.height(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.CallSplit,
-                            contentDescription = "从此分支",
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text("从此分支", style = MaterialTheme.typography.labelSmall)
-                    }
-                    TextButton(
-                        onClick = onRemember,
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                        modifier = Modifier.height(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.BookmarkAdd,
-                            contentDescription = "记入长期记忆",
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text("记住", style = MaterialTheme.typography.labelSmall)
-                    }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(
+                    onClick = onBranch,
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.CallSplit,
+                        contentDescription = "从此分支",
+                        modifier = Modifier.size(14.dp),
+                        tint = garden.muted
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("从此分支", style = MaterialTheme.typography.labelSmall, color = garden.muted)
+                }
+                TextButton(
+                    onClick = onRemember,
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.BookmarkAdd,
+                        contentDescription = "记入长期记忆",
+                        modifier = Modifier.size(14.dp),
+                        tint = garden.muted
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("记住", style = MaterialTheme.typography.labelSmall, color = garden.muted)
                 }
             }
-        }
-
-        if (isUser) {
-            Spacer(Modifier.width(8.dp))
-            AvatarBadge(avatar = userAvatar, size = 32)
         }
     }
 }
@@ -475,49 +819,68 @@ private fun MessageBubble(
 @Composable
 private fun StreamingBubble(
     streaming: StreamingState,
-    personaAvatar: String,
     onStop: () -> Unit
 ) {
     val garden = LocalGardenColors.current
     var reasoningExpanded by remember { mutableStateOf(true) }
 
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Start,
-        verticalAlignment = Alignment.Top
+        horizontalAlignment = Alignment.Start
     ) {
-        AvatarBadge(avatar = personaAvatar, size = 32)
-        Spacer(Modifier.width(8.dp))
-        Column(modifier = Modifier.widthIn(max = 310.dp)) {
-            Surface(
-                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomEnd = 16.dp, bottomStart = 4.dp),
-                color = garden.assistantBubble,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-            ) {
-                Column(modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp)) {
-                    if (streaming.reasoning.isNotBlank()) {
-                        ReasoningBlock(
-                            reasoning = streaming.reasoning,
-                            expanded = reasoningExpanded,
-                            onToggle = { reasoningExpanded = !reasoningExpanded },
-                            title = "思考中…"
-                        )
-                        Spacer(Modifier.height(8.dp))
-                    }
-                    Text(
-                        text = streaming.content.ifBlank { "正在回应…" },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = garden.onAssistantBubble
-                    )
-                }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(bottom = 6.dp)
+        ) {
+            GardenSealAvatar(label = streaming.speakerAvatar.ifBlank { "望" }, size = 26.dp)
+            Text(
+                text = streaming.speakerName.ifBlank { "正在回应" },
+                fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp,
+                color = garden.ink
+            )
+            Text("回应中…", style = MaterialTheme.typography.labelSmall, color = garden.bamboo)
+        }
+
+        if (streaming.reasoning.isNotBlank()) {
+            ReasoningBlock(
+                reasoning = streaming.reasoning,
+                expanded = reasoningExpanded,
+                onToggle = { reasoningExpanded = !reasoningExpanded },
+                title = "思考过程 · 推理中"
+            )
+            Spacer(Modifier.height(6.dp))
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(6.dp),
+            color = garden.assistantBubble,
+            border = BorderStroke(1.dp, garden.bamboo.copy(alpha = 0.6f))
+        ) {
+            Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .fillMaxHeight()
+                        .background(garden.bamboo)
+                )
+                Text(
+                    text = streaming.content.ifBlank { "正在组织回复…" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = garden.onAssistantBubble,
+                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 11.dp)
+                )
             }
-            TextButton(
-                onClick = onStop,
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                modifier = Modifier.height(28.dp)
-            ) {
-                Text("停止生成", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-            }
+        }
+        TextButton(
+            onClick = onStop,
+            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+            modifier = Modifier.height(28.dp)
+        ) {
+            Text("停止生成", style = MaterialTheme.typography.labelSmall, color = garden.cinnabar)
         }
     }
 }
@@ -530,41 +893,39 @@ private fun ReasoningBlock(
     title: String = "思考过程"
 ) {
     val garden = LocalGardenColors.current
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(garden.reasoningBg)
-            .border(0.6.dp, garden.reasoningBorder, RoundedCornerShape(10.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .height(IntrinsicSize.Min)
+            .clickable(onClick = onToggle)
+            .padding(vertical = 2.dp)
     ) {
-        Row(
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onToggle),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .width(2.dp)
+                .fillMaxHeight()
+                .background(garden.line)
+        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 10.dp)
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = FontWeight.Medium
-            )
-            Icon(
-                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        AnimatedVisibility(visible = expanded) {
-            Text(
-                text = reasoning,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp)
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = if (expanded) "▾ $title" else "▸ $title",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = garden.muted
+                )
+            }
+            AnimatedVisibility(visible = expanded) {
+                Text(
+                    text = reasoning,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = garden.muted,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
         }
     }
 }
@@ -576,6 +937,7 @@ private fun ConversationHistorySheet(
     onSelect: (String) -> Unit,
     onNewChat: () -> Unit
 ) {
+    val garden = LocalGardenColors.current
     val formatter = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
     Column(
         modifier = Modifier
@@ -587,17 +949,15 @@ private fun ConversationHistorySheet(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("历史对话", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            TextButton(onClick = onNewChat) {
-                Text("新建对话")
-            }
+            Text("历史对话", style = MaterialTheme.typography.titleMedium, color = garden.ink)
+            GardenWindowButton(text = "新建对话", primary = true, onClick = onNewChat)
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
         if (conversations.isEmpty()) {
             Text(
-                text = "当前角色还没有历史对话。",
+                text = "还没有历史对话记录。",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = garden.muted,
                 modifier = Modifier.padding(vertical = 20.dp)
             )
         } else {
@@ -613,30 +973,41 @@ private fun ConversationHistorySheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onSelect(conv.id) },
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.background,
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (selected) garden.bambooSoft else garden.paper,
                         border = BorderStroke(
-                            0.8.dp,
-                            if (selected) MaterialTheme.colorScheme.primary else LocalGardenColors.current.subtleBorder
+                            0.9.dp,
+                            if (selected) garden.bamboo else garden.line
                         )
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                text = conv.title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                text = buildString {
-                                    append(formatter.format(Date(conv.updatedAt)))
-                                    if (conv.parentConversationId != null) append(" · 分支")
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = conv.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = garden.ink,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = buildString {
+                                        append(formatter.format(Date(conv.updatedAt)))
+                                        if (conv.isGroup) append(" · 群聊")
+                                        if (conv.parentConversationId != null) append(" · 分支")
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = garden.muted
+                                )
+                            }
+                            if (conv.isGroup) {
+                                Icon(Icons.Default.Groups, contentDescription = null, tint = garden.bamboo, modifier = Modifier.size(18.dp))
+                            }
                         }
                     }
                 }
@@ -647,20 +1018,93 @@ private fun ConversationHistorySheet(
 }
 
 @Composable
+private fun CreateGroupChatDialog(
+    personas: List<PersonaEntity>,
+    onDismiss: () -> Unit,
+    onCreate: (participantIds: List<String>, title: String) -> Unit
+) {
+    val selectedIds = remember { mutableStateListOf<String>() }
+    var title by remember { mutableStateOf("雅集群聊") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("发起多角色群聊") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("群聊名称") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    text = "选择至少 2 位角色（各角色独立使用其专属模型）：",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (personas.size < 2) {
+                    Text(
+                        text = "当前只有 ${personas.size} 位角色，请先前往「人设」再新建一位角色。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                } else {
+                    personas.forEach { role ->
+                        val checked = role.id in selectedIds
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (checked) selectedIds.remove(role.id) else selectedIds.add(role.id)
+                                },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = checked,
+                                onCheckedChange = {
+                                    if (it) selectedIds.add(role.id) else selectedIds.remove(role.id)
+                                }
+                            )
+                            Text(
+                                text = "${role.avatar.ifBlank { "🌿" }} ${role.name}",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            if (role.model.isNotBlank()) {
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = "(${role.model})",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onCreate(selectedIds.toList(), title) },
+                enabled = selectedIds.size >= 2
+            ) {
+                Text("创建群聊")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+/**
+ * Preserved helper alias used by PersonasScreen.
+ */
+@Composable
 fun AvatarBadge(avatar: String, size: Int) {
-    val label = avatar.trim().ifEmpty { "🌿" }.take(2)
-    Box(
-        modifier = Modifier
-            .size(size.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primaryContainer)
-            .border(0.8.dp, LocalGardenColors.current.goldAccent.copy(alpha = 0.6f), CircleShape),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = label,
-            style = if (size >= 48) MaterialTheme.typography.titleLarge else MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onPrimaryContainer
-        )
-    }
+    GardenSealAvatar(label = avatar, size = size.dp)
 }

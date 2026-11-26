@@ -10,12 +10,14 @@ import com.qiyi.companion.data.db.MemoryEntity
 import com.qiyi.companion.data.db.MessageEntity
 import com.qiyi.companion.data.db.PersonaEntity
 import com.qiyi.companion.data.knowledge.KnowledgeHit
+import com.qiyi.companion.data.network.ModelServiceException
 import com.qiyi.companion.data.network.StreamChunk
 import com.qiyi.companion.data.prefs.AppSettings
 import com.qiyi.companion.data.prefs.GardenThemeMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -23,6 +25,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -31,8 +34,19 @@ import kotlinx.coroutines.launch
 data class StreamingState(
     val isStreaming: Boolean = false,
     val conversationId: String? = null,
+    val speakerName: String = "",
+    val speakerAvatar: String = "",
     val content: String = "",
     val reasoning: String = ""
+)
+
+data class QuotaCheckpointState(
+    val conversationId: String,
+    val pendingPersonaIds: List<String>,
+    val latestQuery: String,
+    val isGroupChat: Boolean,
+    val remainingSeconds: Long,
+    val reason: String
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -58,6 +72,12 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
         initialValue = emptyList()
     )
 
+    val allConversations: StateFlow<List<ConversationEntity>> = repository.allConversations.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
     private val _knowledgeSearchResults = MutableStateFlow<List<KnowledgeHit>>(emptyList())
     val knowledgeSearchResults: StateFlow<List<KnowledgeHit>> = _knowledgeSearchResults.asStateFlow()
 
@@ -66,6 +86,11 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
 
     private val _activeConversationId = MutableStateFlow<String?>(null)
     val activeConversationId: StateFlow<String?> = _activeConversationId.asStateFlow()
+
+    val activeConversation: StateFlow<ConversationEntity?> =
+        combine(allConversations, _activeConversationId) { list, id ->
+            if (id.isNullOrBlank()) null else list.firstOrNull { it.id == id }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val conversations: StateFlow<List<ConversationEntity>> = _activePersonaId
         .flatMapLatest { pid ->
@@ -82,6 +107,9 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
     private val _streaming = MutableStateFlow(StreamingState())
     val streaming: StateFlow<StreamingState> = _streaming.asStateFlow()
 
+    private val _quotaCheckpoint = MutableStateFlow<QuotaCheckpointState?>(null)
+    val quotaCheckpoint: StateFlow<QuotaCheckpointState?> = _quotaCheckpoint.asStateFlow()
+
     private val _availableModels = MutableStateFlow<List<String>>(emptyList())
     val availableModels: StateFlow<List<String>> = _availableModels.asStateFlow()
 
@@ -95,6 +123,7 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
     val notices: SharedFlow<String> = _notices.asSharedFlow()
 
     private var activeStreamJob: Job? = null
+    private var quotaTimerJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -119,6 +148,10 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
             notify("正在生成回复，请先停止当前生成再切换对话。")
             return
         }
+        val target = allConversations.value.firstOrNull { it.id == conversationId }
+        if (target != null) {
+            _activePersonaId.value = target.personaId
+        }
         _activeConversationId.value = conversationId
     }
 
@@ -130,85 +163,222 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
         _activeConversationId.value = null
     }
 
+    fun createGroupConversation(participantIds: List<String>, title: String) {
+        if (_streaming.value.isStreaming) {
+            notify("正在生成回复，请先停止当前生成。")
+            return
+        }
+        viewModelScope.launch {
+            runCatching { repository.createGroupConversation(participantIds, title) }
+                .onSuccess { conv ->
+                    _activePersonaId.value = conv.personaId
+                    _activeConversationId.value = conv.id
+                    notify("已创建群聊「${conv.title}」")
+                }
+                .onFailure { notify(it.message ?: "创建群聊失败。") }
+        }
+    }
+
     fun sendMessage(rawText: String) {
         val text = rawText.trim()
         if (text.isEmpty() || _streaming.value.isStreaming) return
 
-        val personaId = _activePersonaId.value ?: personas.value.firstOrNull()?.id
-        if (personaId == null) {
-            notify("请先创建一位角色。")
-            return
-        }
+        cancelQuotaCheckpoint()
 
-        activeStreamJob = viewModelScope.launch {
-            val persona = repository.getPersona(personaId)
-            if (persona == null) {
-                notify("未找到当前角色。")
-                return@launch
-            }
-            val effectiveModel = repository.effectiveModelFor(persona)
-            if (effectiveModel.isBlank()) {
-                notify("请先在「设置」或「人设」中填写模型 ID。")
-                return@launch
-            }
+        viewModelScope.launch {
+            val existingConv = _activeConversationId.value?.let { repository.getConversation(it) }
+            val isGroup = existingConv?.isGroup == true
 
-            val convId = _activeConversationId.value ?: repository.createConversation(persona.id).id.also {
-                _activeConversationId.value = it
+            val responderIds: List<String>
+            val convId: String
+
+            if (isGroup && existingConv != null) {
+                val allMap = personas.value.associateBy { it.id }
+                val participants = existingConv.participantIds
+                    .split(",")
+                    .mapNotNull { allMap[it.trim()] }
+                if (participants.isEmpty()) {
+                    notify("群聊成员不存在，请重新创建群聊。")
+                    return@launch
+                }
+                val responders = repository.resolveGroupResponders(text, participants)
+                if (responders.any { repository.effectiveModelFor(it).isBlank() }) {
+                    notify("请先在「设置」或「人设」中配置模型 ID。")
+                    return@launch
+                }
+                convId = existingConv.id
+                responderIds = responders.map { it.id }
+            } else {
+                val personaId = _activePersonaId.value ?: personas.value.firstOrNull()?.id
+                if (personaId == null) {
+                    notify("请先创建一位角色。")
+                    return@launch
+                }
+                val persona = repository.getPersona(personaId)
+                if (persona == null) {
+                    notify("未找到当前角色。")
+                    return@launch
+                }
+                if (repository.effectiveModelFor(persona).isBlank()) {
+                    notify("请先在「设置」或「人设」中填写模型 ID。")
+                    return@launch
+                }
+                convId = existingConv?.id ?: repository.createConversation(persona.id).id.also {
+                    _activeConversationId.value = it
+                }
+                responderIds = listOf(persona.id)
             }
 
             repository.saveUserMessage(convId, text)
-            val promptMessages = repository.buildPromptMessages(persona, convId, text)
-
-            val contentBuilder = StringBuilder()
-            val reasoningBuilder = StringBuilder()
-            _streaming.value = StreamingState(
-                isStreaming = true,
-                conversationId = convId,
-                content = "",
-                reasoning = ""
+            runResponderQueue(
+                convId = convId,
+                responderIds = responderIds,
+                latestQuery = text,
+                isGroupChat = isGroup
             )
+        }
+    }
 
+    private fun runResponderQueue(
+        convId: String,
+        responderIds: List<String>,
+        latestQuery: String,
+        isGroupChat: Boolean
+    ) {
+        if (responderIds.isEmpty()) return
+        activeStreamJob = viewModelScope.launch {
             try {
-                repository.streamReply(persona, promptMessages).collect { chunk ->
-                    when (chunk) {
-                        is StreamChunk.ContentDelta -> {
-                            contentBuilder.append(chunk.text)
-                            _streaming.value = _streaming.value.copy(content = contentBuilder.toString())
+                for ((index, pid) in responderIds.withIndex()) {
+                    val persona = repository.getPersona(pid) ?: continue
+                    val promptMessages = repository.buildPromptMessages(
+                        persona = persona,
+                        conversationId = convId,
+                        latestQuery = latestQuery,
+                        isGroupChat = isGroupChat
+                    )
+
+                    val contentBuilder = StringBuilder()
+                    val reasoningBuilder = StringBuilder()
+                    _streaming.value = StreamingState(
+                        isStreaming = true,
+                        conversationId = convId,
+                        speakerName = persona.name,
+                        speakerAvatar = persona.avatar.ifBlank { persona.name.take(1) },
+                        content = "",
+                        reasoning = ""
+                    )
+
+                    try {
+                        repository.streamReply(persona, promptMessages).collect { chunk ->
+                            when (chunk) {
+                                is StreamChunk.ContentDelta -> {
+                                    contentBuilder.append(chunk.text)
+                                    _streaming.value = _streaming.value.copy(content = contentBuilder.toString())
+                                }
+                                is StreamChunk.ReasoningDelta -> {
+                                    reasoningBuilder.append(chunk.text)
+                                    _streaming.value = _streaming.value.copy(reasoning = reasoningBuilder.toString())
+                                }
+                                StreamChunk.Done -> Unit
+                            }
                         }
-                        is StreamChunk.ReasoningDelta -> {
-                            reasoningBuilder.append(chunk.text)
-                            _streaming.value = _streaming.value.copy(reasoning = reasoningBuilder.toString())
+                        val finalContent = contentBuilder.toString().trim()
+                        val finalReasoning = reasoningBuilder.toString().trim()
+                        if (finalContent.isNotEmpty() || finalReasoning.isNotEmpty()) {
+                            repository.saveAssistantMessage(
+                                conversationId = convId,
+                                content = finalContent.ifEmpty { "（模型未返回正文）" },
+                                reasoning = finalReasoning,
+                                senderPersonaId = persona.id,
+                                senderName = persona.name
+                            )
                         }
-                        StreamChunk.Done -> Unit
+                    } catch (cancel: CancellationException) {
+                        val partialContent = contentBuilder.toString().trim()
+                        val partialReasoning = reasoningBuilder.toString().trim()
+                        if (partialContent.isNotEmpty()) {
+                            repository.saveAssistantMessage(
+                                conversationId = convId,
+                                content = "$partialContent\n\n（已手动停止生成）",
+                                reasoning = partialReasoning,
+                                senderPersonaId = persona.id,
+                                senderName = persona.name
+                            )
+                        }
+                        notify("已停止生成。")
+                        throw cancel
+                    } catch (err: ModelServiceException) {
+                        if (err.isQuotaLimit) {
+                            val waitSeconds = (err.retryAfterSeconds ?: 60L).coerceIn(5L, 600L)
+                            scheduleQuotaResume(
+                                QuotaCheckpointState(
+                                    conversationId = convId,
+                                    pendingPersonaIds = responderIds.drop(index),
+                                    latestQuery = latestQuery,
+                                    isGroupChat = isGroupChat,
+                                    remainingSeconds = waitSeconds,
+                                    reason = err.message ?: "模型额度受限（HTTP 429）"
+                                )
+                            )
+                            return@launch
+                        } else {
+                            notify(err.message ?: "生成回复失败，请检查网络或模型配置。")
+                            return@launch
+                        }
+                    } catch (err: Exception) {
+                        notify(err.message ?: "生成回复失败，请检查网络或模型配置。")
+                        return@launch
                     }
                 }
-                val finalContent = contentBuilder.toString().trim()
-                val finalReasoning = reasoningBuilder.toString().trim()
-                if (finalContent.isNotEmpty() || finalReasoning.isNotEmpty()) {
-                    repository.saveAssistantMessage(
-                        conversationId = convId,
-                        content = finalContent.ifEmpty { "（模型未返回正文）" },
-                        reasoning = finalReasoning
-                    )
-                }
-            } catch (_: CancellationException) {
-                val partialContent = contentBuilder.toString().trim()
-                val partialReasoning = reasoningBuilder.toString().trim()
-                if (partialContent.isNotEmpty()) {
-                    repository.saveAssistantMessage(
-                        conversationId = convId,
-                        content = "$partialContent\n\n（已手动停止生成）",
-                        reasoning = partialReasoning
-                    )
-                }
-                notify("已停止生成。")
-            } catch (err: Exception) {
-                notify(err.message ?: "生成回复失败，请检查网络或模型配置。")
             } finally {
                 _streaming.value = StreamingState()
                 activeStreamJob = null
             }
         }
+    }
+
+    private fun scheduleQuotaResume(checkpoint: QuotaCheckpointState) {
+        quotaTimerJob?.cancel()
+        _quotaCheckpoint.value = checkpoint
+        notify("额度受限已存档，将在 ${checkpoint.remainingSeconds} 秒后自动续跑。")
+        quotaTimerJob = viewModelScope.launch {
+            var left = checkpoint.remainingSeconds
+            while (left > 0) {
+                delay(1000L)
+                left -= 1
+                _quotaCheckpoint.value = _quotaCheckpoint.value?.copy(remainingSeconds = left)
+            }
+            val current = _quotaCheckpoint.value ?: return@launch
+            _quotaCheckpoint.value = null
+            if (!_streaming.value.isStreaming) {
+                runResponderQueue(
+                    convId = current.conversationId,
+                    responderIds = current.pendingPersonaIds,
+                    latestQuery = current.latestQuery,
+                    isGroupChat = current.isGroupChat
+                )
+            }
+        }
+    }
+
+    fun retryQuotaCheckpointNow() {
+        val current = _quotaCheckpoint.value ?: return
+        quotaTimerJob?.cancel()
+        _quotaCheckpoint.value = null
+        if (!_streaming.value.isStreaming) {
+            runResponderQueue(
+                convId = current.conversationId,
+                responderIds = current.pendingPersonaIds,
+                latestQuery = current.latestQuery,
+                isGroupChat = current.isGroupChat
+            )
+        }
+    }
+
+    fun cancelQuotaCheckpoint() {
+        quotaTimerJob?.cancel()
+        quotaTimerJob = null
+        _quotaCheckpoint.value = null
     }
 
     fun stopGeneration() {

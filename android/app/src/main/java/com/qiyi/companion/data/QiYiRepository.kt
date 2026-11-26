@@ -102,6 +102,8 @@ class QiYiRepository(
         return entity
     }
 
+    suspend fun getConversation(id: String): ConversationEntity? = db.conversationDao().getById(id)
+
     suspend fun createConversation(personaId: String, title: String = "新的对话"): ConversationEntity {
         val now = System.currentTimeMillis()
         val conv = ConversationEntity(
@@ -113,6 +115,31 @@ class QiYiRepository(
         )
         db.conversationDao().upsert(conv)
         return conv
+    }
+
+    suspend fun createGroupConversation(participantIds: List<String>, title: String = "雅集群聊"): ConversationEntity {
+        val uniqueIds = participantIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        require(uniqueIds.size >= 2) { "群聊请至少选择 2 位角色。" }
+        val now = System.currentTimeMillis()
+        val conv = ConversationEntity(
+            id = UUID.randomUUID().toString(),
+            personaId = uniqueIds.first(),
+            title = title.trim().ifEmpty { "雅集群聊" }.take(100),
+            isGroup = true,
+            participantIds = uniqueIds.joinToString(","),
+            createdAt = now,
+            updatedAt = now
+        )
+        db.conversationDao().upsert(conv)
+        return conv
+    }
+
+    fun resolveGroupResponders(userText: String, participants: List<PersonaEntity>): List<PersonaEntity> {
+        if (participants.isEmpty()) return emptyList()
+        val mentioned = participants.filter { role ->
+            role.name.isNotBlank() && userText.contains("@${role.name}")
+        }
+        return mentioned.ifEmpty { participants }
     }
 
     suspend fun branchConversation(sourceConversationId: String, upToMessageId: Long): ConversationEntity {
@@ -158,7 +185,13 @@ class QiYiRepository(
         return id
     }
 
-    suspend fun saveAssistantMessage(conversationId: String, content: String, reasoning: String): Long {
+    suspend fun saveAssistantMessage(
+        conversationId: String,
+        content: String,
+        reasoning: String,
+        senderPersonaId: String? = null,
+        senderName: String? = null
+    ): Long {
         val now = System.currentTimeMillis()
         val id = db.messageDao().insert(
             MessageEntity(
@@ -166,6 +199,8 @@ class QiYiRepository(
                 role = "assistant",
                 content = content,
                 reasoning = reasoning,
+                senderPersonaId = senderPersonaId,
+                senderName = senderName,
                 createdAt = now
             )
         )
@@ -241,7 +276,8 @@ class QiYiRepository(
     suspend fun buildPromptMessages(
         persona: PersonaEntity,
         conversationId: String,
-        latestQuery: String = ""
+        latestQuery: String = "",
+        isGroupChat: Boolean = false
     ): List<ChatPromptMessage> {
         val history = db.messageDao().listByConversation(conversationId).takeLast(24)
         val effectiveQuery = latestQuery.trim().ifEmpty {
@@ -263,11 +299,21 @@ class QiYiRepository(
             append("角色名称：").append(persona.name).append('\n')
             if (persona.tone.isNotBlank()) append("说话语气：").append(persona.tone).append('\n')
             append("人设设定：\n").append(persona.systemPrompt)
+            if (isGroupChat) {
+                append("\n当前处于多角色群聊，请仅以「").append(persona.name).append("」的身份自然接话，无需重复他人已说内容，也不要在开头自报姓名。")
+            }
             if (referenceBlock.isNotBlank()) append(referenceBlock)
         }
         return buildList {
             add(ChatPromptMessage("system", sys))
-            history.forEach { add(ChatPromptMessage(it.role, it.content)) }
+            history.forEach { msg ->
+                val text = if (isGroupChat && msg.role == "assistant" && !msg.senderName.isNullOrBlank()) {
+                    "[${msg.senderName}]：${msg.content}"
+                } else {
+                    msg.content
+                }
+                add(ChatPromptMessage(msg.role, text))
+            }
         }
     }
 

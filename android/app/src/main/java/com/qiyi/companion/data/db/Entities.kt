@@ -36,6 +36,8 @@ data class ConversationEntity(
     val title: String,
     val parentConversationId: String? = null,
     val branchedFromMessageId: Long? = null,
+    val isGroup: Boolean = false,
+    val participantIds: String = "",
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )
@@ -58,6 +60,8 @@ data class MessageEntity(
     val role: String, // "user" | "assistant"
     val content: String,
     val reasoning: String = "",
+    val senderPersonaId: String? = null,
+    val senderName: String? = null,
     val createdAt: Long = System.currentTimeMillis()
 )
 
