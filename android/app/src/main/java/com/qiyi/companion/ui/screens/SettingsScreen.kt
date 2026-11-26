@@ -1,5 +1,7 @@
 package com.qiyi.companion.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -39,12 +41,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qiyi.companion.data.prefs.GardenThemeMode
 import com.qiyi.companion.ui.QiYiViewModel
+import com.qiyi.companion.ui.theme.GardenWindowButton
 import com.qiyi.companion.ui.theme.LocalGardenColors
 
 private val UserAvatarPresets = listOf("我", "🍵", "🌙", "🌿", "📚", "🖋️", "☁️", "✨")
@@ -59,10 +63,42 @@ fun SettingsScreen(
     val isFetchingModels by viewModel.isFetchingModels.collectAsStateWithLifecycle()
     val isTestingConnection by viewModel.isTestingConnection.collectAsStateWithLifecycle()
 
+    val context = LocalContext.current
     var baseUrl by remember { mutableStateOf(settings.baseUrl) }
     var defaultModel by remember { mutableStateOf(settings.defaultModel) }
     var apiKeyInput by remember { mutableStateOf("") }
     var clearApiKey by remember { mutableStateOf(false) }
+    var pendingBackupJson by remember { mutableStateOf<String?>(null) }
+
+    val exportBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        val json = pendingBackupJson
+        pendingBackupJson = null
+        if (uri == null || json == null) return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use { it.write(json) }
+                ?: throw IllegalStateException("无法写入备份文件。")
+        }.onSuccess {
+            viewModel.notify("整库备份已导出（不含 API Key）。")
+        }.onFailure {
+            viewModel.notify(it.message ?: "导出备份失败。")
+        }
+    }
+
+    val importBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                ?: throw IllegalStateException("无法读取备份文件。")
+        }.onSuccess { raw ->
+            viewModel.importFullBackup(raw)
+        }.onFailure {
+            viewModel.notify(it.message ?: "读取备份文件失败。")
+        }
+    }
 
     LaunchedEffect(settings.baseUrl, settings.defaultModel) {
         if (baseUrl.isBlank()) baseUrl = settings.baseUrl
@@ -286,17 +322,39 @@ fun SettingsScreen(
             }
         }
 
-        // Section 04: Offline & Security Guarantee
+        // Section 04: Zero-Secret Full Backup & Restore
         SettingsCard(
             badge = "04",
-            title = "纯离线数据主权",
-            subtitle = "本地 Room SQLite + Android Keystore"
+            title = "本地整库备份与恢复",
+            subtitle = "换机迁移必备 · 严禁包含任何 API Key"
         ) {
             Text(
-                text = "你的所有角色设定、聊天记录与分支历史均持久化保存在手机本地 SQLite 数据库中，不经过任何第三方中转服务器；API Key 仅保存在系统级加密 Keystore 中，绝不写入数据库或导出文件。",
+                text = "导出或恢复本地所有角色、单聊/群聊记录、知识库文档与长期记忆。API Key 仅保留在系统 Keystore 中，绝不写入任何备份文件。",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = garden.muted
             )
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                GardenWindowButton(
+                    text = "导出整库备份",
+                    primary = true,
+                    onClick = {
+                        viewModel.exportFullBackup { fileName, json ->
+                            pendingBackupJson = json
+                            exportBackupLauncher.launch(fileName)
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+                GardenWindowButton(
+                    text = "导入备份恢复",
+                    onClick = { importBackupLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
     }
 }

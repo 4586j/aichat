@@ -1,5 +1,7 @@
 package com.qiyi.companion.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -65,6 +67,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -109,11 +112,29 @@ fun ChatScreen(
     val effectiveModel = viewModel.effectiveModelFor(activePersona)
     val isGroup = activeConversation?.isGroup == true
 
+    val context = LocalContext.current
     var draft by rememberSaveable { mutableStateOf("") }
     var composerCollapsed by rememberSaveable { mutableStateOf(false) }
     var personaMenuExpanded by remember { mutableStateOf(false) }
     var showHistorySheet by remember { mutableStateOf(false) }
     var showGroupDialog by remember { mutableStateOf(false) }
+    var pendingExportMd by remember { mutableStateOf<String?>(null) }
+
+    val exportMdLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/markdown")
+    ) { uri ->
+        val md = pendingExportMd
+        pendingExportMd = null
+        if (uri == null || md == null) return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use { it.write(md) }
+                ?: throw IllegalStateException("无法写入 Markdown 文件。")
+        }.onSuccess {
+            viewModel.notify("对话已导出为 Markdown 文件。")
+        }.onFailure {
+            viewModel.notify(it.message ?: "导出对话失败。")
+        }
+    }
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -166,13 +187,22 @@ fun ChatScreen(
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(Modifier.width(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     GardenWindowButton(
-                        text = "历史对话",
+                        text = "导出",
+                        onClick = {
+                            viewModel.exportActiveConversationMarkdown { fileName, md ->
+                                pendingExportMd = md
+                                exportMdLauncher.launch(fileName)
+                            }
+                        }
+                    )
+                    GardenWindowButton(
+                        text = "历史",
                         onClick = { showHistorySheet = true }
                     )
                     GardenWindowButton(
-                        text = "新建对话",
+                        text = "新建",
                         primary = true,
                         onClick = { viewModel.startNewConversation() }
                     )

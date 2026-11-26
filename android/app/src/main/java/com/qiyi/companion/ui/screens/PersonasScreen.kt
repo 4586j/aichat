@@ -54,6 +54,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qiyi.companion.data.db.PersonaEntity
 import com.qiyi.companion.ui.QiYiViewModel
+import com.qiyi.companion.ui.theme.GardenTagPill
+import com.qiyi.companion.ui.theme.GardenWindowButton
 import com.qiyi.companion.ui.theme.LocalGardenColors
 
 private val AvatarPresets = listOf("🌿", "🏮", "🎋", "🌙", "🍵", "📖", "🦊", "✨")
@@ -113,44 +115,41 @@ fun PersonasScreen(
             .background(MaterialTheme.colorScheme.background)
     ) {
         Surface(
-            color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(0.5.dp, garden.subtleBorder)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            shape = RoundedCornerShape(10.dp),
+            color = garden.paperCard,
+            border = BorderStroke(1.dp, garden.line)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text("角色人设", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("角色人设", style = MaterialTheme.typography.titleMedium, color = garden.ink)
                     Text(
                         text = "支持专属模型与 PC 端 JSON 角色卡互通",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = garden.muted
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("导入")
-                    }
-                    Button(
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    GardenWindowButton(
+                        text = "导入",
+                        onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }
+                    )
+                    GardenWindowButton(
+                        text = "新建",
+                        primary = true,
                         onClick = {
                             editingPersona = null
                             showEditorDialog = true
-                        },
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("新建")
-                    }
+                        }
+                    )
                 }
             }
         }

@@ -596,6 +596,37 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
 
     fun effectiveModelFor(persona: PersonaEntity?): String = repository.effectiveModelFor(persona)
 
+    fun exportFullBackup(onReady: (fileName: String, jsonText: String) -> Unit) {
+        viewModelScope.launch {
+            runCatching { repository.exportFullBackupJson() }
+                .onSuccess { jsonText ->
+                    onReady("qiyi-android-backup.json", jsonText)
+                }
+                .onFailure { notify(it.message ?: "生成备份失败。") }
+        }
+    }
+
+    fun importFullBackup(rawJson: String) {
+        viewModelScope.launch {
+            runCatching { repository.importFullBackupJson(rawJson) }
+                .onSuccess { summary -> notify(summary) }
+                .onFailure { notify(it.message ?: "导入备份失败。") }
+        }
+    }
+
+    fun exportActiveConversationMarkdown(onReady: (fileName: String, markdown: String) -> Unit) {
+        val convId = _activeConversationId.value
+        if (convId.isNullOrBlank()) {
+            notify("当前为新对话，发送消息后再导出。")
+            return
+        }
+        viewModelScope.launch {
+            runCatching { repository.exportConversationMarkdown(convId) }
+                .onSuccess { (fileName, md) -> onReady(fileName, md) }
+                .onFailure { notify(it.message ?: "导出对话失败。") }
+        }
+    }
+
     fun notify(message: String) {
         _notices.tryEmit(message)
     }

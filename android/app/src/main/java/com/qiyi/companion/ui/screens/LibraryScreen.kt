@@ -87,21 +87,25 @@ fun LibraryScreen(
             .background(MaterialTheme.colorScheme.background)
     ) {
         Surface(
-            color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(0.5.dp, garden.subtleBorder)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            shape = RoundedCornerShape(10.dp),
+            color = garden.paperCard,
+            border = BorderStroke(1.dp, garden.line)
         ) {
             Column {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                    Text("书阁 · 知识与记忆", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    Text("书阁 · 知识与记忆", style = MaterialTheme.typography.titleMedium, color = garden.ink)
                     Text(
                         text = "纯离线本地分块检索与长期记忆召回，对话时自动注入上下文",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = garden.muted
                     )
                 }
                 TabRow(
                     selectedTabIndex = subTab,
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = garden.paperCard
                 ) {
                     Tab(
                         selected = subTab == 0,

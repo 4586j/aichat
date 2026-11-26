@@ -1,5 +1,8 @@
 package com.qiyi.companion.data
 
+import androidx.room.withTransaction
+import com.qiyi.companion.data.backup.BackupCodec
+import com.qiyi.companion.data.backup.BackupPayload
 import com.qiyi.companion.data.card.PersonaCardCodec
 import com.qiyi.companion.data.db.ConversationEntity
 import com.qiyi.companion.data.db.KnowledgeChunkEntity
@@ -353,4 +356,48 @@ class QiYiRepository(
     fun setThemeMode(mode: GardenThemeMode) = prefs.setThemeMode(mode)
 
     fun setUserAvatar(avatar: String) = prefs.setUserAvatar(avatar)
+
+    suspend fun exportFullBackupJson(): String {
+        val payload = BackupPayload(
+            personas = db.personaDao().listAll(),
+            conversations = db.conversationDao().listAll(),
+            messages = db.messageDao().listAll(),
+            knowledgeDocuments = db.knowledgeDao().listDocuments(),
+            knowledgeChunks = db.knowledgeDao().listAllChunks(),
+            memories = db.memoryDao().listAll()
+        )
+        return BackupCodec.encodeBackup(payload)
+    }
+
+    suspend fun importFullBackupJson(rawJson: String): String {
+        val payload = BackupCodec.decodeBackup(rawJson)
+        db.withTransaction {
+            payload.personas.forEach { db.personaDao().upsert(it) }
+            payload.conversations.forEach { db.conversationDao().upsert(it) }
+            val groupedMessages = payload.messages.groupBy { it.conversationId }
+            groupedMessages.forEach { (convId, msgs) ->
+                db.messageDao().deleteByConversation(convId)
+                db.messageDao().insertAll(msgs)
+            }
+            payload.knowledgeDocuments.forEach { doc ->
+                db.knowledgeDao().upsertDocument(doc)
+                db.knowledgeDao().deleteChunksByDocument(doc.id)
+            }
+            if (payload.knowledgeChunks.isNotEmpty()) {
+                db.knowledgeDao().insertChunks(payload.knowledgeChunks)
+            }
+            payload.memories.forEach { db.memoryDao().upsert(it) }
+        }
+        return "已恢复 ${payload.personas.size} 个角色、${payload.conversations.size} 段对话、${payload.knowledgeDocuments.size} 篇文档与 ${payload.memories.size} 条记忆。"
+    }
+
+    suspend fun exportConversationMarkdown(conversationId: String): Pair<String, String> {
+        val conv = db.conversationDao().getById(conversationId)
+            ?: throw IllegalArgumentException("当前还没有可导出的对话内容。")
+        val msgs = db.messageDao().listByConversation(conversationId)
+        val role = db.personaDao().getById(conv.personaId)
+        val md = BackupCodec.formatConversationMarkdown(conv, msgs, role?.name ?: "望舒")
+        val safeTitle = conv.title.replace(Regex("[^\\p{L}\\p{N}_-]+"), "_").ifBlank { "conversation" }.take(40)
+        return "qiyi-$safeTitle.md" to md
+    }
 }
