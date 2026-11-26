@@ -51,6 +51,9 @@ data class BackupConversation(
     val userMood: String = "",
     val assistantStyle: String = "",
     val relationshipStage: String = "初识",
+    val contextSummary: String = "",
+    val compactedUpToMessageId: Long = 0L,
+    val compactedAt: Long = 0L,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L
 )
@@ -133,7 +136,23 @@ object BackupCodec {
                 BackupPersona(it.id, it.name, it.description, it.systemPrompt, it.tone, it.greeting, it.avatar, it.model, it.createdAt)
             },
             conversations = payload.conversations.map {
-                BackupConversation(it.id, it.personaId, it.title, it.parentConversationId, it.branchedFromMessageId, it.isGroup, it.participantIds, it.userMood, it.assistantStyle, it.relationshipStage, it.createdAt, it.updatedAt)
+                BackupConversation(
+                    it.id,
+                    it.personaId,
+                    it.title,
+                    it.parentConversationId,
+                    it.branchedFromMessageId,
+                    it.isGroup,
+                    it.participantIds,
+                    it.userMood,
+                    it.assistantStyle,
+                    it.relationshipStage,
+                    it.contextSummary,
+                    it.compactedUpToMessageId,
+                    it.compactedAt,
+                    it.createdAt,
+                    it.updatedAt
+                )
             },
             messages = payload.messages.map {
                 BackupMessage(it.id, it.conversationId, it.role, it.content, it.reasoning, it.senderPersonaId, it.senderName, it.createdAt)
@@ -164,7 +183,23 @@ object BackupCodec {
                 PersonaEntity(it.id, it.name, it.description, it.systemPrompt, it.tone, it.greeting, it.avatar, it.model, it.createdAt)
             },
             conversations = envelope.conversations.map {
-                ConversationEntity(it.id, it.personaId, it.title, it.parentConversationId, it.branchedFromMessageId, it.isGroup, it.participantIds, it.userMood, it.assistantStyle, it.relationshipStage, it.createdAt, it.updatedAt)
+                ConversationEntity(
+                    it.id,
+                    it.personaId,
+                    it.title,
+                    it.parentConversationId,
+                    it.branchedFromMessageId,
+                    it.isGroup,
+                    it.participantIds,
+                    it.userMood,
+                    it.assistantStyle,
+                    it.relationshipStage,
+                    it.contextSummary,
+                    it.compactedUpToMessageId,
+                    it.compactedAt,
+                    it.createdAt,
+                    it.updatedAt
+                )
             },
             messages = envelope.messages.map {
                 MessageEntity(id = 0L, conversationId = it.conversationId, role = it.role, content = it.content, reasoning = it.reasoning, senderPersonaId = it.senderPersonaId, senderName = it.senderName, createdAt = it.createdAt)

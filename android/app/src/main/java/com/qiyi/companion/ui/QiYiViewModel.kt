@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.qiyi.companion.data.QiYiRepository
+import com.qiyi.companion.data.context.ContextCompactionEngine
+import com.qiyi.companion.data.context.ContextUsageSnapshot
 import com.qiyi.companion.data.db.ConversationEntity
 import com.qiyi.companion.data.db.KnowledgeDocumentEntity
 import com.qiyi.companion.data.db.MailDraftEntity
@@ -165,6 +167,38 @@ class QiYiViewModel(
             if (cid.isNullOrBlank()) flowOf(emptyList()) else repository.observeMessages(cid)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _isCompacting = MutableStateFlow(false)
+    val isCompacting: StateFlow<Boolean> = _isCompacting.asStateFlow()
+
+    val contextUsage: StateFlow<ContextUsageSnapshot> = combine(
+        combine(activeConversation, _activePersonaId, personas, messages, settings) { conv, pid, roleList, msgList, cfg ->
+            val role = roleList.firstOrNull { it.id == (conv?.personaId ?: pid) } ?: roleList.firstOrNull()
+            val model = repository.effectiveModelFor(role)
+            Triple(Triple(conv, role, msgList), model, cfg.contextWindowOverride)
+        },
+        usageRecords
+    ) { (core, model, windowOverride), records ->
+        val (conv, role, msgList) = core
+        val lastProviderPrompt = if (conv != null) {
+            records.firstOrNull {
+                it.conversationId == conv.id &&
+                    it.source == "provider" &&
+                    it.promptTokens > 0 &&
+                    it.createdAt >= conv.compactedAt
+            }?.promptTokens ?: 0
+        } else {
+            0
+        }
+        ContextCompactionEngine.calculateSnapshot(
+            persona = role,
+            conversation = conv,
+            messages = msgList,
+            effectiveModel = model,
+            windowOverride = windowOverride,
+            lastProviderPromptTokens = lastProviderPrompt
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ContextUsageSnapshot())
 
     private val _streaming = MutableStateFlow(StreamingState())
     val streaming: StateFlow<StreamingState> = _streaming.asStateFlow()
@@ -1090,6 +1124,51 @@ class QiYiViewModel(
             if (inputPer1M <= 0.0 && outputPer1M <= 0.0) "已恢复按模型默认单价估算。"
             else "已保存自定义单价（输入 \$${inputPer1M} / 输出 \$${outputPer1M} 每百万 Token）。"
         )
+    }
+
+    fun setContextWindowOverride(tokens: Int) {
+        repository.setContextWindowOverride(tokens)
+        val label = if (tokens <= 0) "按模型自动识别" else UsageAnalytics.formatCompactTokens(tokens.toLong())
+        notify("上下文窗口上限已设为：$label")
+    }
+
+    fun compactActiveConversation(useAi: Boolean = true, keepRecentCount: Int = 4) {
+        if (_streaming.value.isStreaming) {
+            notify("正在生成回复，请先停止当前生成再压缩会话。")
+            return
+        }
+        if (_isCompacting.value) return
+        val convId = _activeConversationId.value
+        if (convId.isNullOrBlank()) {
+            notify("当前为新对话，暂无需压缩。")
+            return
+        }
+        viewModelScope.launch {
+            _isCompacting.value = true
+            try {
+                val res = repository.compactConversation(
+                    conversationId = convId,
+                    useAi = useAi,
+                    keepRecentCount = keepRecentCount
+                )
+                val modeTag = if (res.usedAi) "AI 智能压缩" else "本地快速压缩"
+                val savedText = UsageAnalytics.formatCompactTokens(res.savedTokensEstimate.toLong())
+                notify("${modeTag}完成：已折叠 ${res.foldedCount} 条早期消息，保留最近 ${res.keptCount} 条原文（预计节省 $savedText tokens）。")
+            } catch (err: Exception) {
+                notify(err.message ?: "会话压缩失败。")
+            } finally {
+                _isCompacting.value = false
+            }
+        }
+    }
+
+    fun clearActiveConversationCompaction() {
+        val convId = _activeConversationId.value ?: return
+        viewModelScope.launch {
+            runCatching { repository.clearConversationCompaction(convId) }
+                .onSuccess { notify("已取消压缩，恢复发送完整近期历史上下文。") }
+                .onFailure { notify(it.message ?: "恢复完整上下文失败。") }
+        }
     }
 
     fun saveScheduledTask(

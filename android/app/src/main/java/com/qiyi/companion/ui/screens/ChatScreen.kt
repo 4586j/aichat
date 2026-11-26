@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ExpandLess
@@ -73,6 +74,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -101,6 +103,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.qiyi.companion.data.context.ContextPressureLevel
 import com.qiyi.companion.data.db.ConversationEntity
 import com.qiyi.companion.data.db.MessageEntity
 import com.qiyi.companion.data.db.PersonaEntity
@@ -108,6 +111,7 @@ import com.qiyi.companion.data.knowledge.CitationItem
 import com.qiyi.companion.data.knowledge.KnowledgeEngine
 import com.qiyi.companion.data.media.StickerCard
 import com.qiyi.companion.data.media.StickerCatalog
+import com.qiyi.companion.data.usage.UsageAnalytics
 import com.qiyi.companion.ui.QiYiViewModel
 import com.qiyi.companion.ui.QuotaCheckpointState
 import com.qiyi.companion.ui.StreamingState
@@ -147,6 +151,8 @@ fun ChatScreen(
     val quotaCheckpoint by viewModel.quotaCheckpoint.collectAsStateWithLifecycle()
     val draftAttachments by viewModel.draftAttachments.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val contextUsage by viewModel.contextUsage.collectAsStateWithLifecycle()
+    val isCompacting by viewModel.isCompacting.collectAsStateWithLifecycle()
 
     val personaMap = remember(personas) { personas.associateBy { it.id } }
     val activePersona = personas.firstOrNull { it.id == activePersonaId } ?: personas.firstOrNull()
@@ -160,6 +166,7 @@ fun ChatScreen(
     var showChatStateDrawer by rememberSaveable { mutableStateOf(false) }
     var showChatStateDialog by remember { mutableStateOf(false) }
     var showLinkageDialog by remember { mutableStateOf(false) }
+    var showContextSheet by remember { mutableStateOf(false) }
     var personaMenuExpanded by remember { mutableStateOf(false) }
     var showHistorySheet by remember { mutableStateOf(false) }
     var showGroupDialog by remember { mutableStateOf(false) }
@@ -492,7 +499,7 @@ fun ChatScreen(
             }
         }
 
-        // 2.6 Mobile-Web-Aligned Reply Linkage Bar (回复联动：音乐 · 表情 · 工具)
+        // 2.6 Compact Context Usage Gauge + Compaction + Linkage Strip (zero extra vertical rows!)
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -500,6 +507,15 @@ fun ChatScreen(
             color = garden.paperCard,
             border = BorderStroke(0.7.dp, garden.lineSoft)
         ) {
+            val ctxColor = when (contextUsage.pressureLevel) {
+                ContextPressureLevel.NORMAL -> garden.bamboo
+                ContextPressureLevel.ELEVATED -> garden.gold
+                ContextPressureLevel.CRITICAL -> garden.cinnabar
+            }
+            val ctxUsedText = UsageAnalytics.formatCompactTokens(contextUsage.estimatedTotalTokens.toLong())
+            val ctxLimitText = UsageAnalytics.formatCompactTokens(contextUsage.windowLimitTokens.toLong())
+            val ctxPctText = String.format(Locale.US, "%.0f%%", contextUsage.usagePercent)
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -507,22 +523,125 @@ fun ChatScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                val activeFeatures = buildList {
-                    if (settings.musicEnabled) add("音乐")
-                    if (settings.stickerEnabled) add("表情")
-                    if (settings.toolsEnabled) add("工具")
-                }.ifEmpty { listOf("纯对话") }
-                Text(
-                    text = "回复联动：${activeFeatures.joinToString(" · ")}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = garden.muted
-                )
-                TextButton(
-                    onClick = { showLinkageDialog = true },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                    modifier = Modifier.height(26.dp)
+                // Live Context Usage Gauge (clickable to open Context & Compaction Sheet)
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { showContextSheet = true }
+                        .padding(vertical = 2.dp, horizontal = 2.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    Text("回复设置", style = MaterialTheme.typography.labelSmall, color = garden.bamboo)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(ctxColor)
+                        )
+                        Text(
+                            text = "上下文 $ctxUsedText/$ctxLimitText ($ctxPctText)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = garden.ink,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (contextUsage.hasCompaction) {
+                            Text(
+                                text = "已压缩",
+                                fontSize = 10.sp,
+                                color = garden.gold,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                    // Sleek 3dp proportional progress track
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.92f)
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(garden.paperDeep)
+                    ) {
+                        val fillRatio = contextUsage.usageRatio.coerceAtLeast(
+                            if (contextUsage.estimatedTotalTokens > 0) 0.03f else 0f
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(fillRatio)
+                                .fillMaxHeight()
+                                .background(ctxColor)
+                        )
+                    }
+                }
+
+                Spacer(Modifier.width(6.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    // Compact Compaction trigger button
+                    Surface(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(7.dp))
+                            .clickable { showContextSheet = true },
+                        shape = RoundedCornerShape(7.dp),
+                        color = when {
+                            isCompacting -> garden.bambooSoft
+                            contextUsage.pressureLevel == ContextPressureLevel.CRITICAL -> garden.cinnabarSoft
+                            contextUsage.pressureLevel == ContextPressureLevel.ELEVATED -> garden.goldSoft
+                            else -> garden.paper
+                        },
+                        border = BorderStroke(
+                            0.85.dp,
+                            when {
+                                isCompacting -> garden.bamboo
+                                contextUsage.pressureLevel == ContextPressureLevel.CRITICAL -> garden.cinnabar
+                                contextUsage.pressureLevel == ContextPressureLevel.ELEVATED -> garden.gold
+                                else -> garden.line
+                            }
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Compress,
+                                contentDescription = "会话压缩",
+                                tint = ctxColor,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = if (isCompacting) "压缩中" else "压缩",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = ctxColor,
+                                maxLines = 1
+                            )
+                        }
+                    }
+
+                    // Reply Linkage quick entry
+                    TextButton(
+                        onClick = { showLinkageDialog = true },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                        modifier = Modifier.height(26.dp)
+                    ) {
+                        val activeCount = listOf(settings.musicEnabled, settings.stickerEnabled, settings.toolsEnabled).count { it }
+                        Text(
+                            text = if (activeCount > 0) "联动($activeCount)" else "联动",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = garden.bamboo
+                        )
+                    }
                 }
             }
         }
@@ -577,6 +696,40 @@ fun ChatScreen(
                         },
                         onPreviewImage = { path -> lightboxImagePath = path }
                     )
+                    if (contextUsage.hasCompaction && activeConversation?.compactedUpToMessageId == msg.id) {
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { showContextSheet = true }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            HorizontalDivider(
+                                modifier = Modifier.weight(1f),
+                                color = garden.gold.copy(alpha = 0.55f)
+                            )
+                            Surface(
+                                modifier = Modifier.padding(horizontal = 8.dp),
+                                shape = RoundedCornerShape(999.dp),
+                                color = garden.goldSoft,
+                                border = BorderStroke(0.8.dp, garden.gold.copy(alpha = 0.65f))
+                            ) {
+                                Text(
+                                    text = "以上 ${contextUsage.compactedMessageCount} 条已压缩入摘要 · 查看",
+                                    fontSize = 11.sp,
+                                    color = garden.ink,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                                )
+                            }
+                            HorizontalDivider(
+                                modifier = Modifier.weight(1f),
+                                color = garden.gold.copy(alpha = 0.55f)
+                            )
+                        }
+                    }
                 }
 
                 if (streaming.isStreaming) {
@@ -910,6 +1063,33 @@ fun ChatScreen(
                     }
                 }
             }
+        }
+    }
+
+    if (showContextSheet) {
+        val contextSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showContextSheet = false },
+            sheetState = contextSheetState,
+            containerColor = garden.paperCard
+        ) {
+            ContextCompactionSheet(
+                snapshot = contextUsage,
+                windowOverride = settings.contextWindowOverride,
+                isCompacting = isCompacting,
+                onCompactWithAi = { keepRecent ->
+                    viewModel.compactActiveConversation(useAi = true, keepRecentCount = keepRecent)
+                },
+                onCompactLocally = { keepRecent ->
+                    viewModel.compactActiveConversation(useAi = false, keepRecentCount = keepRecent)
+                },
+                onClearCompaction = {
+                    viewModel.clearActiveConversationCompaction()
+                },
+                onSelectWindowLimit = { limit ->
+                    viewModel.setContextWindowOverride(limit)
+                }
+            )
         }
     }
 

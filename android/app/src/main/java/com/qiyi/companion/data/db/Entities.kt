@@ -41,6 +41,9 @@ data class ConversationEntity(
     val userMood: String = "",
     val assistantStyle: String = "",
     val relationshipStage: String = "初识",
+    val contextSummary: String = "",
+    val compactedUpToMessageId: Long = 0L,
+    val compactedAt: Long = 0L,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )

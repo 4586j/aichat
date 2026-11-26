@@ -59,6 +59,15 @@ interface ConversationDao {
         updatedAt: Long
     )
 
+    @Query("UPDATE conversations SET contextSummary = :contextSummary, compactedUpToMessageId = :compactedUpToMessageId, compactedAt = :compactedAt, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateCompaction(
+        id: String,
+        contextSummary: String,
+        compactedUpToMessageId: Long,
+        compactedAt: Long,
+        updatedAt: Long
+    )
+
     @Query("DELETE FROM conversations WHERE id = :id")
     suspend fun deleteById(id: String)
 }
