@@ -1,0 +1,351 @@
+package com.qiyi.companion.ui
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import com.qiyi.companion.data.QiYiRepository
+import com.qiyi.companion.data.db.ConversationEntity
+import com.qiyi.companion.data.db.MessageEntity
+import com.qiyi.companion.data.db.PersonaEntity
+import com.qiyi.companion.data.network.StreamChunk
+import com.qiyi.companion.data.prefs.AppSettings
+import com.qiyi.companion.data.prefs.GardenThemeMode
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+data class StreamingState(
+    val isStreaming: Boolean = false,
+    val conversationId: String? = null,
+    val content: String = "",
+    val reasoning: String = ""
+)
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
+
+    val settings: StateFlow<AppSettings> = repository.settings
+
+    val personas: StateFlow<List<PersonaEntity>> = repository.personas.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    private val _activePersonaId = MutableStateFlow<String?>(null)
+    val activePersonaId: StateFlow<String?> = _activePersonaId.asStateFlow()
+
+    private val _activeConversationId = MutableStateFlow<String?>(null)
+    val activeConversationId: StateFlow<String?> = _activeConversationId.asStateFlow()
+
+    val conversations: StateFlow<List<ConversationEntity>> = _activePersonaId
+        .flatMapLatest { pid ->
+            if (pid.isNullOrBlank()) flowOf(emptyList()) else repository.observeConversations(pid)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val messages: StateFlow<List<MessageEntity>> = _activeConversationId
+        .flatMapLatest { cid ->
+            if (cid.isNullOrBlank()) flowOf(emptyList()) else repository.observeMessages(cid)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _streaming = MutableStateFlow(StreamingState())
+    val streaming: StateFlow<StreamingState> = _streaming.asStateFlow()
+
+    private val _availableModels = MutableStateFlow<List<String>>(emptyList())
+    val availableModels: StateFlow<List<String>> = _availableModels.asStateFlow()
+
+    private val _isFetchingModels = MutableStateFlow(false)
+    val isFetchingModels: StateFlow<Boolean> = _isFetchingModels.asStateFlow()
+
+    private val _isTestingConnection = MutableStateFlow(false)
+    val isTestingConnection: StateFlow<Boolean> = _isTestingConnection.asStateFlow()
+
+    private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    val notices: SharedFlow<String> = _notices.asSharedFlow()
+
+    private var activeStreamJob: Job? = null
+
+    init {
+        viewModelScope.launch {
+            val defaultPersona = repository.ensureDefaultPersona()
+            if (_activePersonaId.value == null) {
+                _activePersonaId.value = defaultPersona.id
+            }
+        }
+    }
+
+    fun selectPersona(personaId: String) {
+        if (_streaming.value.isStreaming) {
+            notify("正在生成回复，请先停止当前生成再切换角色。")
+            return
+        }
+        _activePersonaId.value = personaId
+        _activeConversationId.value = null
+    }
+
+    fun selectConversation(conversationId: String) {
+        if (_streaming.value.isStreaming) {
+            notify("正在生成回复，请先停止当前生成再切换对话。")
+            return
+        }
+        _activeConversationId.value = conversationId
+    }
+
+    fun startNewConversation() {
+        if (_streaming.value.isStreaming) {
+            notify("正在生成回复，请先停止当前生成。")
+            return
+        }
+        _activeConversationId.value = null
+    }
+
+    fun sendMessage(rawText: String) {
+        val text = rawText.trim()
+        if (text.isEmpty() || _streaming.value.isStreaming) return
+
+        val personaId = _activePersonaId.value ?: personas.value.firstOrNull()?.id
+        if (personaId == null) {
+            notify("请先创建一位角色。")
+            return
+        }
+
+        activeStreamJob = viewModelScope.launch {
+            val persona = repository.getPersona(personaId)
+            if (persona == null) {
+                notify("未找到当前角色。")
+                return@launch
+            }
+            val effectiveModel = repository.effectiveModelFor(persona)
+            if (effectiveModel.isBlank()) {
+                notify("请先在「设置」或「人设」中填写模型 ID。")
+                return@launch
+            }
+
+            val convId = _activeConversationId.value ?: repository.createConversation(persona.id).id.also {
+                _activeConversationId.value = it
+            }
+
+            repository.saveUserMessage(convId, text)
+            val promptMessages = repository.buildPromptMessages(persona, convId)
+
+            val contentBuilder = StringBuilder()
+            val reasoningBuilder = StringBuilder()
+            _streaming.value = StreamingState(
+                isStreaming = true,
+                conversationId = convId,
+                content = "",
+                reasoning = ""
+            )
+
+            try {
+                repository.streamReply(persona, promptMessages).collect { chunk ->
+                    when (chunk) {
+                        is StreamChunk.ContentDelta -> {
+                            contentBuilder.append(chunk.text)
+                            _streaming.value = _streaming.value.copy(content = contentBuilder.toString())
+                        }
+                        is StreamChunk.ReasoningDelta -> {
+                            reasoningBuilder.append(chunk.text)
+                            _streaming.value = _streaming.value.copy(reasoning = reasoningBuilder.toString())
+                        }
+                        StreamChunk.Done -> Unit
+                    }
+                }
+                val finalContent = contentBuilder.toString().trim()
+                val finalReasoning = reasoningBuilder.toString().trim()
+                if (finalContent.isNotEmpty() || finalReasoning.isNotEmpty()) {
+                    repository.saveAssistantMessage(
+                        conversationId = convId,
+                        content = finalContent.ifEmpty { "（模型未返回正文）" },
+                        reasoning = finalReasoning
+                    )
+                }
+            } catch (_: CancellationException) {
+                val partialContent = contentBuilder.toString().trim()
+                val partialReasoning = reasoningBuilder.toString().trim()
+                if (partialContent.isNotEmpty()) {
+                    repository.saveAssistantMessage(
+                        conversationId = convId,
+                        content = "$partialContent\n\n（已手动停止生成）",
+                        reasoning = partialReasoning
+                    )
+                }
+                notify("已停止生成。")
+            } catch (err: Exception) {
+                notify(err.message ?: "生成回复失败，请检查网络或模型配置。")
+            } finally {
+                _streaming.value = StreamingState()
+                activeStreamJob = null
+            }
+        }
+    }
+
+    fun stopGeneration() {
+        activeStreamJob?.cancel()
+    }
+
+    fun branchFromMessage(messageId: Long) {
+        val convId = _activeConversationId.value ?: return
+        if (_streaming.value.isStreaming) {
+            notify("请先停止当前生成再创建分支。")
+            return
+        }
+        viewModelScope.launch {
+            runCatching { repository.branchConversation(convId, messageId) }
+                .onSuccess { branched ->
+                    _activeConversationId.value = branched.id
+                    notify("已创建分支对话：${branched.title}")
+                }
+                .onFailure { notify(it.message ?: "创建分支失败。") }
+        }
+    }
+
+    fun savePersona(
+        existingId: String?,
+        name: String,
+        description: String,
+        tone: String,
+        greeting: String,
+        systemPrompt: String,
+        avatar: String,
+        model: String,
+        onSaved: (PersonaEntity) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            runCatching {
+                repository.savePersona(
+                    existingId = existingId,
+                    name = name,
+                    description = description,
+                    tone = tone,
+                    greeting = greeting,
+                    systemPrompt = systemPrompt,
+                    avatar = avatar,
+                    model = model
+                )
+            }.onSuccess { saved ->
+                if (_activePersonaId.value == null) _activePersonaId.value = saved.id
+                notify(if (existingId == null) "已创建角色「${saved.name}」" else "已更新角色「${saved.name}」")
+                onSaved(saved)
+            }.onFailure {
+                notify(it.message ?: "保存角色失败。")
+            }
+        }
+    }
+
+    fun deletePersona(persona: PersonaEntity) {
+        viewModelScope.launch {
+            runCatching { repository.deletePersona(persona.id) }
+                .onSuccess {
+                    if (_activePersonaId.value == persona.id) {
+                        val fallback = personas.value.firstOrNull { it.id != persona.id }
+                        _activePersonaId.value = fallback?.id
+                        _activeConversationId.value = null
+                    }
+                    notify("已删除角色「${persona.name}」")
+                }
+                .onFailure { notify(it.message ?: "删除角色失败。") }
+        }
+    }
+
+    fun exportPersonaCard(personaId: String, onReady: (fileName: String, jsonText: String) -> Unit) {
+        viewModelScope.launch {
+            runCatching {
+                val role = repository.getPersona(personaId) ?: throw IllegalArgumentException("角色不存在。")
+                val jsonText = repository.exportPersonaCard(personaId)
+                val safeName = role.name.replace(Regex("[^\\p{L}\\p{N}_-]+"), "_").ifBlank { "persona" }
+                "qiyi-persona-$safeName.json" to jsonText
+            }.onSuccess { (fileName, jsonText) ->
+                onReady(fileName, jsonText)
+            }.onFailure {
+                notify(it.message ?: "导出角色卡失败。")
+            }
+        }
+    }
+
+    fun importPersonaCard(rawJson: String) {
+        viewModelScope.launch {
+            runCatching { repository.importPersonaCard(rawJson) }
+                .onSuccess { imported ->
+                    _activePersonaId.value = imported.id
+                    _activeConversationId.value = null
+                    notify("已导入角色卡「${imported.name}」")
+                }
+                .onFailure { notify(it.message ?: "导入角色卡失败。") }
+        }
+    }
+
+    fun fetchModels(baseUrlOverride: String? = null, apiKeyOverride: String? = null) {
+        if (_isFetchingModels.value) return
+        viewModelScope.launch {
+            _isFetchingModels.value = true
+            runCatching { repository.fetchAvailableModels(baseUrlOverride, apiKeyOverride) }
+                .onSuccess { list ->
+                    _availableModels.value = list
+                    notify(if (list.isEmpty()) "接口返回空模型列表，请手动输入模型 ID。" else "已获取 ${list.size} 个可用模型。")
+                }
+                .onFailure { notify(it.message ?: "获取可用模型失败。") }
+            _isFetchingModels.value = false
+        }
+    }
+
+    fun saveModelSettings(baseUrl: String, defaultModel: String, newApiKey: String?, clearApiKey: Boolean) {
+        runCatching {
+            repository.saveModelSettings(baseUrl, defaultModel, newApiKey, clearApiKey)
+        }.onSuccess {
+            notify("模型连接设置已保存（API Key 仅存于系统 Keystore）。")
+        }.onFailure {
+            notify(it.message ?: "保存设置失败。")
+        }
+    }
+
+    fun testModelConnection(baseUrl: String, apiKey: String?, model: String) {
+        if (_isTestingConnection.value) return
+        viewModelScope.launch {
+            _isTestingConnection.value = true
+            runCatching { repository.testModelConnection(baseUrl, apiKey, model) }
+                .onSuccess { reply -> notify("测试成功：$reply") }
+                .onFailure { notify(it.message ?: "连接测试失败。") }
+            _isTestingConnection.value = false
+        }
+    }
+
+    fun setThemeMode(mode: GardenThemeMode) {
+        repository.setThemeMode(mode)
+        notify("已切换至「${mode.label}」主题")
+    }
+
+    fun setUserAvatar(avatar: String) {
+        repository.setUserAvatar(avatar)
+        notify("已更新我的头像")
+    }
+
+    fun effectiveModelFor(persona: PersonaEntity?): String = repository.effectiveModelFor(persona)
+
+    fun notify(message: String) {
+        _notices.tryEmit(message)
+    }
+
+    companion object {
+        fun factory(repository: QiYiRepository): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    return QiYiViewModel(repository) as T
+                }
+            }
+    }
+}

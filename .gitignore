@@ -12,3 +12,8 @@ __pycache__/
 *.pyc
 .pytest_cache/
 *.log
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/.idea/
