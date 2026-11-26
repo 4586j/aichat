@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -51,6 +52,8 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.StopCircle
@@ -337,8 +340,11 @@ fun ChatScreen(
                             .clip(RoundedCornerShape(10.dp))
                             .clickable { personaMenuExpanded = true },
                         shape = RoundedCornerShape(10.dp),
-                        color = garden.paper,
-                        border = BorderStroke(0.9.dp, garden.line)
+                        color = if (personaMenuExpanded) garden.paperCard else garden.paper,
+                        border = BorderStroke(
+                            width = if (personaMenuExpanded) 1.3.dp else 0.9.dp,
+                            color = if (personaMenuExpanded) garden.gold else garden.line
+                        )
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
@@ -358,10 +364,11 @@ fun ChatScreen(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
+                                    Spacer(Modifier.width(2.dp))
                                     Icon(
-                                        imageVector = Icons.Default.ArrowDropDown,
+                                        imageVector = if (personaMenuExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                                         contentDescription = "切换角色",
-                                        tint = garden.muted,
+                                        tint = if (personaMenuExpanded) garden.bamboo else garden.muted,
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
@@ -378,37 +385,88 @@ fun ChatScreen(
 
                     DropdownMenu(
                         expanded = personaMenuExpanded,
-                        onDismissRequest = { personaMenuExpanded = false }
+                        onDismissRequest = { personaMenuExpanded = false },
+                        shape = RoundedCornerShape(10.dp),
+                        containerColor = garden.paperCard,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 6.dp,
+                        border = BorderStroke(1.2.dp, garden.gold.copy(alpha = 0.78f)),
+                        modifier = Modifier.widthIn(min = 216.dp, max = 276.dp)
                     ) {
+                        Text(
+                            text = "切换对话角色",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = garden.muted,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                        )
+                        HorizontalDivider(color = garden.lineSoft, modifier = Modifier.padding(bottom = 4.dp))
                         personas.forEach { role ->
-                            DropdownMenuItem(
-                                text = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                            val isSelected = !isGroup && role.id == activePersona?.id
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) garden.bambooSoft else Color.Transparent)
+                                    .clickable {
+                                        personaMenuExpanded = false
+                                        viewModel.selectPersona(role.id)
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(IntrinsicSize.Min),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (isSelected) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(3.dp)
+                                                .fillMaxHeight()
+                                                .background(garden.bamboo)
+                                        )
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
                                         GardenSealAvatar(
                                             label = role.avatar.ifBlank { role.name.take(1).ifBlank { "🌿" } },
-                                            size = 24.dp
+                                            size = 28.dp
                                         )
-                                        Spacer(Modifier.width(8.dp))
-                                        Column {
+                                        Spacer(Modifier.width(9.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
                                             Text(
                                                 text = role.name,
-                                                fontWeight = if (!isGroup && role.id == activePersona?.id) FontWeight.Bold else FontWeight.Normal
+                                                fontFamily = FontFamily.Serif,
+                                                fontSize = 14.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isSelected) garden.bamboo else garden.ink,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
-                                            if (role.model.isNotBlank()) {
-                                                Text(
-                                                    text = "专属模型：${role.model}",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = garden.bamboo
-                                                )
-                                            }
+                                            Text(
+                                                text = role.model.ifBlank { role.tone.ifBlank { "跟随全局默认模型" } },
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = garden.muted,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        if (isSelected) {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = "当前角色",
+                                                tint = garden.bamboo,
+                                                modifier = Modifier.size(16.dp)
+                                            )
                                         }
                                     }
-                                },
-                                onClick = {
-                                    personaMenuExpanded = false
-                                    viewModel.selectPersona(role.id)
                                 }
-                            )
+                            }
                         }
                     }
                 }

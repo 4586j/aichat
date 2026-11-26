@@ -1,6 +1,7 @@
 package com.qiyi.companion.ui.theme
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -23,7 +25,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
@@ -110,7 +115,8 @@ fun GardenSealAvatar(
 }
 
 /**
- * Classical framed Xuan-paper / Bamboo action button (matching mobile web `历史对话` / `新建对话`).
+ * Classical framed Xuan-paper / Bamboo scenic window button ("器物成形 · 框中藏景")
+ * with subtle vertical gradient, inner hairline frame, and 4-corner mud-gold accents.
  */
 @Composable
 fun GardenWindowButton(
@@ -121,42 +127,72 @@ fun GardenWindowButton(
     modifier: Modifier = Modifier
 ) {
     val garden = LocalGardenColors.current
-    val bg = if (primary) garden.bamboo else garden.paperCard
+    val topColor = if (primary) garden.bamboo else garden.paperCard
+    val bottomColor = if (primary) garden.bambooDark else garden.paper
     val fg = if (primary) garden.paperCard else garden.ink
-    val border = if (primary) garden.gold.copy(alpha = 0.75f) else garden.line
+    val outerBorder = if (primary) garden.gold.copy(alpha = 0.85f) else garden.line
+    val innerBorder = if (primary) garden.gold.copy(alpha = 0.42f) else garden.lineSoft
+    val cornerAccent = if (primary) garden.gold.copy(alpha = 0.85f) else garden.gold.copy(alpha = 0.55f)
+    val alpha = if (enabled) 1f else 0.48f
 
     Surface(
         modifier = modifier
-            .height(34.dp)
-            .clip(RoundedCornerShape(6.dp))
+            .height(35.dp)
+            .clip(RoundedCornerShape(7.dp))
             .clickable(enabled = enabled, onClick = onClick),
-        shape = RoundedCornerShape(6.dp),
-        color = if (enabled) bg else bg.copy(alpha = 0.5f),
-        border = BorderStroke(1.dp, border)
+        shape = RoundedCornerShape(7.dp),
+        color = Color.Transparent,
+        shadowElevation = if (enabled) (if (primary) 2.dp else 1.dp) else 0.dp,
+        border = BorderStroke(1.dp, outerBorder.copy(alpha = outerBorder.alpha * alpha))
     ) {
         Box(
             modifier = Modifier
-                .padding(2.dp)
-                .border(
-                    width = 0.6.dp,
-                    color = if (primary) garden.gold.copy(alpha = 0.45f) else garden.lineSoft,
-                    shape = RoundedCornerShape(4.dp)
+                .fillMaxHeight()
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(topColor.copy(alpha = alpha), bottomColor.copy(alpha = alpha))
+                    )
                 )
-                .padding(horizontal = 10.dp),
+                .drawWithContent {
+                    drawContent()
+                    val inset = 3.dp.toPx()
+                    val len = 4.5.dp.toPx()
+                    val sw = 1.dp.toPx()
+                    val c = cornerAccent.copy(alpha = cornerAccent.alpha * alpha)
+                    // Top-left
+                    drawLine(c, Offset(inset, inset), Offset(inset + len, inset), sw)
+                    drawLine(c, Offset(inset, inset), Offset(inset, inset + len), sw)
+                    // Top-right
+                    drawLine(c, Offset(size.width - inset, inset), Offset(size.width - inset - len, inset), sw)
+                    drawLine(c, Offset(size.width - inset, inset), Offset(size.width - inset, inset + len), sw)
+                    // Bottom-left
+                    drawLine(c, Offset(inset, size.height - inset), Offset(inset + len, size.height - inset), sw)
+                    drawLine(c, Offset(inset, size.height - inset), Offset(inset, size.height - inset - len), sw)
+                    // Bottom-right
+                    drawLine(c, Offset(size.width - inset, size.height - inset), Offset(size.width - inset - len, size.height - inset), sw)
+                    drawLine(c, Offset(size.width - inset, size.height - inset), Offset(size.width - inset, size.height - inset - len), sw)
+                }
+                .padding(2.5.dp)
+                .border(0.6.dp, innerBorder.copy(alpha = innerBorder.alpha * alpha), RoundedCornerShape(4.5.dp))
+                .padding(horizontal = 11.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = text,
-                style = MaterialTheme.typography.labelMedium,
-                color = fg,
-                fontWeight = FontWeight.SemiBold
+                fontFamily = FontFamily.Serif,
+                fontSize = 12.5.sp,
+                letterSpacing = 0.5.sp,
+                color = fg.copy(alpha = alpha),
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
             )
         }
     }
 }
 
 /**
- * Vermilion cinnabar pill button (matching mobile web `发送` button).
+ * Carved vermilion cinnabar pill button (matching mobile web `发送` button)
+ * with vertical gradient, inner mud-gold highlight ring, and soft drop shadow.
  */
 @Composable
 fun CinnabarPillButton(
@@ -167,30 +203,48 @@ fun CinnabarPillButton(
     modifier: Modifier = Modifier
 ) {
     val garden = LocalGardenColors.current
+    val alpha = if (enabled) 1f else 0.45f
     Surface(
         modifier = modifier
             .height(38.dp)
             .clip(RoundedCornerShape(999.dp))
             .clickable(enabled = enabled, onClick = onClick),
         shape = RoundedCornerShape(999.dp),
-        color = if (enabled) garden.cinnabar else garden.cinnabar.copy(alpha = 0.42f),
-        border = BorderStroke(1.2.dp, garden.cinnabarDark)
+        color = Color.Transparent,
+        shadowElevation = if (enabled) 3.dp else 0.dp,
+        border = BorderStroke(1.2.dp, garden.cinnabarDark.copy(alpha = alpha))
     ) {
-        Row(
+        Box(
             modifier = Modifier
-                .padding(PaddingValues(horizontal = 16.dp, vertical = 6.dp)),
-            verticalAlignment = Alignment.CenterVertically
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            garden.cinnabar.copy(alpha = alpha),
+                            garden.cinnabarDark.copy(alpha = alpha)
+                        )
+                    )
+                )
+                .padding(2.dp)
+                .border(0.7.dp, garden.gold.copy(alpha = 0.5f * alpha), RoundedCornerShape(999.dp)),
+            contentAlignment = Alignment.Center
         ) {
-            if (icon != null) {
-                icon()
-                Spacer(Modifier.width(6.dp))
+            Row(
+                modifier = Modifier.padding(PaddingValues(horizontal = 15.dp, vertical = 4.dp)),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (icon != null) {
+                    icon()
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    text = text,
+                    fontFamily = FontFamily.Serif,
+                    fontSize = 13.sp,
+                    letterSpacing = 0.8.sp,
+                    color = garden.paperCard.copy(alpha = alpha),
+                    fontWeight = FontWeight.SemiBold
+                )
             }
-            Text(
-                text = text,
-                style = MaterialTheme.typography.labelMedium,
-                color = garden.paperCard,
-                fontWeight = FontWeight.SemiBold
-            )
         }
     }
 }
