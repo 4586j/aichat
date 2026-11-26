@@ -427,6 +427,41 @@
   color: var(--ink, var(--text));
 }
 
+.resumable-run-banner {
+  margin: 0 12px 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--gold, #b5832c);
+  background: color-mix(in oklab, var(--gold, #b5832c) 10%, var(--paper-card));
+  color: var(--ink, var(--text));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  font-size: 12px;
+}
+
+.resumable-run-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 220px;
+}
+
+.resumable-run-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.resumable-runs-panel {
+  margin-bottom: 18px;
+  border-left: 3px solid var(--gold, #b5832c);
+}
+
 @media (max-width: 780px) {
   .search-controls-row,
   .journal-layout {

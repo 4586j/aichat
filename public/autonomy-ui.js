@@ -84,7 +84,7 @@ export function createAutonomyUI({ request, redraw, toast, onPush }) {
     if (state.source || typeof EventSource === 'undefined') return;
     const source = new EventSource('/api/events');
     state.source = source;
-    for (const type of ['autonomous_message', 'task_finished']) {
+    for (const type of ['autonomous_message', 'task_finished', 'run_paused', 'run_resumed']) {
       source.addEventListener(type, message => {
         try { onPush({ type, ...JSON.parse(message.data) }); } catch { /* malformed frame: ignore */ }
       });

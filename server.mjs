@@ -149,6 +149,7 @@ const STATIC_API_ROUTES = new Map([
   ['GET /api/messages/search', ({ api, query }) => api.searchMessages({ q: query.get('q') || '', kind: query.get('kind') || 'all', personaId: query.get('personaId') || '', limit: Number(query.get('limit')) || 30 })],
   ['PUT /api/relationships', ({ api, input }) => api.saveRelationship(input)],
   ['POST /api/bookmarks', ({ api, input }) => api.toggleBookmark(input)],
+  ['GET /api/models', ({ api }) => api.listModels()],
   ['POST /api/web/clip', ({ api, input }) => api.clipWebpage(input)],
   ['POST /api/personas/import-card', ({ api, input }) => api.importPersonaCard(input)],
   ['GET /api/backup/export', ({ api }) => api.exportBackup()],
@@ -210,6 +211,11 @@ const RESOURCE_HANDLERS = {
     if (method === 'PUT' && itemId && !action) return api.saveTask(input, itemId);
     if (method === 'DELETE' && itemId && !action) return api.deleteTask(itemId);
     if (method === 'POST' && itemId && action === 'run') return { run: await api.scheduler.run(itemId) };
+  },
+  'resumable-runs': async ({ api, method, itemId, action, input }) => {
+    if (method === 'POST' && itemId && action === 'resume') return api.resumeRun(itemId, input || {});
+    if (method === 'PUT' && itemId && !action) return api.updateResumableRun(itemId, input || {});
+    if (method === 'DELETE' && itemId && !action) return api.cancelResumableRun(itemId);
   },
 };
 

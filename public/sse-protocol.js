@@ -8,6 +8,7 @@ export const SSE_EVENTS = Object.freeze({
   USER_MESSAGE: 'user_message',
   SPEAKER_START: 'speaker_start',
   SPEAKER_DONE: 'speaker_done',
+  PAUSED_QUOTA: 'paused_quota',
   DONE: 'done',
   ERROR: 'error',
 });

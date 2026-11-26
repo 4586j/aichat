@@ -191,4 +191,54 @@ test.describe('Workspace 7 New Feature Journeys', () => {
     expect(mobileAudit.scrollWidth).toBeLessThanOrEqual(mobileAudit.innerWidth);
     expect(mobileAudit.openDialogs).toBe(0);
   });
+
+  test('Per-persona custom model: editor saves it, card shows it, and it can be cleared', async ({ page, request }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/#settings');
+    await page.locator('[data-action="fetch-settings-models"]').click();
+    await expect(page.locator('#settings-model-list option')).toHaveCount(3);
+
+    await page.goto('/#personas');
+    await page.getByRole('button', { name: '创建角色', exact: true }).click();
+    const dlg = page.locator('#editor-dialog');
+    await dlg.locator('[data-action="fetch-persona-models"]').click();
+    await expect(dlg.locator('#persona-model-list option')).toHaveCount(3);
+    await dlg.locator('#persona-name').fill('专属模型伙伴');
+    await dlg.locator('#persona-systemPrompt').fill('简洁地回答。');
+    await dlg.locator('#persona-model').fill('qiyi-pro-model');
+    await dlg.getByRole('button', { name: '确认创建角色', exact: true }).click();
+    const card = page.locator('.persona-card', { hasText: '专属模型伙伴' });
+    await expect(card).toContainText('模型：qiyi-pro-model');
+
+    const saved = (await (await request.get('/api/bootstrap')).json()).personas.find(p => p.name === '专属模型伙伴');
+    expect(saved.model).toBe('qiyi-pro-model');
+
+    await card.locator('[data-action="edit-persona"]').last().click();
+    await dlg.locator('#persona-model').fill('');
+    await dlg.getByRole('button', { name: '保存修改', exact: true }).click();
+    await expect(card).not.toContainText('模型：');
+  });
+
+  test('Quota 429 pause saves checkpoint banner and manual resume finishes reply', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/#chat');
+    await page.locator('#chat-input').fill('限流断点演示：请帮我继续完成');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+
+    const banner = page.locator('.resumable-run-banner').first();
+    await expect(banner).toBeVisible({ timeout: 8000 });
+    await expect(banner).toContainText('因模型限流已暂停');
+
+    // Adjust model override via dialog
+    await banner.locator('[data-action="edit-resumable-run"]').click();
+    const dlg = page.locator('#editor-dialog');
+    await dlg.locator('#resumable-modelOverride').fill('qiyi-fast-model');
+    await dlg.getByRole('button', { name: '保存调整', exact: true }).click();
+    await expect(banner).toContainText('qiyi-fast-model');
+
+    // Click immediate resume and verify assistant reply completes & banner disappears
+    await banner.locator('[data-action="resume-run-now"]').click();
+    await expect(banner).toBeHidden({ timeout: 8000 });
+    await expect(page.locator('.message.assistant').last()).toBeVisible({ timeout: 8000 });
+  });
 });

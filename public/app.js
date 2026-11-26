@@ -158,7 +158,8 @@ const state = {
   selectingForImage: false,
   selectedMessageIds: new Set(),
   bookmarkRole: 'all',
-  activeCanvas: null
+  activeCanvas: null,
+  availableModels: []
 };
 const main = $('#main');
 const dialog = $('#editor-dialog');
@@ -185,6 +186,16 @@ const autonomyUI = createAutonomyUI({ request: api, toast, redraw: () => { if (s
 const socialUI = createSocialUI({ request: api, toast, redraw: () => { if (state.page === 'settings') renderPage(); } });
 const usageUI = createUsageUI({ request: api, getConversationId: () => state.conversationId, toast });
 function receivePush(event) {
+  if (event.type === 'run_paused' || event.type === 'run_resumed') {
+    if (event.type === 'run_resumed' && event.conversationId && event.message) {
+      const list = state.messages.get(event.conversationId);
+      if (list && !list.some(item => item.id === event.message.id)) state.messages.set(event.conversationId, [...list, event.message]);
+    }
+    if (event.type === 'run_resumed') toast('断点任务已自动恢复完成。', 'success');
+    const viewing = Boolean(event.conversationId && state.page === 'chat' && state.conversationId === event.conversationId);
+    void refreshData({ silent: true, background: true, draw: false }).then(() => { if (!isUserInteractingWithMain()) renderPage({ toBottom: viewing }); });
+    return;
+  }
   const { conversationId, message } = event;
   const list = state.messages.get(conversationId);
   if (list && !list.some(item => item.id === message.id)) state.messages.set(conversationId, [...list, message]);
@@ -1742,6 +1753,22 @@ function renderSetupPrompt(key) {
   const busy = Boolean(state.sending || state.testBusy || state.settingsSaving);
   return `<article class="setup-message" aria-label="快捷配置消息"><div class="message-meta"><span class="avatar" aria-hidden="true">${icon('settings')}</span><span>本地配置助手</span><span class="pill">无需模型</span></div><div class="message-content setup-message-body"><h2>${configured ? '模型信息已保存，可以继续了' : '先连上模型，再开始聊天'}</h2><p>${configured ? '保存不代表连接成功。你可以先测试已保存的连接，再发送输入框里保留的那句话。' : '你的第一句话已保留在输入框中。先完成下面三步，就能开始对话。'}</p>${!configured ? '<ol><li>准备模型服务的基础地址（Base URL）、模型 ID 和 API Key；无需认证的本机服务可不填 Key。</li><li>点击“快捷配置模型”填写并保存；基础地址不要带 /chat/completions。</li><li>保存后可手动测试连接，再继续发送刚才的话。</li></ol>' : ''}<div class="setup-message-actions">${configured ? `${button(state.testBusy ? '正在测试…' : '测试已保存的连接', 'test-settings', { busy, iconName: 'play' })}${button('继续发送', 'resume-setup-chat', { busy, kind: 'primary', iconName: 'send' })}` : button('快捷配置模型', 'quick-model-setup', { busy, kind: 'primary', iconName: 'settings' })}<button type="button" class="button" data-guide-action="open" data-guide-id="model">查看配置方法</button>${configured ? button('调整模型配置', 'quick-model-setup', { busy }) : ''}</div>${configured && state.testResult ? `<p class="${state.testResult.ok ? 'inline-success' : 'inline-error'}" role="status">${e(state.testResult.message || '连接测试完成。')}</p>` : ''}<details class="setup-optional"><summary>音乐、邮件和表情包怎么配？</summary><p>这些功能可以稍后分别配置，不影响先开始聊天。</p><div class="setup-message-actions"><button type="button" class="button small" data-guide-action="open" data-guide-id="music">音乐配置方法</button><button type="button" class="button small" data-guide-action="open" data-guide-id="email">邮件配置方法</button><button type="button" class="button small" data-guide-action="open" data-guide-id="stickers">表情包配置方法</button></div></details></div></article>`;
 }
+function renderResumableBanner(run) {
+  if (!run) return '';
+  const busy = state.busy.has(`resume:${run.id}`) || run.status === 'running';
+  const kindLabel = run.kind === 'group' ? '群聊接力' : run.kind === 'task' ? '定时任务' : '对话';
+  return `<div class="resumable-run-banner" data-resumable-run-id="${e(run.id)}" role="status">
+    <div class="resumable-run-info">
+      <strong>${icon('clock')} ${e(kindLabel)}因模型限流已暂停${run.step ? ` · 已保留至第 ${e(run.step)} 步` : ''}</strong>
+      <span class="micro muted">${busy ? '正在恢复执行…' : `预计 ${e(date(run.resumeAt))} 自动继续`}${run.modelOverride ? ` · 指定模型：${e(run.modelOverride)}` : ''}${run.retryCount ? ` · 第 ${e(run.retryCount)} 次退避` : ''}</span>
+    </div>
+    <div class="resumable-run-actions">
+      ${button(busy ? '恢复中…' : '立即继续', 'resume-run-now', { id: run.id, kind: 'small primary', iconName: 'play', busy })}
+      ${button('调整时间/换模型', 'edit-resumable-run', { id: run.id, kind: 'small btn-scroll', busy })}
+      ${button('取消', 'cancel-resumable-run', { id: run.id, kind: 'small', busy })}
+    </div>
+  </div>`;
+}
 function renderBranchSwitcher(activeConv) {
   if (!activeConv || !state.data?.conversations?.length) return '';
   const allConvs = state.data.conversations;
@@ -1913,12 +1940,13 @@ function renderChat() {
         <button type="button" id="chat-scroll-bottom" class="chat-scroll-bottom" data-action="scroll-chat-bottom" hidden aria-label="回到最新回复">↓ 回到最新回复</button>
         <button type="button" id="chat-composer-show" class="chat-composer-show" data-action="show-composer"${state.composerHidden ? '' : ' hidden'} aria-controls="composer-wrap" aria-expanded="${state.composerHidden ? 'false' : 'true'}" aria-label="展开输入框" title="展开并固定输入框"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></button>
       </div>
+      ${state.conversationId ? renderResumableBanner((state.data?.resumableRuns || []).find(r => r.conversationId === state.conversationId)) : ''}
       <div id="composer-wrap" class="composer-wrap${state.composerHidden ? ' is-collapsed' : ''}"${state.composerHidden ? ' hidden' : ''}>${errorHTML(state.chatErrors.get(key))}<div class="composer-paperweight"><div class="composer-pw-left"><span>${isGroup && state.narratorMode ? '发送旁白' : '发送消息'}</span><label class="composer-attach-label" title="添加文件或图片附件">${icon('plus')}<span>添加文件</span><input id="chat-file-input" type="file" multiple accept=".txt,.md,.json,.csv,.py,.js,.ts,.html,.css,.sql,.yaml,.yml,.xml,.c,.cpp,.h,.java,.rs,.go,.sh,.bat,.ps1,.log,.docx,.pdf,image/*" style="display:none"></label><button type="button" class="composer-narrator-btn" data-action="open-chat-url-clip" title="抓取公开网页正文作为本条附件">${icon('external')}<span>添加网址</span></button>${isGroup ? `<button type="button" id="composer-narrator-toggle" class="composer-narrator-btn${state.narratorMode ? ' is-active' : ''}" data-action="toggle-narrator" aria-pressed="${state.narratorMode ? 'true' : 'false'}" title="切换为发送场景变化或舞台旁白">旁白模式</button>` : ''}</div><div class="composer-pw-right"><span class="keyboard-hint">Enter 发送 · Shift + Enter 换行</span><span class="touch-hint">换行继续写，轻触发送</span><span id="chat-composer-pin-tag" class="composer-pin-tag"${!state.composerHidden && state.composerPinned ? '' : ' hidden'} title="已固定，滚动消息时不会自动隐藏">已固定</span><button type="button" id="chat-composer-hide" class="composer-hide-btn" data-action="hide-composer" aria-controls="composer-wrap" aria-expanded="${state.composerHidden ? 'false' : 'true'}" aria-label="隐藏输入框" title="隐藏输入框"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg><span>隐藏</span></button></div></div><form id="chat-form" class="composer${isGroup && state.narratorMode ? ' is-narrator' : ''}"><div id="composer-attachments" class="composer-attachments">${renderAttachmentChips(currentAttachments())}</div><label class="sr-only" for="chat-input">${isGroup ? '向群聊发送消息或旁白' : '发送给当前角色的消息'}</label><textarea id="chat-input" name="content" rows="2" maxlength="8000" placeholder="${isGroup ? (state.narratorMode ? '写一段舞台旁白或场景变化（例如：檐外骤雨响起，茶香微散…）' : '在群聊发言，可用 @角色名 指定某个伙伴回应…') : `和${e(persona?.name || '伙伴')}聊聊今天的想法…`}"${disabled(!persona || loading)}>${e(state.drafts.get(key) || '')}</textarea><div class="composer-bottom"><span class="composer-hint">${isGroup ? '群聊内容不会自动写入长期记忆，可手动保存单条' : '对话保存在本地，发送时调用所选模型'}</span><div class="composer-actions-row">${isGroup && !sendingHere ? `<button type="button" id="group-continue-btn" class="button small btn-scroll" data-action="continue-group-scene"${disabled(loading || Boolean(loadError) || Boolean(state.sending))} title="自己不发言，让角色们顺着当前剧情继续聊一轮">${icon('play')}<span>继续聊</span></button>` : ''}${sendingHere ? `<button class="button small" type="button" data-action="stop-chat"${disabled(state.sending.stopping)}>${state.sending.stopping ? '正在停止…' : '停止生成'}</button>` : `<button class="button primary small" type="submit"${disabled(!persona || loading || Boolean(loadError) || Boolean(state.sending))}>${icon('send')}${state.sending ? '等待回复' : (isGroup && state.narratorMode ? '发旁白' : '发送')}</button>`}</div></div></form></div>
     </section><aside class="chat-aside"${state.activeCanvas ? ' hidden' : ''} aria-label="当前角色与会话信息">
       ${isGroup ? `
         <section class="card card-begonia persona-summary is-group-summary">${gardenLattice}<div class="eyebrow">当前群聊 · ${members.length} 人</div><div class="persona-head-row"><span class="avatar is-group-avatar" aria-hidden="true">群</span><div><h2>${e(title || '情景群聊')}</h2><span class="seal-stamp-red persona-tone">最多 ${e(activeConv.maxAutoTurns || 3)} 人接话</span></div></div><p class="plain-text" title="${e(description)}">${e(description.length > 90 ? description.slice(0,90) + '…' : description)}</p><div class="group-aside-members">${members.map(m => `<span class="pill">${e(m.name)}</span>`).join('')}</div><div style="margin-top:8px">${button('群聊设置', 'edit-group-chat', { kind: 'small btn-scroll' })}</div></section>
       ` : `
-        <section class="card card-begonia persona-summary">${gardenLattice}<div class="eyebrow">当前角色</div><div class="persona-head-row">${persona ? `<button type="button" class="avatar-edit-trigger" data-action="edit-persona" data-id="${e(persona.id)}" title="点击设置头像与人设" aria-label="设置${e(persona.name)}的头像与人设">${renderPersonaAvatar(persona)}</button>` : renderPersonaAvatar(null)}<div><h2>${e(persona?.name || '未选择角色')}</h2>${persona?.tone ? `<span class="seal-stamp-red persona-tone" title="${e(persona.tone)}">${e(persona.tone)}</span>` : ''}</div></div><p class="plain-text" title="${e(description)}">${e(description.length > 90 ? description.slice(0,90) + '…' : description)}</p>${persona ? `<div>${button('查看人设', 'edit-persona', { id: persona.id, kind: 'small btn-scroll' })}</div>` : button('创建角色','create-persona',{kind:'small'})}</section>
+        <section class="card card-begonia persona-summary">${gardenLattice}<div class="eyebrow">当前角色</div><div class="persona-head-row">${persona ? `<button type="button" class="avatar-edit-trigger" data-action="edit-persona" data-id="${e(persona.id)}" title="点击设置头像与人设" aria-label="设置${e(persona.name)}的头像与人设">${renderPersonaAvatar(persona)}</button>` : renderPersonaAvatar(null)}<div><h2>${e(persona?.name || '未选择角色')}</h2>${persona?.tone ? `<span class="seal-stamp-red persona-tone" title="${e(persona.tone)}">${e(persona.tone)}</span>` : ''}${persona?.model ? `<span class="pill" title="该角色使用专属模型">模型：${e(persona.model)}</span>` : ''}</div></div><p class="plain-text" title="${e(description)}">${e(description.length > 90 ? description.slice(0,90) + '…' : description)}</p>${persona ? `<div>${button('查看人设', 'edit-persona', { id: persona.id, kind: 'small btn-scroll' })}</div>` : button('创建角色','create-persona',{kind:'small'})}</section>
       `}
       <section class="card card-begonia aside-card garden-memory"><h3><span>记忆</span><span class="seal-stamp-red">当前角色</span></h3>${gardenPond}<div class="memory-stats"><a class="stat-line" href="#memories"><span>活跃记忆</span><strong data-memory-count="active">${number(activeMemories)}</strong></a><a class="stat-line" href="#memories"><span>固定记忆</span><strong data-memory-count="pinned">${number(pinnedMemories)}</strong></a><a class="stat-line" href="#knowledge"><span>知识库文档</span><strong data-memory-count="documents">${number(state.data.documents.length)}</strong></a></div><div class="garden-memory-links"><a href="#memories">管理记忆</a><span>·</span><a href="#knowledge">查看知识库</a></div>${gardenCenser}<div class="switch-demo-row"><span>场景动画</span><button type="button" class="bamboo-switch" data-garden-action="scenes" role="switch" aria-checked="true"><span class="bamboo-track"><span class="bamboo-knob"></span></span><span data-garden-scenes-label>开启</span></button></div></section>
       <section id="garden-music-slot" class="garden-music-slot" aria-label="音乐"><div class="card music-empty"><div class="music-empty-heading">${icon('play')}<div><strong>背景音乐</strong><small>${state.data.media?.settings?.musicBaseUrl ? '选一首喜欢的歌，陪你聊天' : '配置音乐服务后，可搜索和播放'}</small></div></div><button type="button" class="button small bamboo-primary" data-media-action="open-music">选择音乐</button></div></section>
@@ -2062,7 +2090,7 @@ async function executeChatTurn({ continueScene = false, targetPersonaId = null }
   const content = continueScene ? '' : (rawDraft.trim() || (initialAttachments.length ? `请查看并分析附件：${initialAttachments.map(a => a.name).join('、')}` : ''));
   if (!continueScene && !content) { $('#chat-input')?.focus(); return; }
   if (continueScene && !isGroup) return;
-  if (!state.data.settings.model) {
+  if (!state.data.settings.model && !(isGroup ? groupMembers(activeConv).length && groupMembers(activeConv).every(m => m.model) : currentPersona()?.model)) {
     state.setupPrompts.add(key);
     state.chatErrors.delete(key);
     renderPage({ toBottom: true });
@@ -2208,7 +2236,13 @@ async function executeChatTurn({ continueScene = false, targetPersonaId = null }
     localStorage.removeItem('active_flight:' + conversationId);
     if (result.chatState) chatStateUI.receive(result.chatState);
     usageUI.refreshIfOpen();
-    if (isGroup && !result.messages?.length && result.silenceReason) {
+    if (result.pausedRun) {
+      if (state.data) {
+        const list = (state.data.resumableRuns || []).filter(r => r.id !== result.pausedRun.id);
+        state.data.resumableRuns = [result.pausedRun, ...list];
+      }
+      toast(`模型限流已保存断点，预计 ${date(result.pausedRun.resumeAt)} 自动继续。`, 'info');
+    } else if (isGroup && !result.messages?.length && result.silenceReason) {
       state.silenceNotices.set(conversationId, result.silenceReason);
     } else {
       petsUI.react('reply', '回复来啦，陪你慢慢看。');
@@ -2254,7 +2288,7 @@ function renderPersonas() {
   const a = state.analysis;
   const analysisFields = [ ['overview', '整体观察'], ['traits', '特征与互动偏好'], ['speakingStyle', '表达与说话风格'], ['boundaries', '可能的边界'], ['evidence', '引用证据与推测依据'] ];
   return `${heading('人设', '创建、编辑角色，或从聊天记录生成草稿。', '人设管理', `<label class="button btn-scroll file-select">${icon('upload')}<span>导入角色卡</span><input id="import-persona-card-file" type="file" accept=".json,application/json" style="display:none"></label>` + button('角色关系', 'open-relationships', { kind: 'btn-scroll', iconName: 'users' }) + button('创建角色', 'create-persona', { kind: 'primary', iconName: 'plus' }))}
-    <div class="studio-grid"><section aria-label="我的角色"><div class="card-header"><h2>我的角色</h2><span class="small-label">${state.data.personas.length} 个角色</span></div><div class="stack persona-list">${state.data.personas.length ? state.data.personas.map(p => `<article class="card persona-card" data-persona-card="${e(p.id)}"><div class="persona-card-head"><button type="button" class="avatar-edit-trigger" data-action="edit-persona" data-id="${e(p.id)}" title="点击更换头像或编辑角色" aria-label="更换${e(p.name)}的头像">${renderPersonaAvatar(p)}</button><div><h3>${e(p.name)}</h3><span class="micro muted">创建于 ${e(date(p.createdAt, false))}</span></div></div><p class="plain-text">${e(p.description || '还没有简介，可以在编辑中写下角色的故事。')}</p>${p.tone ? `<span class="pill">${e(p.tone)}</span>` : ''}<div class="card-actions">${button('开始对话', 'chat-as-persona', { id: p.id, kind: 'small', iconName: 'chat' })}${button('关系', 'open-relationships', { id: p.id, kind: 'subtle small', iconName: 'users' })}${button('导出角色卡', 'export-persona-card', { id: p.id, kind: 'subtle small', iconName: 'download' })}${button('编辑', 'edit-persona', { id: p.id, kind: 'subtle small', iconName: 'edit' })}</div></article>`).join('') : `<div class="card">${empty('personas', '一个名字，一种陪伴', '创建角色后即可开始对话，每个角色拥有独立的长期记忆。')}</div>`}</div></section>
+    <div class="studio-grid"><section aria-label="我的角色"><div class="card-header"><h2>我的角色</h2><span class="small-label">${state.data.personas.length} 个角色</span></div><div class="stack persona-list">${state.data.personas.length ? state.data.personas.map(p => `<article class="card persona-card" data-persona-card="${e(p.id)}"><div class="persona-card-head"><button type="button" class="avatar-edit-trigger" data-action="edit-persona" data-id="${e(p.id)}" title="点击更换头像或编辑角色" aria-label="更换${e(p.name)}的头像">${renderPersonaAvatar(p)}</button><div><h3>${e(p.name)}</h3><span class="micro muted">创建于 ${e(date(p.createdAt, false))}</span></div></div><p class="plain-text">${e(p.description || '还没有简介，可以在编辑中写下角色的故事。')}</p>${p.tone ? `<span class="pill">${e(p.tone)}</span>` : ''}${p.model ? `<span class="pill" title="该角色使用专属模型">模型：${e(p.model)}</span>` : ''}<div class="card-actions">${button('开始对话', 'chat-as-persona', { id: p.id, kind: 'small', iconName: 'chat' })}${button('关系', 'open-relationships', { id: p.id, kind: 'subtle small', iconName: 'users' })}${button('导出角色卡', 'export-persona-card', { id: p.id, kind: 'subtle small', iconName: 'download' })}${button('编辑', 'edit-persona', { id: p.id, kind: 'subtle small', iconName: 'edit' })}</div></article>`).join('') : `<div class="card">${empty('personas', '一个名字，一种陪伴', '创建角色后即可开始对话，每个角色拥有独立的长期记忆。')}</div>`}</div></section>
     <section class="card card-pad"><div class="card-header"><h2>从对话中认识一个人</h2><span class="pill">人物分析</span></div><p class="small muted">粘贴聊天记录，或选择 UTF-8 文本文件，生成有证据的人设草稿。</p>${notice('点击「分析聊天记录」后，所选文件或粘贴的聊天内容与目标人物会发送至你配置的模型服务。请先获得相关人员授权。', '', 'shield')}
       <form id="analysis-form"><div class="field" style="margin-top:20px"><label for="analysis-target">目标人物 <span>填写记录中的名称或昵称</span></label><input id="analysis-target" name="target" required maxlength="120" placeholder="例如：聊天记录中的「小林」" value="${e(a.target)}"></div><div class="field"><label for="analysis-text">聊天记录</label><textarea id="analysis-text" name="text" rows="9" required maxlength="60000" placeholder="在这里粘贴对话，保留说话者名称，以便区分观察与引用证据。">${e(a.text)}</textarea></div><label class="button small file-select">${icon('upload')}选择 TXT / MD / JSON<input id="analysis-file" type="file" accept=".txt,.md,.json,text/plain,text/markdown,application/json" aria-label="选择待分析的聊天记录文件"${disabled(a.busy)}></label>${a.fileName ? `<p class="file-name">已载入：${e(a.fileName)} · 可继续编辑上方文本</p>` : '<p class="file-name">文件最大 8 MiB；单次分析最多 60,000 字符。选择文件仅载入文本，不会自动分析。</p>'}${errorHTML(a.error)}<div class="form-actions"><button type="submit" class="button primary"${disabled(a.busy)}>${a.busy ? '<span class="spinner"></span>' : icon('spark')}${a.busy ? '正在分析，请稍候…' : '分析聊天记录'}</button></div></form>
       ${a.result ? `<section class="analysis-result" aria-label="人物分析预览"><div class="card-header"><h2>分析预览 · ${e(a.resultTarget)}</h2><span class="pill">尚未创建角色</span></div>${notice('以下为模型基于本次记录的观察与推测，不是确定的人格结论或心理诊断。请核对原文证据，再决定哪些内容值得保留。', 'warning')}${analysisFields.map(([key, label]) => `<div class="analysis-section"><h3>${e(label)}</h3>${analysisContent(a.result[key])}</div>`).join('')}<div class="analysis-section"><h3>人设提示词草稿</h3><pre class="plain-text">${e(text(a.result.personaPrompt) || '模型未提供提示词，可在下一步手动填写。')}</pre></div>${button('编辑草稿并确认创建', 'use-analysis', { kind: 'primary', iconName: 'edit' })}<p class="micro muted" style="margin:10px 0 0">下一步仍可修改；只有点击「确认创建角色」才会保存。</p></section>` : ''}
@@ -2448,6 +2482,7 @@ async function maintainMemories() {
 function runStatus(status) {
   if (['success', 'completed', 'ok'].includes(status)) return ['成功', 'success'];
   if (['failed', 'error'].includes(status)) return ['失败', 'danger'];
+  if (status === 'paused_quota') return ['限流暂停', 'warning'];
   if (['running', 'pending'].includes(status)) return ['执行中', 'warning'];
   return [status || '未知状态', ''];
 }
@@ -2457,8 +2492,14 @@ function renderRun(run) {
 }
 function renderTasks() {
   const runs = [...state.data.runs].sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
+  const pausedRuns = state.data.resumableRuns || [];
   return `${heading('任务', '设置提醒、记忆总结或定时 AI 提问。', '定时任务', button('创建任务', 'create-task', { kind: 'primary', iconName: 'plus' }))}
-    <div style="margin-bottom:21px">${notice('任务仅在本地服务运行时执行；服务关闭或电脑休眠时不会推送，重启后过期任务补跑一次。提醒无需模型；总结与 AI 提问会发送相关内容到已配置的模型。', '', 'clock')}</div>
+    <div style="margin-bottom:21px">${notice('任务仅在本地服务运行时执行；服务关闭或电脑休眠时不会推送，重启后过期任务补跑一次。遇到模型 429 限流时会自动保存断点并按冷却时间续跑。', '', 'clock')}</div>
+    ${pausedRuns.length ? `<section class="card card-pad resumable-runs-panel" aria-label="等待额度恢复的断点任务"><div class="card-header"><h2>等待额度恢复的断点任务</h2><span class="pill warning">${pausedRuns.length} 项待续跑</span></div><div class="stack">${pausedRuns.map(r => {
+      const busy = state.busy.has(`resume:${r.id}`) || r.status === 'running';
+      const kindLabel = r.kind === 'group' ? '群聊' : r.kind === 'task' ? '定时任务' : '单聊';
+      return `<article class="resumable-run-banner" style="margin:0" data-resumable-run-id="${e(r.id)}"><div class="resumable-run-info"><strong><span class="pill">${e(kindLabel)}</span> ${e(r.title || '未命名任务')}${r.step ? ` · 第 ${e(r.step)} 步` : ''}</strong><span class="micro muted">预计 ${e(date(r.resumeAt))} 自动继续${r.modelOverride ? ` · 模型：${e(r.modelOverride)}` : ''} · ${e(r.lastError || '模型限流')}</span></div><div class="resumable-run-actions">${r.conversationId ? button('查看对话', 'open-conversation-from-run', { id: r.conversationId, kind: 'small' }) : ''}${button(busy ? '恢复中…' : '立即继续', 'resume-run-now', { id: r.id, kind: 'small primary', iconName: 'play', busy })}${button('调整/换模型', 'edit-resumable-run', { id: r.id, kind: 'small btn-scroll', busy })}${button('取消', 'cancel-resumable-run', { id: r.id, kind: 'small', busy })}</div></article>`;
+    }).join('')}</div></section>` : ''}
     <div class="two-column"><section aria-label="任务列表"><div class="card-header"><h2>我的任务</h2><span class="small-label">${state.data.tasks.filter(t => t.enabled).length} ENABLED / ${state.data.tasks.length} TOTAL</span></div><div class="task-list">${state.data.tasks.length ? state.data.tasks.map(t => {
       const busy = state.busy.has(`task:${t.id}`) || t.running;
       const latest = runs.find(r => r.taskId === t.id);
@@ -2536,7 +2577,7 @@ function renderSettings() {
   const s = state.settingsDraft;
   const apiKeySet = Boolean(state.data.settings.hasApiKey);
   return `${heading('设置', '配置模型、记忆、回复、媒体与邮件服务。', '应用设置', '<button type="button" class="button" data-guide-action="open">配置指南</button>')}${guidesUI.renderEntry()}
-    <div class="settings-grid"><form id="settings-form"><section class="card settings-card"><h2><span class="section-number">01</span>模型连接</h2><div class="field"><label for="settings-baseUrl">Base URL <span>OpenAI 兼容服务地址</span></label><input id="settings-baseUrl" type="url" name="baseUrl" required maxlength="500" value="${e(s.baseUrl)}" placeholder="例如：https://api.openai.com/v1" autocomplete="off" spellcheck="false"><small>填写服务文档指定的基础地址，通常以 /v1 结尾。也支持本机部署的兼容服务。</small></div><div class="field"><label for="settings-model">模型名称</label><input id="settings-model" name="model" maxlength="160" value="${e(s.model)}" placeholder="填写服务商提供的模型 ID" autocomplete="off" spellcheck="false"></div><div class="field"><label for="settings-intentMode">聊天理解模式</label><select id="settings-intentMode" name="intentMode"><option value="legacy"${selected(s.intentMode, 'legacy')}>兼容模式</option><option value="semantic"${selected(s.intentMode, 'semantic')}>语义模式（试用）</option></select><small>语义模式先分析意图并检索，再生成回答，每轮通常调用模型两次。可随时切回兼容模式。</small></div><div class="field"><label for="settings-musicToolMode">点歌调用方式</label><select id="settings-musicToolMode" name="musicToolMode" aria-describedby="settings-musicToolMode-hint"><option value="tags"${selected(s.musicToolMode, 'tags')}>文本标签（兼容模式）</option><option value="native"${selected(s.musicToolMode, 'native')}>原生工具调用</option></select><small id="settings-musicToolMode-hint">默认使用文本标签，保留现有服务商行为。原生模式需模型支持 tools，每次点歌最多一次检索、两次模型请求；服务错误不会自动切换重试。歌曲始终点击才播放；普通连接测试不验证工具能力。</small></div><div class="field"><label for="settings-apiKey">API Key <span>${apiKeySet ? '服务端已有密钥，不会下发到页面' : '服务端尚无密钥，本地模型可不需要'}</span></label><input id="settings-apiKey" type="password" name="apiKey" maxlength="2000" value="${e(s.apiKey)}" placeholder="留空保留当前密钥" autocomplete="new-password" spellcheck="false"${disabled(s.clearApiKey)}><small id="settings-key-hint" class="${s.clearApiKey?'inline-error':''}">${e(keyIntentHint())}</small></div><label class="checkbox-label"><input id="settings-clearApiKey" name="clearApiKey" type="checkbox"${checked(s.clearApiKey)}>清除本机模型密钥（保存后生效）</label>${notice('空白密钥表示保持原值；清除后不会再使用环境变量中的模型 Key。', '', 'lock')}<div class="card-actions">${button('保存模型配置', 'save-model-settings', { iconName: 'check', busy: state.testBusy || state.settingsSaving })}${button(modelTestLabel(), modelSettingsDirty()?'save-test-settings':'test-settings', { iconName: 'play', busy: state.testBusy || state.settingsSaving, extra:'id="settings-model-test"' })}<span id="settings-model-test-hint" class="micro muted">${e(modelTestHint())}</span></div>${state.testResult ? `<div id="settings-model-result" class="${state.testResult.ok ? 'inline-success' : 'inline-error'}" role="status">${e(state.testResult.message || (state.testResult.ok ? '连接测试成功。' : '连接测试失败。'))}</div>` : ''}</section>
+    <div class="settings-grid"><form id="settings-form"><section class="card settings-card"><h2><span class="section-number">01</span>模型连接</h2><div class="field"><label for="settings-baseUrl">Base URL <span>OpenAI 兼容服务地址</span></label><input id="settings-baseUrl" type="url" name="baseUrl" required maxlength="500" value="${e(s.baseUrl)}" placeholder="例如：https://api.openai.com/v1" autocomplete="off" spellcheck="false"><small>填写服务文档指定的基础地址，通常以 /v1 结尾。也支持本机部署的兼容服务。</small></div><div class="field"><label for="settings-model">模型名称</label><div class="field-row" style="align-items:center;gap:8px"><input id="settings-model" name="model" maxlength="160" list="settings-model-list" value="${e(s.model)}" placeholder="填写或选择服务商提供的模型 ID" autocomplete="off" spellcheck="false"><datalist id="settings-model-list">${state.availableModels.map(m => `<option value="${e(m)}"></option>`).join('')}</datalist>${button('获取可用模型', 'fetch-settings-models', { kind: 'small btn-scroll', iconName: 'refresh' })}</div></div><div class="field"><label for="settings-intentMode">聊天理解模式</label><select id="settings-intentMode" name="intentMode"><option value="legacy"${selected(s.intentMode, 'legacy')}>兼容模式</option><option value="semantic"${selected(s.intentMode, 'semantic')}>语义模式（试用）</option></select><small>语义模式先分析意图并检索，再生成回答，每轮通常调用模型两次。可随时切回兼容模式。</small></div><div class="field"><label for="settings-musicToolMode">点歌调用方式</label><select id="settings-musicToolMode" name="musicToolMode" aria-describedby="settings-musicToolMode-hint"><option value="tags"${selected(s.musicToolMode, 'tags')}>文本标签（兼容模式）</option><option value="native"${selected(s.musicToolMode, 'native')}>原生工具调用</option></select><small id="settings-musicToolMode-hint">默认使用文本标签，保留现有服务商行为。原生模式需模型支持 tools，每次点歌最多一次检索、两次模型请求；服务错误不会自动切换重试。歌曲始终点击才播放；普通连接测试不验证工具能力。</small></div><div class="field"><label for="settings-apiKey">API Key <span>${apiKeySet ? '服务端已有密钥，不会下发到页面' : '服务端尚无密钥，本地模型可不需要'}</span></label><input id="settings-apiKey" type="password" name="apiKey" maxlength="2000" value="${e(s.apiKey)}" placeholder="留空保留当前密钥" autocomplete="new-password" spellcheck="false"${disabled(s.clearApiKey)}><small id="settings-key-hint" class="${s.clearApiKey?'inline-error':''}">${e(keyIntentHint())}</small></div><label class="checkbox-label"><input id="settings-clearApiKey" name="clearApiKey" type="checkbox"${checked(s.clearApiKey)}>清除本机模型密钥（保存后生效）</label>${notice('空白密钥表示保持原值；清除后不会再使用环境变量中的模型 Key。', '', 'lock')}<div class="card-actions">${button('保存模型配置', 'save-model-settings', { iconName: 'check', busy: state.testBusy || state.settingsSaving })}${button(modelTestLabel(), modelSettingsDirty()?'save-test-settings':'test-settings', { iconName: 'play', busy: state.testBusy || state.settingsSaving, extra:'id="settings-model-test"' })}<span id="settings-model-test-hint" class="micro muted">${e(modelTestHint())}</span></div>${state.testResult ? `<div id="settings-model-result" class="${state.testResult.ok ? 'inline-success' : 'inline-error'}" role="status">${e(state.testResult.message || (state.testResult.ok ? '连接测试成功。' : '连接测试失败。'))}</div>` : ''}</section>
       <section class="card settings-card"><h2><span class="section-number">02</span>记忆设置</h2><div class="field-row"><div class="field"><label for="settings-memoryMessageThreshold">总结消息阈值 <span>条</span></label><input id="settings-memoryMessageThreshold" type="number" name="memoryMessageThreshold" required min="2" max="200" step="1" value="${e(s.memoryMessageThreshold)}"><small>会话中未总结的新消息达到该值时触发。</small></div><div class="field"><label for="settings-memoryIntervalHours">总结时间间隔 <span>小时</span></label><input id="settings-memoryIntervalHours" type="number" name="memoryIntervalHours" required min="1" max="720" step="1" value="${e(s.memoryIntervalHours)}"><small>有新消息且距上次总结达到该间隔时触发。</small></div></div><div class="field"><label for="settings-memoryBudget">每个角色的活跃记忆预算 <span>条</span></label><input id="settings-memoryBudget" type="number" name="memoryBudget" required min="10" max="5000" step="1" value="${e(s.memoryBudget)}"><small>超过预算时优先归档低分记忆。固定或处于保护期的条目可能使数量暂时超出预算，不会强制删除。</small></div></section>
       <section class="card settings-card"><h2><span class="section-number">03</span>Agent 推理与指令安全</h2><div class="field-row"><div class="field"><label for="settings-agentMaxSteps">最大推理思考轮数 <span>(0-100 轮)</span></label><input id="settings-agentMaxSteps" type="number" name="agentMaxSteps" required min="0" max="100" step="1" value="${e(s.agentMaxSteps ?? 20)}"><small>设置为 0 则关闭多轮循环推演；1～100 允许复杂任务深入思考与多步工具调用。</small></div><div class="field"><label for="settings-agentSecurityLevel">指令安全检测级别</label><select id="settings-agentSecurityLevel" name="agentSecurityLevel"><option value="standard"${selected(s.agentSecurityLevel, 'standard')}>标准模式（敏感/破坏性操作需同意）</option><option value="strict"${selected(s.agentSecurityLevel, 'strict')}>严格模式（所有工具调用均需确认）</option><option value="loose"${selected(s.agentSecurityLevel, 'loose')}>宽松模式（仅高危系统指令需确认）</option></select><small>写文件、删文档、执行终端命令等指令在实际运行前需人工审批确认。</small></div></div><div class="field-row"><div class="field"><label for="settings-agentDuplicateThreshold">连续调用熔断阈值 <span>次</span></label><input id="settings-agentDuplicateThreshold" type="number" name="agentDuplicateThreshold" required min="1" max="20" step="1" value="${e(s.agentDuplicateThreshold ?? 5)}"><small>检测到连续 5 次执行相同参数工具时触发熔断，防止陷入逻辑死循环。</small></div><div class="field"><label for="settings-agentFailureThreshold">连续失败阻断阈值 <span>次</span></label><input id="settings-agentFailureThreshold" type="number" name="agentFailureThreshold" required min="1" max="20" step="1" value="${e(s.agentFailureThreshold ?? 5)}"><small>工具调用连续异常 5 次时阻断重试，强制总结回答避免资源消耗。</small></div></div><div class="field-row"><div class="field"><label for="settings-criticEnabled">回答意图对齐审核器</label><select id="settings-criticEnabled" name="criticEnabled"><option value="true"${selected(String(s.criticEnabled ?? true), 'true')}>开启（回答后核验意图，未通过时自动反思）</option><option value="false"${selected(String(s.criticEnabled ?? true), 'false')}>关闭（直接输出候选回答，响应速度优先）</option></select><small>由独立 Critic 审核模型比对用户意图与工具事实，确保多目标任务不遗漏、数值准确。</small></div><div class="field"><label for="settings-criticMaxRetries">审核未通过时最大反思轮数 <span>(0-2 轮)</span></label><input id="settings-criticMaxRetries" type="number" name="criticMaxRetries" required min="0" max="2" step="1" value="${e(s.criticMaxRetries ?? 1)}"><small>审核判定不符合用户预期时，注入改进建议要求模型重思的上限轮数。</small></div></div></section>
       <section class="card settings-card garden-controls garden-appearance-card" aria-label="外观与主题设置"><h2><span class="section-number">04</span>园林外观与主题</h2><div class="field"><label>界面风格 <span>可在新版园林与原有界面之间随时切换</span></label><div class="theme-options ui-style-options" role="group" aria-label="界面风格"><button type="button" class="button small inspector-btn btn-scroll" data-ui-style-select="v4" aria-pressed="true">新园林（v4）</button><button type="button" class="button small inspector-btn btn-scroll" data-ui-style-select="classic" aria-pressed="false">原有风格</button></div><small>「新园林（v4）」采用花窗隔扇、多宝阁看板、折扇工具栏与器物气泡；「原有风格」完整保留原版界面。</small></div><div class="field"><label>界面主题 <span>春园 / 秋庭 / 夜雨三套配色</span></label><div class="theme-options garden-theme-cards" role="group" aria-label="界面主题"><button type="button" class="button small inspector-btn btn-leaf theme-card-btn" data-garden-theme-select="spring" aria-pressed="true"><span class="theme-mini-window" aria-hidden="true"><svg viewBox="0 0 64 64"><rect width="64" height="64" fill="#d9e8e0"/><circle cx="48" cy="16" r="6" fill="#f7e7c2"/><path d="M0 44 Q18 28 36 37 T64 33 L64 64 L0 64 Z" fill="#2d5f53"/><circle cx="48" cy="26" r="2.8" fill="#d96b64"/></svg></span><span>春园</span></button><button type="button" class="button small inspector-btn btn-leaf theme-card-btn" data-garden-theme-select="autumn" aria-pressed="false"><span class="theme-mini-window" aria-hidden="true"><svg viewBox="0 0 64 64"><rect width="64" height="64" fill="#f5e3c6"/><circle cx="46" cy="16" r="7" fill="#e69d52"/><path d="M0 44 Q20 28 38 37 T64 33 L64 64 L0 64 Z" fill="#8f452c"/><circle cx="16" cy="22" r="4.5" fill="#c4442f"/></svg></span><span>秋庭</span></button><button type="button" class="button small inspector-btn btn-leaf theme-card-btn" data-garden-theme-select="night" aria-pressed="false"><span class="theme-mini-window" aria-hidden="true"><svg viewBox="0 0 64 64"><rect width="64" height="64" fill="#171d1e"/><circle cx="45" cy="16" r="7" fill="#f3dfb2"/><ellipse cx="17" cy="20" rx="4.5" ry="5.5" fill="#c74636" stroke="#efd298" stroke-width="0.8"/><path d="M0 46 Q20 34 38 41 T64 37 L64 64 L0 64 Z" fill="#2c5953"/></svg></span><span>夜雨</span></button></div><small>春园为暖宣青绿日间；秋庭为霜枫暖金傍晚；夜雨为黑漆螺钿暗色护眼。</small></div><div class="field"><label>动态与显示</label><div class="inspector-controls garden-setting-actions"><button type="button" class="button small inspector-btn btn-scroll" data-garden-action="scenes" aria-pressed="true">场景动画</button><button type="button" class="button small inspector-btn btn-scroll" data-garden-action="focus" aria-pressed="false">专注模式</button><button type="button" class="button small inspector-btn btn-scroll" data-garden-action="entrance">重播入场</button></div><small>控制场景动效播放与暂停；开启「专注模式」可隐藏侧边装饰并拓宽对话阅读区。</small></div></section>
@@ -2725,6 +2766,9 @@ function openPersonaEditor(persona, fromAnalysis = false) {
     ${field('persona-name', '角色名称', `<input id="persona-name" name="name" required maxlength="60" value="${e(draft.name)}" placeholder="给这位伙伴一个名字">`)}
     ${field('persona-description', '简介', `<textarea id="persona-description" name="description" maxlength="300" rows="2" placeholder="用一两句话介绍 TA…">${e(draft.description)}</textarea>`, '最多 300 个字符。')}
     ${field('persona-tone', '说话语气', `<input id="persona-tone" name="tone" maxlength="200" value="${e(draft.tone)}" placeholder="例如：温和、清晰，适度幽默">`)}
+    <div class="field"><label for="persona-model">专属模型 <span>留空则使用全局模型${state.data.settings.model ? `（${e(state.data.settings.model)}）` : ''}</span></label>
+      <div class="field-row" style="align-items:center;gap:8px"><input id="persona-model" name="model" maxlength="160" list="persona-model-list" value="${e(draft.model || '')}" placeholder="填写或选择模型 ID，例如 gpt-4o-mini" autocomplete="off" spellcheck="false"><datalist id="persona-model-list">${state.availableModels.map(m => `<option value="${e(m)}"></option>`).join('')}</datalist>${button('获取可用模型', 'fetch-persona-models', { kind: 'small btn-scroll', iconName: 'refresh' })}</div>
+      <small>与全局设置共用同一 Base URL 与 API Key；单聊、群聊中该角色的回复都会使用此模型。</small></div>
     ${field('persona-greeting', '开场白', `<textarea id="persona-greeting" name="greeting" maxlength="1000" rows="2" placeholder="第一次开始对话时，想对你说些什么？">${e(draft.greeting)}</textarea>`)}
     ${field('persona-systemPrompt', '人设系统提示词', `<textarea id="persona-systemPrompt" name="systemPrompt" class="large-textarea" required maxlength="8000" rows="6" placeholder="描述角色的身份、表达方式、回应偏好与边界…">${e(draft.systemPrompt)}</textarea>`, '最多 8000 个字符。人设会参与模型请求，但不能覆盖应用的隐私和安全边界。')}`, persona ? '保存修改' : '确认创建角色', { type: 'persona', id: persona?.id });
 }
@@ -2839,12 +2883,22 @@ async function submitDialog() {
       $('input[type="password"]', form).value = '';
       successMessage = '模型信息已保存。可先测试连接，再继续发送保留的第一句话。';
     } else if (config.type === 'persona') {
-      const payload = { name: values.name.trim(), avatar: (values.avatar || '').trim(), description: values.description.trim(), tone: values.tone.trim(), greeting: values.greeting.trim(), systemPrompt: values.systemPrompt.trim() };
+      const payload = { name: values.name.trim(), avatar: (values.avatar || '').trim(), description: values.description.trim(), tone: values.tone.trim(), greeting: values.greeting.trim(), systemPrompt: values.systemPrompt.trim(), model: (values.model || '').trim() };
       if (!payload.name || !payload.systemPrompt) throw new Error('角色名称和系统提示词不能为空。');
       const { persona } = await api(config.id ? `/personas/${endpointId(config.id)}` : '/personas', config.id ? 'PUT' : 'POST', payload);
       if (config.id) state.data.personas = state.data.personas.map(p => p.id === config.id ? persona : p);
       else { state.data.personas.push(persona); if (!state.personaId) state.personaId = persona.id; }
       successMessage = config.id ? '角色已更新。' : `已创建角色「${persona.name}」。`;
+    } else if (config.type === 'resumable-run') {
+      const resumeLocal = values.resumeAt;
+      const resumeIso = resumeLocal ? new Date(resumeLocal).toISOString() : undefined;
+      const payload = {
+        ...(resumeIso ? { resumeAt: resumeIso } : {}),
+        modelOverride: (values.modelOverride || '').trim()
+      };
+      const res = await api(`/resumable-runs/${endpointId(config.id)}`, 'PUT', payload);
+      if (state.data) state.data.resumableRuns = res.resumableRuns || [];
+      successMessage = '断点恢复时间与模型设置已更新。';
     } else if (config.type === 'group-chat') {
       const personaIds = formData.getAll('personaIds').map(v => String(v));
       if (personaIds.length < 2) throw new Error('群聊至少需要选择 2 位角色。');
@@ -3483,6 +3537,22 @@ document.addEventListener('click', async event => {
       case 'switch-branch-conversation':
         if (id && id !== state.conversationId) await openConversation(id);
         break;
+      case 'fetch-settings-models':
+      case 'fetch-persona-models': {
+        const isPersona = action === 'fetch-persona-models';
+        const list = isPersona ? $('#persona-model-list', dialog) : $('#settings-model-list');
+        const input = isPersona ? $('#persona-model', dialog) : $('#settings-model');
+        control.disabled = true;
+        try {
+          const res = await api('/models');
+          const models = Array.isArray(res.models) ? res.models : [];
+          state.availableModels = models;
+          if (list) list.innerHTML = models.map(m => `<option value="${e(m)}"></option>`).join('');
+          toast(models.length ? `已获取 ${models.length} 个可用模型，点击输入框即可选择。` : '服务未返回模型列表，请手动填写模型 ID。', models.length ? 'success' : 'info');
+          input?.focus();
+        } finally { control.disabled = false; }
+        break;
+      }
       case 'create-persona': openPersonaEditor(); break;
       case 'edit-persona': openPersonaEditor(state.data.personas.find(p => p.id === id)); break;
       case 'open-persona-profile':
@@ -3672,6 +3742,46 @@ document.addEventListener('click', async event => {
       case 'delete-memory': confirmDelete('memory', id); break;
       case 'maintain-memories': await maintainMemories(); break;
       case 'summarize-memories': openSummaryDialog(); break;
+      case 'resume-run-now': {
+        const busyKey = `resume:${id}`;
+        if (state.busy.has(busyKey)) break;
+        state.busy.add(busyKey);
+        renderPage();
+        try {
+          const res = await api(`/resumable-runs/${endpointId(id)}/resume`, 'POST', {});
+          if (state.data && Array.isArray(res.resumableRuns)) state.data.resumableRuns = res.resumableRuns;
+          if (res.status === 'completed') {
+            toast('断点任务已恢复并完成。', 'success');
+            if (state.conversationId) await loadConversation(state.conversationId);
+          } else if (res.status === 'paused_quota') {
+            toast(`仍然受限流影响，已延后至 ${date(res.pausedRun?.resumeAt)} 自动继续。`, 'info');
+          }
+          await refreshData({ silent: true });
+        } finally {
+          state.busy.delete(busyKey);
+          renderPage();
+        }
+        break;
+      }
+      case 'edit-resumable-run': {
+        const run = (state.data?.resumableRuns || []).find(r => r.id === id);
+        if (!run) break;
+        openDialog('调整断点恢复计划', `
+          ${field('resumable-resumeAt', '自动恢复时间 · 本地时间', `<input id="resumable-resumeAt" name="resumeAt" type="datetime-local" required value="${e(localDateInput(run.resumeAt))}">`)}
+          ${field('resumable-modelOverride', '指定续跑模型（选填）', `<input id="resumable-modelOverride" name="modelOverride" maxlength="160" list="resumable-model-list" value="${e(run.modelOverride || '')}" placeholder="留空沿用原模型；可临时切换其他模型继续" autocomplete="off"><datalist id="resumable-model-list">${state.availableModels.map(m => `<option value="${e(m)}"></option>`).join('')}</datalist>`)}
+        `, '保存调整', { type: 'resumable-run', id: run.id });
+        break;
+      }
+      case 'cancel-resumable-run': {
+        const res = await api(`/resumable-runs/${endpointId(id)}`, 'DELETE', {});
+        if (state.data && Array.isArray(res.resumableRuns)) state.data.resumableRuns = res.resumableRuns;
+        toast('已取消该断点任务。');
+        renderPage();
+        break;
+      }
+      case 'open-conversation-from-run':
+        await jumpToConversationMessage(id, null);
+        break;
       case 'create-task': openTaskEditor(); break;
       case 'edit-task': openTaskEditor(state.data.tasks.find(t => t.id === id)); break;
       case 'toggle-task': await taskAction(id, 'toggle'); break;

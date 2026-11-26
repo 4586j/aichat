@@ -29,14 +29,27 @@ function streamingResponse(content,question,signal){
 export async function startOfflineServer({ port = 0, dbPath = ':memory:' } = {}) {
   const calls = { model: [], mail: [], mailVerify: [], media: [], guides: [], blocked: [] };
   const modelFailures = [];
+  const quotaTriggered = new Set();
   let app;
   let petTestTime = Date.now();
   const fetchImpl = async (_url, options) => {
+  if (String(_url).endsWith('/models')) {
+    return new Response(JSON.stringify({
+      data: [{ id: 'offline-ui-test' }, { id: 'qiyi-fast-model' }, { id: 'qiyi-pro-model' }]
+    }), { headers: { 'content-type': 'application/json' } });
+  }
   const request = JSON.parse(options.body);
   calls.model.push(request);
   if (modelFailures.length) return new Response(JSON.stringify({ error: { message: 'Offline model failure' } }), { status: modelFailures.shift(), headers: { 'content-type': 'application/json' } });
   const instruction = request.messages[0].content;
   const question = request.messages.findLast(message => message.role === 'user')?.content || '';
+  if (question.includes('限流断点演示') && !quotaTriggered.has(question)) {
+    quotaTriggered.add(question);
+    return new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
+      status: 429,
+      headers: { 'content-type': 'application/json', 'retry-after': '120' }
+    });
+  }
   const tool = request.messages.findLast(message => message.role === 'tool');
   const hasCriticFeedback = request.messages.some(message => message.role === 'system' && (message.content?.includes('[审核员质检未通过]') || message.content?.includes('[复核改进提示]')));
   if (instruction.includes('你是多角色群聊的场记导演')) {
