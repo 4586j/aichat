@@ -27,7 +27,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -36,7 +37,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -60,7 +60,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qiyi.companion.data.db.KnowledgeDocumentEntity
 import com.qiyi.companion.data.db.MemoryEntity
+import com.qiyi.companion.data.db.MemoryTripleEntity
 import com.qiyi.companion.ui.QiYiViewModel
+import com.qiyi.companion.ui.theme.GardenTagPill
+import com.qiyi.companion.ui.theme.GardenWindowButton
 import com.qiyi.companion.ui.theme.LocalGardenColors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -96,9 +99,9 @@ fun LibraryScreen(
         ) {
             Column {
                 Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                    Text("书阁 · 知识与记忆", style = MaterialTheme.typography.titleMedium, color = garden.ink)
+                    Text("书阁 · 知识、记忆与图谱", style = MaterialTheme.typography.titleMedium, color = garden.ink)
                     Text(
-                        text = "纯离线本地分块检索与长期记忆召回，对话时自动注入上下文",
+                        text = "支持文档导入、网页剪藏、RRF 向量混合检索、固定记忆与关系图谱",
                         style = MaterialTheme.typography.labelSmall,
                         color = garden.muted
                     )
@@ -107,24 +110,17 @@ fun LibraryScreen(
                     selectedTabIndex = subTab,
                     containerColor = garden.paperCard
                 ) {
-                    Tab(
-                        selected = subTab == 0,
-                        onClick = { subTab = 0 },
-                        text = { Text("本地知识库") }
-                    )
-                    Tab(
-                        selected = subTab == 1,
-                        onClick = { subTab = 1 },
-                        text = { Text("长期记忆") }
-                    )
+                    Tab(selected = subTab == 0, onClick = { subTab = 0 }, text = { Text("知识库") })
+                    Tab(selected = subTab == 1, onClick = { subTab = 1 }, text = { Text("记忆库") })
+                    Tab(selected = subTab == 2, onClick = { subTab = 2 }, text = { Text("关系图谱") })
                 }
             }
         }
 
-        if (subTab == 0) {
-            KnowledgeTabContent(viewModel = viewModel)
-        } else {
-            MemoryTabContent(viewModel = viewModel)
+        when (subTab) {
+            0 -> KnowledgeTabContent(viewModel = viewModel)
+            1 -> MemoryTabContent(viewModel = viewModel)
+            else -> MemoryGraphTabContent(viewModel = viewModel)
         }
     }
 }
@@ -134,11 +130,13 @@ private fun KnowledgeTabContent(viewModel: QiYiViewModel) {
     val context = LocalContext.current
     val documents by viewModel.knowledgeDocuments.collectAsStateWithLifecycle()
     val searchResults by viewModel.knowledgeSearchResults.collectAsStateWithLifecycle()
+    val isClippingWeb by viewModel.isClippingWeb.collectAsStateWithLifecycle()
     val garden = LocalGardenColors.current
     val formatter = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var showPasteDialog by remember { mutableStateOf(false) }
+    var showClipDialog by remember { mutableStateOf(false) }
 
     val fileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -171,24 +169,24 @@ private fun KnowledgeTabContent(viewModel: QiYiViewModel) {
         item(key = "actions") {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Button(
+                GardenWindowButton(
+                    text = "导入文件",
+                    primary = true,
                     onClick = { fileLauncher.launch(arrayOf("text/markdown", "text/plain", "*/*")) },
                     modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("导入 MD/TXT")
-                }
-                OutlinedButton(
+                )
+                GardenWindowButton(
+                    text = "网页剪藏",
+                    onClick = { showClipDialog = true },
+                    modifier = Modifier.weight(1f)
+                )
+                GardenWindowButton(
+                    text = "手动笔记",
                     onClick = { showPasteDialog = true },
                     modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("手动录入笔记")
-                }
+                )
             }
         }
 
@@ -204,7 +202,7 @@ private fun KnowledgeTabContent(viewModel: QiYiViewModel) {
                         searchQuery = it
                         if (it.isBlank()) viewModel.searchKnowledge("")
                     },
-                    placeholder = { Text("测试本地离线检索关键词…") },
+                    placeholder = { Text("测试本地/混合检索关键词…") },
                     singleLine = true,
                     modifier = Modifier.weight(1f)
                 )
@@ -219,23 +217,23 @@ private fun KnowledgeTabContent(viewModel: QiYiViewModel) {
                 Text(
                     text = "命中片段（${searchResults.size} 条）",
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = garden.bamboo,
                     fontWeight = FontWeight.SemiBold
                 )
             }
             items(searchResults, key = { "hit_${it.chunk.id}" }) { hit ->
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-                    border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
+                    shape = RoundedCornerShape(10.dp),
+                    color = garden.bambooSoft,
+                    border = BorderStroke(0.8.dp, garden.lineStrong)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
                             text = "《${hit.chunk.documentTitle}》 · 片段 #${hit.chunk.chunkIndex + 1}",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = garden.bamboo
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -253,7 +251,7 @@ private fun KnowledgeTabContent(viewModel: QiYiViewModel) {
             Text(
                 text = "已藏文档（${documents.size} 篇）",
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = garden.muted
             )
         }
 
@@ -261,14 +259,14 @@ private fun KnowledgeTabContent(viewModel: QiYiViewModel) {
             item(key = "empty_docs") {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(0.8.dp, garden.subtleBorder)
+                    shape = RoundedCornerShape(12.dp),
+                    color = garden.paperCard,
+                    border = BorderStroke(0.8.dp, garden.line)
                 ) {
                     Text(
-                        text = "书阁尚空。导入本地 Markdown 或文本笔记后，你在对话中提问时会自动离线检索最相关片段作为参考。",
+                        text = "书阁尚空。导入本地文档或剪藏网页后，对话提问时会自动检索最相关片段并在回复下方生成可点击 [1] 引用溯源角标。",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = garden.muted,
                         modifier = Modifier.padding(16.dp)
                     )
                 }
@@ -277,9 +275,9 @@ private fun KnowledgeTabContent(viewModel: QiYiViewModel) {
             items(documents, key = { it.id }) { doc: KnowledgeDocumentEntity ->
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(0.8.dp, garden.subtleBorder)
+                    shape = RoundedCornerShape(12.dp),
+                    color = garden.paperCard,
+                    border = BorderStroke(0.8.dp, garden.line)
                 ) {
                     Row(
                         modifier = Modifier
@@ -288,31 +286,27 @@ private fun KnowledgeTabContent(viewModel: QiYiViewModel) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Description,
+                            imageVector = if (doc.sourceName.startsWith("http")) Icons.Default.Language else Icons.Default.Description,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = garden.bamboo
                         )
                         Spacer(Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = doc.title,
                                 style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
+                                color = garden.ink,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = "${doc.chunkCount} 个片段 · ${doc.charCount} 字 · ${formatter.format(Date(doc.createdAt))}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = garden.muted
                             )
                         }
                         IconButton(onClick = { viewModel.deleteKnowledgeDocument(doc) }) {
-                            Icon(
-                                imageVector = Icons.Default.DeleteOutline,
-                                contentDescription = "删除文档",
-                                tint = MaterialTheme.colorScheme.error
-                            )
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "删除文档", tint = garden.cinnabar)
                         }
                     }
                 }
@@ -356,14 +350,40 @@ private fun KnowledgeTabContent(viewModel: QiYiViewModel) {
                         }
                     },
                     enabled = body.isNotBlank()
-                ) {
-                    Text("保存并分块")
-                }
+                ) { Text("保存并分块") }
             },
             dismissButton = {
-                TextButton(onClick = { showPasteDialog = false }) {
-                    Text("取消")
+                TextButton(onClick = { showPasteDialog = false }) { Text("取消") }
+            }
+        )
+    }
+
+    if (showClipDialog) {
+        var url by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showClipDialog = false },
+            title = { Text("网页剪藏入库") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("粘贴文章链接，自动清洗 HTML 正文并分块存入书阁知识库。", style = MaterialTheme.typography.bodySmall, color = garden.muted)
+                    OutlinedTextField(
+                        value = url,
+                        onValueChange = { url = it },
+                        label = { Text("网页 URL") },
+                        placeholder = { Text("https://example.com/article") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.clipWebPage(url) { showClipDialog = false } },
+                    enabled = url.isNotBlank() && !isClippingWeb
+                ) { Text(if (isClippingWeb) "抓取中…" else "开始剪藏") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClipDialog = false }) { Text("取消") }
             }
         )
     }
@@ -374,109 +394,71 @@ private fun MemoryTabContent(viewModel: QiYiViewModel) {
     val memories by viewModel.memories.collectAsStateWithLifecycle()
     val garden = LocalGardenColors.current
 
+    val pinnedMemories = remember(memories) { memories.filter { it.isPinned } }
+    val activeMemories = remember(memories) { memories.filter { !it.isPinned } }
+
     var editingMemory by remember { mutableStateOf<MemoryEntity?>(null) }
     var showMemoryDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item(key = "add_memory_btn") {
-            Button(
+            GardenWindowButton(
+                text = "+ 新增长期记忆",
+                primary = true,
                 onClick = {
                     editingMemory = null
                     showMemoryDialog = true
                 },
                 modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("新增长期记忆")
+            )
+        }
+
+        if (pinnedMemories.isNotEmpty()) {
+            item(key = "pinned_hdr") {
+                Text("固定记忆（${pinnedMemories.size} 条 · 每轮对话优先常驻）", style = MaterialTheme.typography.labelMedium, color = garden.gold)
+            }
+            items(pinnedMemories, key = { it.id }) { mem ->
+                MemoryCard(
+                    mem = mem,
+                    onTogglePin = { viewModel.toggleMemoryPinned(mem) },
+                    onEdit = { editingMemory = mem; showMemoryDialog = true },
+                    onDelete = { viewModel.deleteMemory(mem) }
+                )
             }
         }
 
-        if (memories.isEmpty()) {
+        item(key = "active_hdr") {
+            Text("活跃记忆（${activeMemories.size} 条 · 按关键词与重要度动态召回）", style = MaterialTheme.typography.labelMedium, color = garden.muted)
+        }
+
+        if (activeMemories.isEmpty() && pinnedMemories.isEmpty()) {
             item(key = "empty_memories") {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(0.8.dp, garden.subtleBorder)
+                    shape = RoundedCornerShape(12.dp),
+                    color = garden.paperCard,
+                    border = BorderStroke(0.8.dp, garden.line)
                 ) {
                     Text(
-                        text = "尚未记录长期记忆。你可以手动添加自己的偏好与背景，或在对话气泡下方点击「记住」一键收录。",
+                        text = "尚未记录长期记忆。可手动添加偏好与背景，或在对话回复下方点击「记住」一键收录。",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = garden.muted,
                         modifier = Modifier.padding(16.dp)
                     )
                 }
             }
         } else {
-            items(memories, key = { it.id }) { mem ->
-                val catLabel = MemoryCategories.firstOrNull { it.first == mem.category }?.second ?: mem.category
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(0.8.dp, garden.subtleBorder)
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = MaterialTheme.colorScheme.secondaryContainer
-                                ) {
-                                    Text(
-                                        text = catLabel,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                    )
-                                }
-                                Text(
-                                    text = "重要度 ${"★".repeat(mem.importance.coerceIn(1, 5))}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = garden.goldAccent
-                                )
-                            }
-                            Row {
-                                IconButton(
-                                    onClick = {
-                                        editingMemory = mem
-                                        showMemoryDialog = true
-                                    },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(16.dp))
-                                }
-                                IconButton(
-                                    onClick = { viewModel.deleteMemory(mem) },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.DeleteOutline,
-                                        contentDescription = "删除",
-                                        modifier = Modifier.size(16.dp),
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        HorizontalDivider(color = garden.subtleBorder)
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            text = mem.content,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                }
+            items(activeMemories, key = { it.id }) { mem ->
+                MemoryCard(
+                    mem = mem,
+                    onTogglePin = { viewModel.toggleMemoryPinned(mem) },
+                    onEdit = { editingMemory = mem; showMemoryDialog = true },
+                    onDelete = { viewModel.deleteMemory(mem) }
+                )
             }
         }
     }
@@ -491,10 +473,162 @@ private fun MemoryTabContent(viewModel: QiYiViewModel) {
                     personaId = editingMemory?.personaId,
                     category = category,
                     content = content,
-                    importance = importance
-                ) {
-                    showMemoryDialog = false
+                    importance = importance,
+                    isPinned = editingMemory?.isPinned ?: false
+                ) { showMemoryDialog = false }
+            }
+        )
+    }
+}
+
+@Composable
+private fun MemoryCard(
+    mem: MemoryEntity,
+    onTogglePin: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val garden = LocalGardenColors.current
+    val catLabel = MemoryCategories.firstOrNull { it.first == mem.category }?.second ?: mem.category
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = garden.paperCard,
+        border = BorderStroke(if (mem.isPinned) 1.2.dp else 0.8.dp, if (mem.isPinned) garden.gold else garden.line)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    GardenTagPill(text = catLabel, accent = garden.ink, background = garden.goldSoft)
+                    if (mem.isPinned) {
+                        GardenTagPill(text = "固定", accent = garden.paperCard, background = garden.gold)
+                    }
+                    Text(
+                        text = "★".repeat(mem.importance.coerceIn(1, 5)),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = garden.gold
+                    )
                 }
+                Row {
+                    IconButton(onClick = onTogglePin, modifier = Modifier.size(30.dp)) {
+                        Icon(
+                            Icons.Default.PushPin,
+                            contentDescription = "置顶/取消固定",
+                            modifier = Modifier.size(16.dp),
+                            tint = if (mem.isPinned) garden.gold else garden.muted
+                        )
+                    }
+                    IconButton(onClick = onEdit, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(16.dp), tint = garden.muted)
+                    }
+                    IconButton(onClick = onDelete, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Default.DeleteOutline, contentDescription = "删除", modifier = Modifier.size(16.dp), tint = garden.cinnabar)
+                    }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            HorizontalDivider(color = garden.lineSoft)
+            Spacer(Modifier.height(6.dp))
+            Text(text = mem.content, style = MaterialTheme.typography.bodyMedium, color = garden.text)
+        }
+    }
+}
+
+@Composable
+private fun MemoryGraphTabContent(viewModel: QiYiViewModel) {
+    val triples by viewModel.memoryTriples.collectAsStateWithLifecycle()
+    val garden = LocalGardenColors.current
+    var showAddDialog by remember { mutableStateOf(false) }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item(key = "add_triple_btn") {
+            GardenWindowButton(
+                text = "+ 新增关系三元组（主体 — 关系 → 客体）",
+                primary = true,
+                onClick = { showAddDialog = true },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        if (triples.isEmpty()) {
+            item(key = "empty_triples") {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = garden.paperCard,
+                    border = BorderStroke(0.8.dp, garden.line)
+                ) {
+                    Text(
+                        text = "关系图谱用于记录结构化事实（如「我 — 职业 → 软件工程师」「我 — 偏爱 → 清茶与夜雨」），对话时自动随长期记忆注入。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = garden.muted,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+            }
+        } else {
+            items(triples, key = { it.id }) { triple: MemoryTripleEntity ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    color = garden.paperCard,
+                    border = BorderStroke(0.8.dp, garden.line)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            GardenTagPill(text = triple.subject, accent = garden.paperCard, background = garden.bamboo)
+                            Text("— ${triple.predicate} →", style = MaterialTheme.typography.labelSmall, color = garden.muted)
+                            GardenTagPill(text = triple.objectValue, accent = garden.ink, background = garden.goldSoft)
+                        }
+                        IconButton(onClick = { viewModel.deleteMemoryTriple(triple) }, modifier = Modifier.size(30.dp)) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "删除", tint = garden.cinnabar, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAddDialog) {
+        var subject by remember { mutableStateOf("我") }
+        var predicate by remember { mutableStateOf("") }
+        var obj by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showAddDialog = false },
+            title = { Text("新增关系图谱三元组") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = subject, onValueChange = { subject = it }, label = { Text("主体（如：我）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = predicate, onValueChange = { predicate = it }, label = { Text("关系（如：擅长 / 居住在 / 喜欢）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = obj, onValueChange = { obj = it }, label = { Text("客体（如：Kotlin / 杭州 / 龙井）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.addMemoryTriple(subject, predicate, obj) { showAddDialog = false } },
+                    enabled = subject.isNotBlank() && predicate.isNotBlank() && obj.isNotBlank()
+                ) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddDialog = false }) { Text("取消") }
             }
         )
     }
@@ -537,31 +671,16 @@ private fun MemoryEditorDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
                 Column {
-                    Text(
-                        text = "重要度：${importance.toInt()} / 5",
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                    Slider(
-                        value = importance,
-                        onValueChange = { importance = it },
-                        valueRange = 1f..5f,
-                        steps = 3
-                    )
+                    Text(text = "重要度：${importance.toInt()} / 5", style = MaterialTheme.typography.labelMedium)
+                    Slider(value = importance, onValueChange = { importance = it }, valueRange = 1f..5f, steps = 3)
                 }
             }
         },
         confirmButton = {
-            Button(
-                onClick = { onSave(category, content, importance.toInt()) },
-                enabled = content.isNotBlank()
-            ) {
-                Text("保存")
-            }
+            Button(onClick = { onSave(category, content, importance.toInt()) }, enabled = content.isNotBlank()) { Text("保存") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
-            }
+            TextButton(onClick = onDismiss) { Text("取消") }
         }
     )
 }

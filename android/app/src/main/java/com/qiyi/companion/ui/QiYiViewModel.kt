@@ -6,10 +6,20 @@ import androidx.lifecycle.viewModelScope
 import com.qiyi.companion.data.QiYiRepository
 import com.qiyi.companion.data.db.ConversationEntity
 import com.qiyi.companion.data.db.KnowledgeDocumentEntity
+import com.qiyi.companion.data.db.MailDraftEntity
 import com.qiyi.companion.data.db.MemoryEntity
+import com.qiyi.companion.data.db.MemoryTripleEntity
 import com.qiyi.companion.data.db.MessageEntity
+import com.qiyi.companion.data.db.MusicTrackEntity
 import com.qiyi.companion.data.db.PersonaEntity
+import com.qiyi.companion.data.db.ResumableRunEntity
+import com.qiyi.companion.data.db.ScheduledTaskEntity
+import com.qiyi.companion.data.db.UsageRecordEntity
 import com.qiyi.companion.data.knowledge.KnowledgeHit
+import com.qiyi.companion.data.media.MusicIntentDetector
+import com.qiyi.companion.data.media.MusicPlaybackState
+import com.qiyi.companion.data.media.MusicPlayerController
+import com.qiyi.companion.data.media.StickerCatalog
 import com.qiyi.companion.data.network.ModelServiceException
 import com.qiyi.companion.data.network.StreamChunk
 import com.qiyi.companion.data.prefs.AppSettings
@@ -57,9 +67,52 @@ data class DraftAttachment(
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
+class QiYiViewModel(
+    private val repository: QiYiRepository,
+    private val musicPlayer: MusicPlayerController
+) : ViewModel() {
 
     val settings: StateFlow<AppSettings> = repository.settings
+    val musicState: StateFlow<MusicPlaybackState> = musicPlayer.state
+
+    val musicTracks: StateFlow<List<MusicTrackEntity>> = repository.musicTracks.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    val usageRecords: StateFlow<List<UsageRecordEntity>> = repository.usageRecords.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    val memoryTriples: StateFlow<List<MemoryTripleEntity>> = repository.memoryTriples.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    val scheduledTasks: StateFlow<List<ScheduledTaskEntity>> = repository.scheduledTasks.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    val mailDrafts: StateFlow<List<MailDraftEntity>> = repository.mailDrafts.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    private val _runningTaskId = MutableStateFlow<String?>(null)
+    val runningTaskId: StateFlow<String?> = _runningTaskId.asStateFlow()
+
+    private val _isClippingWeb = MutableStateFlow(false)
+    val isClippingWeb: StateFlow<Boolean> = _isClippingWeb.asStateFlow()
+
+    private val _onlineMusicResults = MutableStateFlow<List<MusicTrackEntity>>(emptyList())
+    val onlineMusicResults: StateFlow<List<MusicTrackEntity>> = _onlineMusicResults.asStateFlow()
 
     val personas: StateFlow<List<PersonaEntity>> = repository.personas.stateIn(
         scope = viewModelScope,
@@ -140,6 +193,48 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
             val defaultPersona = repository.ensureDefaultPersona()
             if (_activePersonaId.value == null) {
                 _activePersonaId.value = defaultPersona.id
+            }
+        }
+        viewModelScope.launch {
+            repository.musicTracks.collect { list ->
+                musicPlayer.updatePlaylist(list)
+            }
+        }
+        // Restore persisted HTTP 429 resumable checkpoints on cold start
+        viewModelScope.launch {
+            val savedRuns = runCatching { repository.listResumableRuns() }.getOrDefault(emptyList())
+            val first = savedRuns.firstOrNull()
+            if (first != null) {
+                val remaining = ((first.resumeAtEpochMs - System.currentTimeMillis()) / 1000L).coerceAtLeast(3L)
+                val pendingIds = first.pendingPersonaIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                if (pendingIds.isNotEmpty()) {
+                    scheduleQuotaResume(
+                        QuotaCheckpointState(
+                            conversationId = first.conversationId,
+                            pendingPersonaIds = pendingIds,
+                            latestQuery = first.latestQuery,
+                            isGroupChat = first.isGroupChat,
+                            remainingSeconds = remaining,
+                            reason = first.reason.ifBlank { "上次限流中断断点已恢复" }
+                        ),
+                        persistToDb = false
+                    )
+                }
+            }
+        }
+        // Lightweight foreground periodic scheduler for enabled tasks
+        viewModelScope.launch {
+            while (true) {
+                delay(60_000L)
+                val now = System.currentTimeMillis()
+                val due = scheduledTasks.value.filter {
+                    it.enabled && (now - it.lastRunAt) >= it.intervalMinutes * 60_000L
+                }
+                for (task in due) {
+                    if (_runningTaskId.value == null && !_streaming.value.isStreaming) {
+                        runCatching { repository.runScheduledTaskNow(task) }
+                    }
+                }
             }
         }
     }
@@ -298,6 +393,7 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
             val imageDataUris = imageAttachments.mapNotNull { it.imageDataUri }
             _draftAttachments.value = emptyList()
             repository.saveUserMessage(convId, fullUserContent)
+            maybeHandleChatMusicIntent(pureQuery)
             runResponderQueue(
                 convId = convId,
                 responderIds = responderIds,
@@ -371,16 +467,21 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
             try {
                 for ((index, pid) in responderIds.withIndex()) {
                     val persona = repository.getPersona(pid) ?: continue
-                    val promptMessages = repository.buildPromptMessages(
+                    val promptContext = repository.buildPromptContext(
                         persona = persona,
                         conversationId = convId,
                         latestQuery = latestQuery,
                         isGroupChat = isGroupChat,
                         latestImageDataUris = latestImageDataUris
                     )
+                    val promptMessages = promptContext.messages
 
                     val contentBuilder = StringBuilder()
                     val reasoningBuilder = StringBuilder()
+                    val toolSteps = mutableListOf<String>()
+                    var promptTok = 0
+                    var completionTok = 0
+                    var totalTok = 0
                     _streaming.value = StreamingState(
                         isStreaming = true,
                         conversationId = convId,
@@ -391,7 +492,8 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
                     )
 
                     try {
-                        repository.streamReply(persona, promptMessages).collect { chunk ->
+                        val useTools = settings.value.toolsEnabled && latestImageDataUris.isEmpty()
+                        repository.streamReply(persona, promptMessages, toolsEnabled = useTools).collect { chunk ->
                             when (chunk) {
                                 is StreamChunk.ContentDelta -> {
                                     contentBuilder.append(chunk.text)
@@ -401,18 +503,47 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
                                     reasoningBuilder.append(chunk.text)
                                     _streaming.value = _streaming.value.copy(reasoning = reasoningBuilder.toString())
                                 }
+                                is StreamChunk.ToolStep -> {
+                                    toolSteps.add(chunk.summary)
+                                    reasoningBuilder.append("\n[工具] ").append(chunk.summary)
+                                    _streaming.value = _streaming.value.copy(reasoning = reasoningBuilder.toString())
+                                }
+                                is StreamChunk.Usage -> {
+                                    promptTok += chunk.promptTokens
+                                    completionTok += chunk.completionTokens
+                                    totalTok += chunk.totalTokens
+                                }
                                 StreamChunk.Done -> Unit
                             }
                         }
                         val finalContent = contentBuilder.toString().trim()
                         val finalReasoning = reasoningBuilder.toString().trim()
                         if (finalContent.isNotEmpty() || finalReasoning.isNotEmpty()) {
+                            val matchedSticker = if (settings.value.stickerEnabled) {
+                                StickerCatalog.matchSticker(latestQuery, finalContent)?.id.orEmpty()
+                            } else {
+                                ""
+                            }
                             repository.saveAssistantMessage(
                                 conversationId = convId,
                                 content = finalContent.ifEmpty { "（模型未返回正文）" },
                                 reasoning = finalReasoning,
                                 senderPersonaId = persona.id,
-                                senderName = persona.name
+                                senderName = persona.name,
+                                stickerId = matchedSticker,
+                                citationsJson = promptContext.citationsJson,
+                                toolTrace = toolSteps.joinToString("\n")
+                            )
+                            val estPrompt = if (promptTok > 0) promptTok else (promptMessages.sumOf { it.content.length } / 2).coerceAtLeast(1)
+                            val estComp = if (completionTok > 0) completionTok else ((finalContent.length + finalReasoning.length) / 2).coerceAtLeast(1)
+                            val estTotal = if (totalTok > 0) totalTok else (estPrompt + estComp)
+                            repository.recordUsage(
+                                conversationId = convId,
+                                personaId = persona.id,
+                                model = repository.effectiveModelFor(persona),
+                                promptTokens = estPrompt,
+                                completionTokens = estComp,
+                                totalTokens = estTotal
                             )
                         }
                     } catch (cancel: CancellationException) {
@@ -459,10 +590,25 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
         }
     }
 
-    private fun scheduleQuotaResume(checkpoint: QuotaCheckpointState) {
+    private fun scheduleQuotaResume(checkpoint: QuotaCheckpointState, persistToDb: Boolean = true) {
         quotaTimerJob?.cancel()
         _quotaCheckpoint.value = checkpoint
-        notify("额度受限已存档，将在 ${checkpoint.remainingSeconds} 秒后自动续跑。")
+        if (persistToDb) {
+            viewModelScope.launch {
+                repository.saveResumableRun(
+                    ResumableRunEntity(
+                        id = "run_${checkpoint.conversationId}",
+                        conversationId = checkpoint.conversationId,
+                        pendingPersonaIds = checkpoint.pendingPersonaIds.joinToString(","),
+                        latestQuery = checkpoint.latestQuery,
+                        isGroupChat = checkpoint.isGroupChat,
+                        resumeAtEpochMs = System.currentTimeMillis() + checkpoint.remainingSeconds * 1000L,
+                        reason = checkpoint.reason
+                    )
+                )
+            }
+        }
+        notify("额度受限已持久化存档，将在 ${checkpoint.remainingSeconds} 秒后自动续跑。")
         quotaTimerJob = viewModelScope.launch {
             var left = checkpoint.remainingSeconds
             while (left > 0) {
@@ -472,6 +618,7 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
             }
             val current = _quotaCheckpoint.value ?: return@launch
             _quotaCheckpoint.value = null
+            repository.deleteResumableRunsForConversation(current.conversationId)
             if (!_streaming.value.isStreaming) {
                 runResponderQueue(
                     convId = current.conversationId,
@@ -487,6 +634,7 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
         val current = _quotaCheckpoint.value ?: return
         quotaTimerJob?.cancel()
         _quotaCheckpoint.value = null
+        viewModelScope.launch { repository.deleteResumableRunsForConversation(current.conversationId) }
         if (!_streaming.value.isStreaming) {
             runResponderQueue(
                 convId = current.conversationId,
@@ -498,9 +646,13 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
     }
 
     fun cancelQuotaCheckpoint() {
+        val prev = _quotaCheckpoint.value
         quotaTimerJob?.cancel()
         quotaTimerJob = null
         _quotaCheckpoint.value = null
+        if (prev != null) {
+            viewModelScope.launch { repository.deleteResumableRunsForConversation(prev.conversationId) }
+        }
     }
 
     fun stopGeneration() {
@@ -612,9 +764,15 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
         }
     }
 
-    fun saveModelSettings(baseUrl: String, defaultModel: String, newApiKey: String?, clearApiKey: Boolean) {
+    fun saveModelSettings(
+        baseUrl: String,
+        defaultModel: String,
+        newApiKey: String?,
+        clearApiKey: Boolean,
+        embeddingModel: String? = null
+    ) {
         runCatching {
-            repository.saveModelSettings(baseUrl, defaultModel, newApiKey, clearApiKey)
+            repository.saveModelSettings(baseUrl, defaultModel, newApiKey, clearApiKey, embeddingModel)
         }.onSuccess {
             notify("模型连接设置已保存（API Key 仅存于系统 Keystore）。")
         }.onFailure {
@@ -684,15 +842,57 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
         category: String,
         content: String,
         importance: Int,
+        isPinned: Boolean = false,
         onSaved: () -> Unit = {}
     ) {
         viewModelScope.launch {
-            runCatching { repository.saveMemory(existingId, personaId, category, content, importance) }
+            runCatching { repository.saveMemory(existingId, personaId, category, content, importance, isPinned) }
                 .onSuccess {
                     notify(if (existingId == null) "已写入长期记忆" else "已更新长期记忆")
                     onSaved()
                 }
                 .onFailure { notify(it.message ?: "保存记忆失败。") }
+        }
+    }
+
+    fun toggleMemoryPinned(memory: MemoryEntity) {
+        viewModelScope.launch {
+            runCatching { repository.setMemoryPinned(memory.id, !memory.isPinned) }
+                .onSuccess { notify(if (!memory.isPinned) "已置顶为固定记忆" else "已移回活跃记忆") }
+                .onFailure { notify(it.message ?: "更新记忆状态失败。") }
+        }
+    }
+
+    fun clipWebPage(url: String, onDone: () -> Unit = {}) {
+        if (_isClippingWeb.value) return
+        viewModelScope.launch {
+            _isClippingWeb.value = true
+            runCatching { repository.clipWebPageToKnowledge(url) }
+                .onSuccess { doc ->
+                    notify("已剪藏《${doc.title}》（${doc.chunkCount} 个片段）")
+                    onDone()
+                }
+                .onFailure { notify(it.message ?: "网页剪藏失败。") }
+            _isClippingWeb.value = false
+        }
+    }
+
+    fun addMemoryTriple(subject: String, predicate: String, objectValue: String, onSaved: () -> Unit = {}) {
+        viewModelScope.launch {
+            runCatching { repository.addMemoryTriple(subject, predicate, objectValue) }
+                .onSuccess {
+                    notify("已添加关系三元组")
+                    onSaved()
+                }
+                .onFailure { notify(it.message ?: "添加关系失败。") }
+        }
+    }
+
+    fun deleteMemoryTriple(triple: MemoryTripleEntity) {
+        viewModelScope.launch {
+            runCatching { repository.deleteMemoryTriple(triple.id) }
+                .onSuccess { notify("已删除关系三元组") }
+                .onFailure { notify(it.message ?: "删除失败。") }
         }
     }
 
@@ -749,16 +949,171 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
         }
     }
 
+    private fun maybeHandleChatMusicIntent(pureQuery: String) {
+        if (!settings.value.musicEnabled) return
+        val songQuery = MusicIntentDetector.extractSongQuery(pureQuery) ?: return
+        viewModelScope.launch {
+            val localMatches = MusicIntentDetector.matchLocalTracks(songQuery, repository.listMusicTracks())
+            if (localMatches.isNotEmpty()) {
+                val track = localMatches.first()
+                musicPlayer.play(track, repository.getMusicApiKey())
+                notify("已为你播放本地曲目《${track.title}》")
+                return@launch
+            }
+            if (settings.value.musicBaseUrl.isNotBlank()) {
+                runCatching { repository.searchOnlineMusic(songQuery) }
+                    .onSuccess { results ->
+                        if (results.isNotEmpty()) {
+                            _onlineMusicResults.value = results
+                            val track = results.first()
+                            musicPlayer.play(track, repository.getMusicApiKey())
+                            notify("已为你点播《${track.title}》")
+                        }
+                    }
+            }
+        }
+    }
+
+    fun importLocalAudio(displayName: String, bytes: ByteArray) {
+        viewModelScope.launch {
+            runCatching {
+                val track = musicPlayer.copyAudioIntoAppStorage(displayName, bytes)
+                repository.saveMusicTrack(track)
+                track
+            }.onSuccess { track ->
+                notify("已导入歌曲《${track.title}》")
+            }.onFailure {
+                notify(it.message ?: "导入音频失败。")
+            }
+        }
+    }
+
+    fun searchMusic(query: String) {
+        val clean = query.trim()
+        if (clean.isEmpty()) {
+            _onlineMusicResults.value = emptyList()
+            return
+        }
+        viewModelScope.launch {
+            val localMatches = MusicIntentDetector.matchLocalTracks(clean, repository.listMusicTracks())
+            if (settings.value.musicBaseUrl.isBlank()) {
+                notify(if (localMatches.isNotEmpty()) "本地曲库找到 ${localMatches.size} 首匹配歌曲。" else "本地曲库无匹配歌曲，可在设置中配置兼容音乐服务或导入本地音频。")
+                return@launch
+            }
+            runCatching { repository.searchOnlineMusic(clean) }
+                .onSuccess { list ->
+                    _onlineMusicResults.value = list
+                    notify(if (list.isEmpty()) "未搜到在线曲目。" else "已搜到 ${list.size} 首在线曲目。")
+                }
+                .onFailure { notify(it.message ?: "在线搜歌失败。") }
+        }
+    }
+
+    fun playTrack(track: MusicTrackEntity) = musicPlayer.play(track, repository.getMusicApiKey())
+    fun togglePlayPause() = musicPlayer.togglePlayPause()
+    fun seekMusic(positionMs: Long) = musicPlayer.seekTo(positionMs)
+    fun playNextTrack() = musicPlayer.playNext(repository.getMusicApiKey())
+    fun playPreviousTrack() = musicPlayer.playPrevious(repository.getMusicApiKey())
+    fun toggleLoopSingle() = musicPlayer.toggleLoopSingle()
+
+    fun deleteTrack(track: MusicTrackEntity) {
+        viewModelScope.launch {
+            if (musicState.value.currentTrack?.id == track.id) musicPlayer.stop()
+            repository.deleteMusicTrack(track)
+            notify("已移除曲目《${track.title}》")
+        }
+    }
+
+    fun setLinkageFlags(
+        musicEnabled: Boolean? = null,
+        stickerEnabled: Boolean? = null,
+        toolsEnabled: Boolean? = null
+    ) {
+        repository.setLinkageFlags(musicEnabled, stickerEnabled, toolsEnabled)
+    }
+
+    fun saveMusicServiceSettings(baseUrl: String, source: String, newApiKey: String?, clearApiKey: Boolean) {
+        repository.saveMusicServiceSettings(baseUrl, source, newApiKey, clearApiKey)
+        notify("音乐服务配置已保存。")
+    }
+
+    fun clearUsageRecords() {
+        viewModelScope.launch {
+            repository.clearUsageRecords()
+            notify("已清空 Token 用量统计。")
+        }
+    }
+
+    fun saveScheduledTask(
+        existingId: String?,
+        personaId: String,
+        title: String,
+        prompt: String,
+        intervalMinutes: Int,
+        enabled: Boolean,
+        onSaved: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            runCatching {
+                repository.saveScheduledTask(existingId, personaId, title, prompt, intervalMinutes, enabled)
+            }.onSuccess {
+                notify(if (existingId == null) "已创建定时任务「${it.title}」" else "已更新任务状态")
+                onSaved()
+            }.onFailure { notify(it.message ?: "保存任务失败。") }
+        }
+    }
+
+    fun runScheduledTaskNow(task: ScheduledTaskEntity) {
+        if (_runningTaskId.value != null) return
+        viewModelScope.launch {
+            _runningTaskId.value = task.id
+            runCatching { repository.runScheduledTaskNow(task) }
+                .onSuccess { notify("定时任务「${task.title}」执行完成。") }
+                .onFailure { notify(it.message ?: "任务执行失败。") }
+            _runningTaskId.value = null
+        }
+    }
+
+    fun deleteScheduledTask(task: ScheduledTaskEntity) {
+        viewModelScope.launch {
+            runCatching { repository.deleteScheduledTask(task.id) }
+                .onSuccess { notify("已删除定时任务「${task.title}」") }
+                .onFailure { notify(it.message ?: "删除任务失败。") }
+        }
+    }
+
+    fun saveMailDraft(
+        existingId: String?,
+        recipient: String,
+        subject: String,
+        body: String,
+        status: String = "draft"
+    ) {
+        viewModelScope.launch {
+            runCatching { repository.saveMailDraft(existingId, recipient, subject, body, status) }
+                .onSuccess { notify(if (status == "sent") "已记录邮件并唤起发送" else "已保存到本地邮件草稿箱") }
+                .onFailure { notify(it.message ?: "保存草稿失败。") }
+        }
+    }
+
+    fun deleteMailDraft(draft: MailDraftEntity) {
+        viewModelScope.launch {
+            runCatching { repository.deleteMailDraft(draft.id) }
+                .onSuccess { notify("已删除邮件草稿") }
+                .onFailure { notify(it.message ?: "删除失败。") }
+        }
+    }
+
     fun notify(message: String) {
         _notices.tryEmit(message)
     }
 
     companion object {
-        fun factory(repository: QiYiRepository): ViewModelProvider.Factory =
+        fun factory(repository: QiYiRepository, musicPlayer: MusicPlayerController): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return QiYiViewModel(repository) as T
+                    return QiYiViewModel(repository, musicPlayer) as T
                 }
             }
     }

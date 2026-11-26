@@ -66,9 +66,16 @@ fun SettingsScreen(
     val context = LocalContext.current
     var baseUrl by remember { mutableStateOf(settings.baseUrl) }
     var defaultModel by remember { mutableStateOf(settings.defaultModel) }
+    var embeddingModel by remember { mutableStateOf(settings.embeddingModel) }
     var apiKeyInput by remember { mutableStateOf("") }
     var clearApiKey by remember { mutableStateOf(false) }
     var pendingBackupJson by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(settings.baseUrl, settings.defaultModel, settings.embeddingModel) {
+        if (baseUrl.isBlank()) baseUrl = settings.baseUrl
+        if (defaultModel.isBlank()) defaultModel = settings.defaultModel
+        if (embeddingModel.isBlank()) embeddingModel = settings.embeddingModel
+    }
 
     val exportBackupLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
@@ -135,6 +142,15 @@ fun SettingsScreen(
                 onValueChange = { defaultModel = it },
                 label = { Text("默认模型 ID") },
                 placeholder = { Text("例如 deepseek-chat / gpt-4o-mini / qwen-plus") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = embeddingModel,
+                onValueChange = { embeddingModel = it },
+                label = { Text("向量检索模型 ID（可选，用于 RRF 混合检索）") },
+                placeholder = { Text("例如 text-embedding-3-small / bge-m3（留空则纯离线词法检索）") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -213,7 +229,8 @@ fun SettingsScreen(
                             baseUrl = baseUrl,
                             defaultModel = defaultModel,
                             newApiKey = apiKeyInput.ifBlank { null },
-                            clearApiKey = clearApiKey
+                            clearApiKey = clearApiKey,
+                            embeddingModel = embeddingModel
                         )
                         apiKeyInput = ""
                         clearApiKey = false
@@ -355,6 +372,71 @@ fun SettingsScreen(
                     modifier = Modifier.weight(1f)
                 )
             }
+        }
+        // Section 05: Optional Compatible Music Service
+        var musicBaseUrl by remember(settings.musicBaseUrl) { mutableStateOf(settings.musicBaseUrl) }
+        var musicSource by remember(settings.musicSource) { mutableStateOf(settings.musicSource) }
+        var musicKeyInput by remember { mutableStateOf("") }
+        var clearMusicKey by remember { mutableStateOf(false) }
+
+        SettingsCard(
+            badge = "05",
+            title = "音乐服务配置（可选）",
+            subtitle = "不填则纯离线播放本地曲库；填写兼容音乐 API 地址可在线搜歌"
+        ) {
+            OutlinedTextField(
+                value = musicBaseUrl,
+                onValueChange = { musicBaseUrl = it },
+                label = { Text("音乐服务 Base URL") },
+                placeholder = { Text("例如 http://192.168.1.10:3000") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("local" to "仅本地", "netease" to "网易源", "qq" to "QQ源").forEach { (key, label) ->
+                    FilterChip(
+                        selected = musicSource == key,
+                        onClick = { musicSource = key },
+                        label = { Text(label) }
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = musicKeyInput,
+                onValueChange = {
+                    musicKeyInput = it
+                    if (it.isNotBlank()) clearMusicKey = false
+                },
+                label = { Text(if (settings.hasMusicApiKey) "更换音乐服务 Key（留空保持不变）" else "音乐服务 API Key（可选）") },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            if (settings.hasMusicApiKey) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = clearMusicKey,
+                        onCheckedChange = {
+                            clearMusicKey = it
+                            if (it) musicKeyInput = ""
+                        }
+                    )
+                    Text("保存时清除音乐服务 Key", style = MaterialTheme.typography.bodySmall, color = garden.muted)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            GardenWindowButton(
+                text = "保存音乐服务配置",
+                primary = true,
+                onClick = {
+                    viewModel.saveMusicServiceSettings(musicBaseUrl, musicSource, musicKeyInput.ifBlank { null }, clearMusicKey)
+                    musicKeyInput = ""
+                    clearMusicKey = false
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }

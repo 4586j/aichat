@@ -116,18 +116,117 @@ interface KnowledgeDao {
 
 @Dao
 interface MemoryDao {
-    @Query("SELECT * FROM memories ORDER BY importance DESC, updatedAt DESC")
+    @Query("SELECT * FROM memories ORDER BY isPinned DESC, importance DESC, updatedAt DESC")
     fun observeAll(): Flow<List<MemoryEntity>>
 
-    @Query("SELECT * FROM memories ORDER BY importance DESC, updatedAt DESC")
+    @Query("SELECT * FROM memories ORDER BY isPinned DESC, importance DESC, updatedAt DESC")
     suspend fun listAll(): List<MemoryEntity>
 
-    @Query("SELECT * FROM memories WHERE personaId IS NULL OR personaId = :personaId ORDER BY importance DESC, updatedAt DESC")
+    @Query("SELECT * FROM memories WHERE personaId IS NULL OR personaId = :personaId ORDER BY isPinned DESC, importance DESC, updatedAt DESC")
     suspend fun listRelevantCandidates(personaId: String): List<MemoryEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(memory: MemoryEntity)
 
+    @Query("UPDATE memories SET isPinned = :pinned, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun setPinned(id: String, pinned: Boolean, updatedAt: Long)
+
     @Query("DELETE FROM memories WHERE id = :id")
     suspend fun deleteById(id: String)
+}
+
+@Dao
+interface MusicTrackDao {
+    @Query("SELECT * FROM music_tracks ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<MusicTrackEntity>>
+
+    @Query("SELECT * FROM music_tracks ORDER BY createdAt DESC")
+    suspend fun listAll(): List<MusicTrackEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(track: MusicTrackEntity)
+
+    @Query("DELETE FROM music_tracks WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
+
+@Dao
+interface UsageDao {
+    @Query("SELECT * FROM usage_records ORDER BY createdAt DESC LIMIT 200")
+    fun observeRecent(): Flow<List<UsageRecordEntity>>
+
+    @Query("SELECT * FROM usage_records ORDER BY createdAt DESC")
+    suspend fun listAll(): List<UsageRecordEntity>
+
+    @Insert
+    suspend fun insert(record: UsageRecordEntity)
+
+    @Query("DELETE FROM usage_records")
+    suspend fun clearAll()
+}
+
+@Dao
+interface MemoryTripleDao {
+    @Query("SELECT * FROM memory_triples ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<MemoryTripleEntity>>
+
+    @Query("SELECT * FROM memory_triples ORDER BY createdAt DESC")
+    suspend fun listAll(): List<MemoryTripleEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(triple: MemoryTripleEntity)
+
+    @Query("DELETE FROM memory_triples WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
+
+@Dao
+interface ScheduledTaskDao {
+    @Query("SELECT * FROM scheduled_tasks ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<ScheduledTaskEntity>>
+
+    @Query("SELECT * FROM scheduled_tasks WHERE enabled = 1")
+    suspend fun listEnabled(): List<ScheduledTaskEntity>
+
+    @Query("SELECT * FROM scheduled_tasks WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): ScheduledTaskEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(task: ScheduledTaskEntity)
+
+    @Query("UPDATE scheduled_tasks SET lastRunAt = :runAt, lastResult = :result WHERE id = :id")
+    suspend fun recordRun(id: String, runAt: Long, result: String)
+
+    @Query("DELETE FROM scheduled_tasks WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
+
+@Dao
+interface MailDraftDao {
+    @Query("SELECT * FROM mail_drafts ORDER BY updatedAt DESC")
+    fun observeAll(): Flow<List<MailDraftEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(draft: MailDraftEntity)
+
+    @Query("DELETE FROM mail_drafts WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
+
+@Dao
+interface ResumableRunDao {
+    @Query("SELECT * FROM resumable_runs ORDER BY resumeAtEpochMs ASC")
+    fun observeAll(): Flow<List<ResumableRunEntity>>
+
+    @Query("SELECT * FROM resumable_runs ORDER BY resumeAtEpochMs ASC")
+    suspend fun listAll(): List<ResumableRunEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(run: ResumableRunEntity)
+
+    @Query("DELETE FROM resumable_runs WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM resumable_runs WHERE conversationId = :conversationId")
+    suspend fun deleteByConversation(conversationId: String)
 }

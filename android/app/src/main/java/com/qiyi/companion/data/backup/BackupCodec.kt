@@ -92,6 +92,7 @@ data class BackupMemory(
     val category: String = "fact",
     val content: String,
     val importance: Int = 3,
+    val isPinned: Boolean = false,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L
 )
@@ -144,7 +145,7 @@ object BackupCodec {
                 BackupKnowledgeChunk(it.documentId, it.documentTitle, it.chunkIndex, it.content)
             },
             memories = payload.memories.map {
-                BackupMemory(it.id, it.personaId, it.category, it.content, it.importance, it.createdAt, it.updatedAt)
+                BackupMemory(it.id, it.personaId, it.category, it.content, it.importance, it.isPinned, it.createdAt, it.updatedAt)
             }
         )
         return json.encodeToString(QiYiBackupEnvelope.serializer(), envelope)
@@ -175,7 +176,16 @@ object BackupCodec {
                 KnowledgeChunkEntity(id = 0L, documentId = it.documentId, documentTitle = it.documentTitle, chunkIndex = it.chunkIndex, content = it.content)
             },
             memories = envelope.memories.map {
-                MemoryEntity(it.id, it.personaId, it.category, it.content, it.importance, it.createdAt, it.updatedAt)
+                MemoryEntity(
+                    id = it.id,
+                    personaId = it.personaId,
+                    category = it.category,
+                    content = it.content,
+                    importance = it.importance,
+                    isPinned = it.isPinned,
+                    createdAt = it.createdAt,
+                    updatedAt = it.updatedAt
+                )
             }
         )
     }

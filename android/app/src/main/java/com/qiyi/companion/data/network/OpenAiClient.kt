@@ -14,10 +14,13 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import com.qiyi.companion.data.tools.DeterministicToolRegistry
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -36,6 +39,8 @@ data class ChatPromptMessage(
 sealed interface StreamChunk {
     data class ContentDelta(val text: String) : StreamChunk
     data class ReasoningDelta(val text: String) : StreamChunk
+    data class ToolStep(val summary: String) : StreamChunk
+    data class Usage(val promptTokens: Int, val completionTokens: Int, val totalTokens: Int) : StreamChunk
     data object Done : StreamChunk
 }
 
@@ -200,6 +205,13 @@ class OpenAiClient(
                             if (data.isEmpty()) continue
                             if (data == "[DONE]") break
                             val parsed = runCatching { json.parseToJsonElement(data).jsonObject }.getOrNull() ?: continue
+                            val usageObj = parsed["usage"] as? JsonObject
+                            if (usageObj != null) {
+                                val pTok = usageObj["prompt_tokens"]?.jsonPrimitive?.intOrNull ?: 0
+                                val cTok = usageObj["completion_tokens"]?.jsonPrimitive?.intOrNull ?: 0
+                                val tTok = usageObj["total_tokens"]?.jsonPrimitive?.intOrNull ?: (pTok + cTok)
+                                if (tTok > 0) trySend(StreamChunk.Usage(pTok, cTok, tTok))
+                            }
                             val delta = parsed["choices"]?.jsonArray?.firstOrNull()?.jsonObject?.get("delta")?.jsonObject ?: continue
                             val reasoning = delta["reasoning_content"]?.jsonPrimitive?.contentOrNull
                                 ?: delta["reasoning"]?.jsonPrimitive?.contentOrNull
@@ -226,6 +238,196 @@ class OpenAiClient(
         awaitClose {
             call.cancel()
         }
+    }
+
+    /**
+     * Multi-turn ReAct tool-calling loop with 5-time duplicate call breaker and 5-time failure breaker,
+     * falling back gracefully to standard streaming when tools are disabled or unsupported.
+     */
+    fun streamChatWithTools(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        messages: List<ChatPromptMessage>,
+        toolsEnabled: Boolean,
+        knowledgeSearcher: suspend (String) -> String
+    ): Flow<StreamChunk> {
+        if (!toolsEnabled) return streamChat(baseUrl, apiKey, model, messages)
+        return kotlinx.coroutines.flow.flow {
+            val normalized = normalizeBaseUrl(baseUrl)
+            val cleanModel = model.trim()
+            if (cleanModel.isEmpty()) throw ModelServiceException("请先在设置或角色配置中填写模型 ID。")
+
+            val conversation = mutableListOf<JsonObject>()
+            messages.forEach { msg ->
+                val req = toRequestMessage(msg)
+                conversation.add(buildJsonObject {
+                    put("role", req.role)
+                    put("content", req.content)
+                })
+            }
+
+            val toolsDef = DeterministicToolRegistry.openAiToolDefinitions()
+            var lastFingerprint = ""
+            var duplicateStreak = 0
+            var failureStreak = 0
+
+            for (round in 0 until 6) {
+                val bodyJson = buildJsonObject {
+                    put("model", cleanModel)
+                    put("messages", JsonArray(conversation))
+                    put("tools", toolsDef)
+                    put("tool_choice", "auto")
+                    put("stream", false)
+                    put("max_tokens", 3000)
+                }.toString()
+
+                val reqBuilder = Request.Builder()
+                    .url("$normalized/chat/completions")
+                    .post(bodyJson.toRequestBody(jsonMediaType))
+                if (apiKey.isNotBlank()) reqBuilder.header("Authorization", "Bearer ${apiKey.trim()}")
+
+                val responseRoot: JsonObject = withContext(Dispatchers.IO) {
+                    httpClient.newCall(reqBuilder.build()).execute().use { resp ->
+                        if (resp.code == 400 || resp.code == 422) {
+                            // Upstream model likely does not support function calling; fallback cleanly
+                            return@withContext JsonObject(emptyMap())
+                        }
+                        if (!resp.isSuccessful) throw mapHttpError(resp.code, resp.header("Retry-After"))
+                        json.parseToJsonElement(resp.body?.string().orEmpty()).jsonObject
+                    }
+                }
+
+                if (responseRoot.isEmpty()) {
+                    streamChat(baseUrl, apiKey, model, messages).collect { emit(it) }
+                    return@flow
+                }
+
+                val usageObj = responseRoot["usage"] as? JsonObject
+                if (usageObj != null) {
+                    val pTok = usageObj["prompt_tokens"]?.jsonPrimitive?.intOrNull ?: 0
+                    val cTok = usageObj["completion_tokens"]?.jsonPrimitive?.intOrNull ?: 0
+                    val tTok = usageObj["total_tokens"]?.jsonPrimitive?.intOrNull ?: (pTok + cTok)
+                    if (tTok > 0) emit(StreamChunk.Usage(pTok, cTok, tTok))
+                }
+
+                val msgObj = responseRoot["choices"]?.jsonArray?.firstOrNull()?.jsonObject
+                    ?.get("message")?.jsonObject ?: break
+                val reasoning = msgObj["reasoning_content"]?.jsonPrimitive?.contentOrNull
+                    ?: msgObj["reasoning"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val content = msgObj["content"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val toolCalls = msgObj["tool_calls"] as? JsonArray
+
+                if (toolCalls == null || toolCalls.isEmpty()) {
+                    if (reasoning.isNotBlank()) emit(StreamChunk.ReasoningDelta(reasoning))
+                    if (content.isNotBlank()) emit(StreamChunk.ContentDelta(content))
+                    emit(StreamChunk.Done)
+                    return@flow
+                }
+
+                conversation.add(msgObj)
+                var trippedBreaker = false
+
+                for (callEl in toolCalls) {
+                    val callObj = callEl.jsonObject
+                    val callId = callObj["id"]?.jsonPrimitive?.contentOrNull ?: "call_$round"
+                    val fnObj = callObj["function"]?.jsonObject ?: continue
+                    val fnName = fnObj["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    val argsRaw = fnObj["arguments"]?.jsonPrimitive?.contentOrNull ?: "{}"
+                    val fingerprint = "$fnName:$argsRaw"
+
+                    if (fingerprint == lastFingerprint) {
+                        duplicateStreak++
+                    } else {
+                        lastFingerprint = fingerprint
+                        duplicateStreak = 1
+                    }
+                    if (duplicateStreak >= 5) {
+                        emit(StreamChunk.ToolStep("熔断：连续 5 次重复调用 $fnName，已强制收敛输出。"))
+                        trippedBreaker = true
+                        break
+                    }
+
+                    val argsObj = runCatching { json.parseToJsonElement(argsRaw).jsonObject }.getOrElse { JsonObject(emptyMap()) }
+                    val toolOutput = runCatching {
+                        DeterministicToolRegistry.execute(fnName, argsObj, knowledgeSearcher)
+                    }.fold(
+                        onSuccess = { out ->
+                            failureStreak = 0
+                            out
+                        },
+                        onFailure = { err ->
+                            failureStreak++
+                            "工具执行失败：${err.message ?: "未知错误"}"
+                        }
+                    )
+
+                    emit(StreamChunk.ToolStep("调用 $fnName → ${toolOutput.take(160)}"))
+                    conversation.add(buildJsonObject {
+                        put("role", "tool")
+                        put("tool_call_id", callId)
+                        put("content", toolOutput)
+                    })
+
+                    if (failureStreak >= 5) {
+                        emit(StreamChunk.ToolStep("阻断：工具连续失败 5 次，已中止工具链。"))
+                        trippedBreaker = true
+                        break
+                    }
+                }
+
+                if (trippedBreaker) {
+                    conversation.add(buildJsonObject {
+                        put("role", "user")
+                        put("content", "请直接基于以上已获得的工具结果给出清晰、完整的最终中文回答，不要再调用工具。")
+                    })
+                    break
+                }
+            }
+
+            // Final convergence turn (streaming) after tool execution
+            val finalMessages = conversation.mapNotNull { obj ->
+                val role = obj["role"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                if (role == "tool") {
+                    ChatPromptMessage("user", "[工具执行结果]\n${obj["content"]?.jsonPrimitive?.contentOrNull.orEmpty()}")
+                } else {
+                    val text = obj["content"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    if (text.isBlank()) null else ChatPromptMessage(role, text)
+                }
+            }
+            streamChat(baseUrl, apiKey, model, finalMessages).collect { emit(it) }
+        }
+    }
+
+    /**
+     * Fetches a dense vector embedding via OpenAI-compatible `/embeddings` endpoint (optional hybrid RAG).
+     */
+    suspend fun fetchEmbedding(
+        baseUrl: String,
+        apiKey: String,
+        embeddingModel: String,
+        text: String
+    ): List<Double>? = withContext(Dispatchers.IO) {
+        val cleanModel = embeddingModel.trim()
+        if (cleanModel.isEmpty() || text.isBlank()) return@withContext null
+        val normalized = normalizeBaseUrl(baseUrl)
+        val payload = buildJsonObject {
+            put("model", cleanModel)
+            put("input", text.take(2000))
+        }.toString()
+        val reqBuilder = Request.Builder()
+            .url("$normalized/embeddings")
+            .post(payload.toRequestBody(jsonMediaType))
+        if (apiKey.isNotBlank()) reqBuilder.header("Authorization", "Bearer ${apiKey.trim()}")
+        runCatching {
+            httpClient.newCall(reqBuilder.build()).execute().use { resp ->
+                if (!resp.isSuccessful) return@use null
+                val root = json.parseToJsonElement(resp.body?.string().orEmpty()).jsonObject
+                root["data"]?.jsonArray?.firstOrNull()?.jsonObject
+                    ?.get("embedding")?.jsonArray
+                    ?.mapNotNull { it.jsonPrimitive.doubleOrNull }
+            }
+        }.getOrNull()
     }
 
     private fun toRequestMessage(msg: ChatPromptMessage): RequestMessage {

@@ -22,15 +22,22 @@ enum class GardenThemeMode(val key: String, val label: String, val subtitle: Str
 data class AppSettings(
     val baseUrl: String = "https://api.openai.com/v1",
     val defaultModel: String = "",
+    val embeddingModel: String = "",
     val hasApiKey: Boolean = false,
     val themeMode: GardenThemeMode = GardenThemeMode.SPRING,
-    val userAvatar: String = ""
+    val userAvatar: String = "",
+    val musicEnabled: Boolean = true,
+    val stickerEnabled: Boolean = true,
+    val toolsEnabled: Boolean = true,
+    val musicBaseUrl: String = "",
+    val musicSource: String = "local", // "local" | "qq" | "netease"
+    val hasMusicApiKey: Boolean = false
 )
 
 /**
  * Persists non-secret UI/model settings in standard SharedPreferences,
- * and stores the API key exclusively inside Android Keystore-backed EncryptedSharedPreferences.
- * API keys are NEVER written into Room SQLite.
+ * and stores all API keys exclusively inside Android Keystore-backed EncryptedSharedPreferences.
+ * API keys are NEVER written into Room SQLite or backups.
  */
 class SecurePreferences(context: Context) {
     private val appContext = context.applicationContext
@@ -56,28 +63,73 @@ class SecurePreferences(context: Context) {
     private fun readSnapshot(): AppSettings = AppSettings(
         baseUrl = plainPrefs.getString(KEY_BASE_URL, "https://api.openai.com/v1") ?: "https://api.openai.com/v1",
         defaultModel = plainPrefs.getString(KEY_DEFAULT_MODEL, "") ?: "",
-        hasApiKey = !getApiKey().isNullOrBlank(),
+        embeddingModel = plainPrefs.getString(KEY_EMBEDDING_MODEL, "") ?: "",
+        hasApiKey = getApiKey().isNotBlank(),
         themeMode = GardenThemeMode.fromKey(plainPrefs.getString(KEY_THEME, GardenThemeMode.SPRING.key)),
-        userAvatar = plainPrefs.getString(KEY_USER_AVATAR, "") ?: ""
+        userAvatar = plainPrefs.getString(KEY_USER_AVATAR, "") ?: "",
+        musicEnabled = plainPrefs.getBoolean(KEY_MUSIC_ENABLED, true),
+        stickerEnabled = plainPrefs.getBoolean(KEY_STICKER_ENABLED, true),
+        toolsEnabled = plainPrefs.getBoolean(KEY_TOOLS_ENABLED, true),
+        musicBaseUrl = plainPrefs.getString(KEY_MUSIC_BASE_URL, "") ?: "",
+        musicSource = plainPrefs.getString(KEY_MUSIC_SOURCE, "local") ?: "local",
+        hasMusicApiKey = getMusicApiKey().isNotBlank()
     )
 
     fun getApiKey(): String = secretPrefs.getString(KEY_API_KEY, "") ?: ""
+
+    fun getMusicApiKey(): String = secretPrefs.getString(KEY_MUSIC_API_KEY, "") ?: ""
 
     fun saveModelSettings(
         baseUrl: String,
         defaultModel: String,
         newApiKey: String?,
-        clearApiKey: Boolean
+        clearApiKey: Boolean,
+        embeddingModel: String? = null
     ) {
-        plainPrefs.edit()
+        val editor = plainPrefs.edit()
             .putString(KEY_BASE_URL, baseUrl.trim().trimEnd('/'))
             .putString(KEY_DEFAULT_MODEL, defaultModel.trim())
-            .apply()
+        if (embeddingModel != null) {
+            editor.putString(KEY_EMBEDDING_MODEL, embeddingModel.trim())
+        }
+        editor.apply()
+
         if (clearApiKey) {
             secretPrefs.edit().remove(KEY_API_KEY).apply()
         } else if (!newApiKey.isNullOrBlank()) {
             secretPrefs.edit().putString(KEY_API_KEY, newApiKey.trim()).apply()
         }
+        _settings.value = readSnapshot()
+    }
+
+    fun saveMusicServiceSettings(
+        baseUrl: String,
+        source: String,
+        newApiKey: String?,
+        clearApiKey: Boolean
+    ) {
+        plainPrefs.edit()
+            .putString(KEY_MUSIC_BASE_URL, baseUrl.trim().trimEnd('/'))
+            .putString(KEY_MUSIC_SOURCE, source.trim().ifEmpty { "local" })
+            .apply()
+        if (clearApiKey) {
+            secretPrefs.edit().remove(KEY_MUSIC_API_KEY).apply()
+        } else if (!newApiKey.isNullOrBlank()) {
+            secretPrefs.edit().putString(KEY_MUSIC_API_KEY, newApiKey.trim()).apply()
+        }
+        _settings.value = readSnapshot()
+    }
+
+    fun setLinkageFlags(
+        musicEnabled: Boolean? = null,
+        stickerEnabled: Boolean? = null,
+        toolsEnabled: Boolean? = null
+    ) {
+        val editor = plainPrefs.edit()
+        if (musicEnabled != null) editor.putBoolean(KEY_MUSIC_ENABLED, musicEnabled)
+        if (stickerEnabled != null) editor.putBoolean(KEY_STICKER_ENABLED, stickerEnabled)
+        if (toolsEnabled != null) editor.putBoolean(KEY_TOOLS_ENABLED, toolsEnabled)
+        editor.apply()
         _settings.value = readSnapshot()
     }
 
@@ -94,8 +146,15 @@ class SecurePreferences(context: Context) {
     companion object {
         private const val KEY_BASE_URL = "base_url"
         private const val KEY_DEFAULT_MODEL = "default_model"
+        private const val KEY_EMBEDDING_MODEL = "embedding_model"
         private const val KEY_THEME = "garden_theme"
         private const val KEY_USER_AVATAR = "user_avatar"
         private const val KEY_API_KEY = "model_api_key"
+        private const val KEY_MUSIC_ENABLED = "music_enabled"
+        private const val KEY_STICKER_ENABLED = "sticker_enabled"
+        private const val KEY_TOOLS_ENABLED = "tools_enabled"
+        private const val KEY_MUSIC_BASE_URL = "music_base_url"
+        private const val KEY_MUSIC_SOURCE = "music_source"
+        private const val KEY_MUSIC_API_KEY = "music_api_key"
     }
 }

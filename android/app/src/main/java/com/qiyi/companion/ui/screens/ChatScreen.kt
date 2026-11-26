@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.AlertDialog
@@ -93,6 +94,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qiyi.companion.data.db.ConversationEntity
 import com.qiyi.companion.data.db.MessageEntity
 import com.qiyi.companion.data.db.PersonaEntity
+import com.qiyi.companion.data.knowledge.CitationItem
+import com.qiyi.companion.data.knowledge.KnowledgeEngine
+import com.qiyi.companion.data.media.StickerCard
+import com.qiyi.companion.data.media.StickerCatalog
 import com.qiyi.companion.ui.QiYiViewModel
 import com.qiyi.companion.ui.QuotaCheckpointState
 import com.qiyi.companion.ui.StreamingState
@@ -113,6 +118,7 @@ import java.util.Locale
 @Composable
 fun ChatScreen(
     viewModel: QiYiViewModel,
+    onWriteAsMail: (subject: String, body: String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val personas by viewModel.personas.collectAsStateWithLifecycle()
@@ -137,6 +143,7 @@ fun ChatScreen(
     var composerCollapsed by rememberSaveable { mutableStateOf(false) }
     var showChatStateDrawer by rememberSaveable { mutableStateOf(false) }
     var showChatStateDialog by remember { mutableStateOf(false) }
+    var showLinkageDialog by remember { mutableStateOf(false) }
     var personaMenuExpanded by remember { mutableStateOf(false) }
     var showHistorySheet by remember { mutableStateOf(false) }
     var showGroupDialog by remember { mutableStateOf(false) }
@@ -450,6 +457,41 @@ fun ChatScreen(
             }
         }
 
+        // 2.6 Mobile-Web-Aligned Reply Linkage Bar (回复联动：音乐 · 表情 · 工具)
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp),
+            color = garden.paperCard,
+            border = BorderStroke(0.7.dp, garden.lineSoft)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                val activeFeatures = buildList {
+                    if (settings.musicEnabled) add("音乐")
+                    if (settings.stickerEnabled) add("表情")
+                    if (settings.toolsEnabled) add("工具")
+                }.ifEmpty { listOf("纯对话") }
+                Text(
+                    text = "回复联动：${activeFeatures.joinToString(" · ")}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = garden.muted
+                )
+                TextButton(
+                    onClick = { showLinkageDialog = true },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    modifier = Modifier.height(26.dp)
+                ) {
+                    Text("回复设置", style = MaterialTheme.typography.labelSmall, color = garden.bamboo)
+                }
+            }
+        }
+
         // 3. HTTP 429 Quota Checkpoint & Auto-Resume Banner
         quotaCheckpoint?.let { cp ->
             QuotaCheckpointBanner(
@@ -493,7 +535,11 @@ fun ChatScreen(
                             clipboard.setText(AnnotatedString(msg.content))
                             viewModel.notify("已复制到剪贴板")
                         },
-                        onRegenerate = { viewModel.regenerateAssistantMessage(msg) }
+                        onRegenerate = { viewModel.regenerateAssistantMessage(msg) },
+                        onWriteMail = {
+                            val title = activeConversation?.title?.ifBlank { "栖忆对谈摘录" } ?: "栖忆对谈摘录"
+                            onWriteAsMail(title, msg.content)
+                        }
                     )
                 }
 
@@ -817,6 +863,65 @@ fun ChatScreen(
         )
     }
 
+    if (showLinkageDialog) {
+        AlertDialog(
+            onDismissRequest = { showLinkageDialog = false },
+            title = { Text("回复联动设置") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.setLinkageFlags(musicEnabled = !settings.musicEnabled) },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = settings.musicEnabled,
+                            onCheckedChange = { viewModel.setLinkageFlags(musicEnabled = it) }
+                        )
+                        Column {
+                            Text("音乐点播联动", style = MaterialTheme.typography.bodyMedium)
+                            Text("说「放一首…」自动搜索本地/在线曲库播放", style = MaterialTheme.typography.labelSmall, color = garden.muted)
+                        }
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.setLinkageFlags(stickerEnabled = !settings.stickerEnabled) },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = settings.stickerEnabled,
+                            onCheckedChange = { viewModel.setLinkageFlags(stickerEnabled = it) }
+                        )
+                        Column {
+                            Text("表情包联动", style = MaterialTheme.typography.bodyMedium)
+                            Text("根据回复语气自动附带「小叶」原创表情包", style = MaterialTheme.typography.labelSmall, color = garden.muted)
+                        }
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.setLinkageFlags(toolsEnabled = !settings.toolsEnabled) },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = settings.toolsEnabled,
+                            onCheckedChange = { viewModel.setLinkageFlags(toolsEnabled = it) }
+                        )
+                        Column {
+                            Text("智能工具调用 (ReAct)", style = MaterialTheme.typography.bodyMedium)
+                            Text("允许自动调用计算器、日期、统计与知识深搜", style = MaterialTheme.typography.labelSmall, color = garden.muted)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showLinkageDialog = false }) { Text("完成") }
+            }
+        )
+    }
+
     if (showGroupDialog) {
         CreateGroupChatDialog(
             personas = personas,
@@ -940,7 +1045,8 @@ private fun MessageBubble(
     onBranch: () -> Unit,
     onRemember: () -> Unit,
     onCopy: () -> Unit,
-    onRegenerate: () -> Unit
+    onRegenerate: () -> Unit,
+    onWriteMail: () -> Unit
 ) {
     val isUser = message.role == "user"
     val garden = LocalGardenColors.current
@@ -1015,6 +1121,17 @@ private fun MessageBubble(
                 )
             }
 
+            if (message.toolTrace.isNotBlank()) {
+                var toolExpanded by remember(message.id) { mutableStateOf(false) }
+                ReasoningBlock(
+                    reasoning = message.toolTrace,
+                    expanded = toolExpanded,
+                    onToggle = { toolExpanded = !toolExpanded },
+                    title = "工具调用过程"
+                )
+                Spacer(Modifier.height(6.dp))
+            }
+
             if (message.reasoning.isNotBlank()) {
                 ReasoningBlock(
                     reasoning = message.reasoning,
@@ -1053,6 +1170,52 @@ private fun MessageBubble(
                             }
                         )
                     }
+                }
+            }
+
+            if (message.stickerId.isNotBlank()) {
+                val sticker = StickerCatalog.findById(message.stickerId)
+                if (sticker != null) {
+                    Spacer(Modifier.height(6.dp))
+                    StickerCard(sticker = sticker, size = 76.dp)
+                }
+            }
+
+            val citations = remember(message.citationsJson) { KnowledgeEngine.decodeCitations(message.citationsJson) }
+            if (citations.isNotEmpty()) {
+                var selectedCitation by remember { mutableStateOf<CitationItem?>(null) }
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    citations.forEach { cite ->
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { selectedCitation = cite },
+                            shape = RoundedCornerShape(6.dp),
+                            color = garden.goldSoft,
+                            border = BorderStroke(0.7.dp, garden.gold.copy(alpha = 0.6f))
+                        ) {
+                            Text(
+                                text = "[${cite.index}] 《${cite.documentTitle.take(14)}》",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = garden.ink,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+                }
+                selectedCitation?.let { cite ->
+                    AlertDialog(
+                        onDismissRequest = { selectedCitation = null },
+                        title = { Text("引用溯源 [${cite.index}] · 《${cite.documentTitle}》") },
+                        text = { Text(cite.snippet, style = MaterialTheme.typography.bodySmall) },
+                        confirmButton = {
+                            TextButton(onClick = { selectedCitation = null }) { Text("关闭") }
+                        }
+                    )
                 }
             }
 
@@ -1095,6 +1258,15 @@ private fun MessageBubble(
                     Icon(Icons.Default.BookmarkAdd, contentDescription = "记入长期记忆", modifier = Modifier.size(14.dp), tint = garden.muted)
                     Spacer(Modifier.width(3.dp))
                     Text("记住", style = MaterialTheme.typography.labelSmall, color = garden.muted)
+                }
+                TextButton(
+                    onClick = onWriteMail,
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Icon(Icons.Default.MailOutline, contentDescription = "写成邮件", modifier = Modifier.size(14.dp), tint = garden.muted)
+                    Spacer(Modifier.width(3.dp))
+                    Text("写成邮件", style = MaterialTheme.typography.labelSmall, color = garden.muted)
                 }
             }
         }
