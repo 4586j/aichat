@@ -315,7 +315,8 @@ class QiYiRepository(
         persona: PersonaEntity,
         conversationId: String,
         latestQuery: String = "",
-        isGroupChat: Boolean = false
+        isGroupChat: Boolean = false,
+        latestImageDataUris: List<String> = emptyList()
     ): List<ChatPromptMessage> {
         val history = db.messageDao().listByConversation(conversationId).takeLast(24)
         val effectiveQuery = latestQuery.trim().ifEmpty {
@@ -353,15 +354,17 @@ class QiYiRepository(
             }
             if (referenceBlock.isNotBlank()) append(referenceBlock)
         }
+        val lastUserIdx = history.indexOfLast { it.role == "user" }
         return buildList {
             add(ChatPromptMessage("system", sys))
-            history.forEach { msg ->
+            history.forEachIndexed { idx, msg ->
                 val text = if (isGroupChat && msg.role == "assistant" && !msg.senderName.isNullOrBlank()) {
                     "[${msg.senderName}]：${msg.content}"
                 } else {
                     msg.content
                 }
-                add(ChatPromptMessage(msg.role, text))
+                val images = if (idx == lastUserIdx && latestImageDataUris.isNotEmpty()) latestImageDataUris else emptyList()
+                add(ChatPromptMessage(msg.role, text, images))
             }
         }
     }

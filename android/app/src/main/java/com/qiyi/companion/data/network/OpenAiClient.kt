@@ -8,11 +8,16 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -24,7 +29,8 @@ import java.util.concurrent.TimeUnit
 
 data class ChatPromptMessage(
     val role: String,
-    val content: String
+    val content: String,
+    val imageDataUris: List<String> = emptyList()
 )
 
 sealed interface StreamChunk {
@@ -51,7 +57,7 @@ private data class ChatCompletionRequest(
 @Serializable
 private data class RequestMessage(
     val role: String,
-    val content: String
+    val content: JsonElement
 )
 
 class OpenAiClient(
@@ -113,7 +119,7 @@ class OpenAiClient(
             ChatCompletionRequest.serializer(),
             ChatCompletionRequest(
                 model = cleanModel,
-                messages = listOf(RequestMessage("user", "请只回答：连接成功")),
+                messages = listOf(RequestMessage("user", JsonPrimitive("请只回答：连接成功"))),
                 stream = false,
                 max_tokens = 64
             )
@@ -149,7 +155,7 @@ class OpenAiClient(
             ChatCompletionRequest.serializer(),
             ChatCompletionRequest(
                 model = cleanModel,
-                messages = messages.map { RequestMessage(it.role, it.content) },
+                messages = messages.map { toRequestMessage(it) },
                 stream = true,
                 max_tokens = 3000
             )
@@ -220,6 +226,29 @@ class OpenAiClient(
         awaitClose {
             call.cancel()
         }
+    }
+
+    private fun toRequestMessage(msg: ChatPromptMessage): RequestMessage {
+        if (msg.imageDataUris.isEmpty()) {
+            return RequestMessage(msg.role, JsonPrimitive(msg.content))
+        }
+        val parts = buildJsonArray {
+            if (msg.content.isNotBlank()) {
+                add(buildJsonObject {
+                    put("type", "text")
+                    put("text", msg.content)
+                })
+            }
+            for (uri in msg.imageDataUris) {
+                add(buildJsonObject {
+                    put("type", "image_url")
+                    put("image_url", buildJsonObject {
+                        put("url", uri)
+                    })
+                })
+            }
+        }
+        return RequestMessage(msg.role, parts)
     }
 
     private fun mapHttpError(code: Int, retryAfterHeader: String?): ModelServiceException {

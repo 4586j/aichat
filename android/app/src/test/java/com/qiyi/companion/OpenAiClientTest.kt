@@ -99,4 +99,33 @@ class OpenAiClientTest {
             assertEquals(45L, err.retryAfterSeconds)
         }
     }
+
+    @Test
+    fun streamChatSerializesMultipartImageUrlPayloadWhenImagesPresent() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody("data: {\"choices\":[{\"delta\":{\"content\":\"看到了图片\"}}]}\n\ndata: [DONE]\n\n")
+        )
+
+        val baseUrl = server.url("/v1").toString().trimEnd('/')
+        val chunks = client.streamChat(
+            baseUrl = baseUrl,
+            apiKey = "sk-test",
+            model = "gpt-4o",
+            messages = listOf(
+                ChatPromptMessage(
+                    role = "user",
+                    content = "描述这张图",
+                    imageDataUris = listOf("data:image/jpeg;base64,AAAA")
+                )
+            )
+        ).toList()
+
+        val recordedBody = server.takeRequest().body.readUtf8()
+        assertTrue(recordedBody.contains("\"type\":\"image_url\""))
+        assertTrue(recordedBody.contains("data:image/jpeg;base64,AAAA"))
+        assertEquals("看到了图片", chunks.filterIsInstance<StreamChunk.ContentDelta>().joinToString("") { it.text })
+    }
 }

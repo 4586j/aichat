@@ -51,7 +51,9 @@ data class QuotaCheckpointState(
 
 data class DraftAttachment(
     val name: String,
-    val content: String
+    val content: String = "",
+    val isImage: Boolean = false,
+    val imageDataUri: String? = null
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -202,6 +204,26 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
         notify("已添加附件「${name.trim().ifEmpty { "附件.txt" }}」")
     }
 
+    fun addDraftImage(name: String, dataUri: String) {
+        if (!dataUri.startsWith("data:image/")) {
+            notify("不支持的图片格式。")
+            return
+        }
+        val current = _draftAttachments.value
+        if (current.size >= 4) {
+            notify("单次最多添加 4 个附件。")
+            return
+        }
+        val cleanName = name.trim().ifEmpty { "图片.jpg" }
+        _draftAttachments.value = current + DraftAttachment(
+            name = cleanName,
+            content = "",
+            isImage = true,
+            imageDataUri = dataUri
+        )
+        notify("已添加图片「$cleanName」")
+    }
+
     fun removeDraftAttachment(index: Int) {
         val current = _draftAttachments.value
         if (index in current.indices) {
@@ -261,17 +283,27 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
                 responderIds = listOf(persona.id)
             }
 
+            val textAttachments = attachments.filter { !it.isImage }
+            val imageAttachments = attachments.filter { it.isImage && !it.imageDataUri.isNullOrBlank() }
+            val imageMarker = if (imageAttachments.isNotEmpty()) {
+                imageAttachments.joinToString(" ") { "[图片：${it.name}]" }
+            } else {
+                ""
+            }
+            val displayBase = listOf(pureQuery, imageMarker).filter { it.isNotBlank() }.joinToString("\n")
             val fullUserContent = repository.buildMessageWithAttachments(
-                userText = pureQuery,
-                attachments = attachments.map { it.name to it.content }
+                userText = displayBase,
+                attachments = textAttachments.map { it.name to it.content }
             )
+            val imageDataUris = imageAttachments.mapNotNull { it.imageDataUri }
             _draftAttachments.value = emptyList()
             repository.saveUserMessage(convId, fullUserContent)
             runResponderQueue(
                 convId = convId,
                 responderIds = responderIds,
                 latestQuery = pureQuery,
-                isGroupChat = isGroup
+                isGroupChat = isGroup,
+                latestImageDataUris = imageDataUris
             )
         }
     }
@@ -331,7 +363,8 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
         convId: String,
         responderIds: List<String>,
         latestQuery: String,
-        isGroupChat: Boolean
+        isGroupChat: Boolean,
+        latestImageDataUris: List<String> = emptyList()
     ) {
         if (responderIds.isEmpty()) return
         activeStreamJob = viewModelScope.launch {
@@ -342,7 +375,8 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
                         persona = persona,
                         conversationId = convId,
                         latestQuery = latestQuery,
-                        isGroupChat = isGroupChat
+                        isGroupChat = isGroupChat,
+                        latestImageDataUris = latestImageDataUris
                     )
 
                     val contentBuilder = StringBuilder()

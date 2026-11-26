@@ -1,6 +1,9 @@
 package com.qiyi.companion.ui.screens
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.provider.OpenableColumns
+import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -45,6 +48,7 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.AlertDialog
@@ -94,11 +98,13 @@ import com.qiyi.companion.ui.QuotaCheckpointState
 import com.qiyi.companion.ui.StreamingState
 import com.qiyi.companion.ui.theme.BegoniaPlaqueShape
 import com.qiyi.companion.ui.theme.CinnabarPillButton
+import com.qiyi.companion.ui.theme.GardenMarkdownText
 import com.qiyi.companion.ui.theme.GardenSealAvatar
 import com.qiyi.companion.ui.theme.GardenTagPill
 import com.qiyi.companion.ui.theme.GardenWindowButton
 import com.qiyi.companion.ui.theme.LocalGardenColors
 import kotlinx.coroutines.launch
+import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -155,6 +161,43 @@ fun ChatScreen(
             viewModel.addDraftAttachment(name, text)
         }.onFailure {
             viewModel.notify(it.message ?: "读取附件失败。")
+        }
+    }
+
+    val attachImageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            var displayName = "图片.jpg"
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0) displayName = cursor.getString(idx) ?: displayName
+                }
+            }
+            val rawBitmap = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+                ?: throw IllegalStateException("无法解码所选图片。")
+            val maxDim = 1280
+            val scale = minOf(1f, maxDim.toFloat() / maxOf(rawBitmap.width, rawBitmap.height).coerceAtLeast(1))
+            val scaled = if (scale < 1f) {
+                Bitmap.createScaledBitmap(
+                    rawBitmap,
+                    (rawBitmap.width * scale).toInt().coerceAtLeast(1),
+                    (rawBitmap.height * scale).toInt().coerceAtLeast(1),
+                    true
+                )
+            } else {
+                rawBitmap
+            }
+            val out = ByteArrayOutputStream()
+            scaled.compress(Bitmap.CompressFormat.JPEG, 82, out)
+            val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+            displayName to "data:image/jpeg;base64,$b64"
+        }.onSuccess { (name, dataUri) ->
+            viewModel.addDraftImage(name, dataUri)
+        }.onFailure {
+            viewModel.notify(it.message ?: "读取图片失败。")
         }
     }
 
@@ -549,9 +592,29 @@ fun ChatScreen(
                             tint = garden.bamboo
                         )
                         Text(
-                            text = "+ 添加文件",
+                            text = "+ 文件",
                             style = MaterialTheme.typography.labelSmall,
                             color = garden.bamboo,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { attachImageLauncher.launch("image/*") }
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Image,
+                            contentDescription = "添加图片",
+                            modifier = Modifier.size(14.dp),
+                            tint = garden.gold
+                        )
+                        Text(
+                            text = "+ 图片",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = garden.gold,
                             fontWeight = FontWeight.Medium
                         )
                     }
@@ -919,10 +982,10 @@ private fun MessageBubble(
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 SelectionContainer {
-                    Text(
-                        text = message.content,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = garden.onUserBubble
+                    GardenMarkdownText(
+                        markdown = message.content,
+                        textColor = garden.onUserBubble,
+                        isOnDarkBubble = true
                     )
                 }
             }
@@ -980,10 +1043,14 @@ private fun MessageBubble(
                             .weight(1f)
                             .padding(horizontal = 13.dp, vertical = 11.dp)
                     ) {
-                        Text(
-                            text = message.content,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = garden.onAssistantBubble
+                        val clipboard = LocalClipboardManager.current
+                        GardenMarkdownText(
+                            markdown = message.content,
+                            textColor = garden.onAssistantBubble,
+                            isOnDarkBubble = false,
+                            onCopyCode = { code ->
+                                clipboard.setText(AnnotatedString(code))
+                            }
                         )
                     }
                 }
