@@ -30,6 +30,7 @@ import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
@@ -227,7 +228,8 @@ fun ChatScreen(
                     message = msg,
                     personaAvatar = activePersona?.avatar.orEmpty().ifBlank { "🌿" },
                     userAvatar = settings.userAvatar.ifBlank { "我" },
-                    onBranch = { viewModel.branchFromMessage(msg.id) }
+                    onBranch = { viewModel.branchFromMessage(msg.id) },
+                    onRemember = { viewModel.rememberFromChat(msg.content) }
                 )
             }
 
@@ -381,7 +383,8 @@ private fun MessageBubble(
     message: MessageEntity,
     personaAvatar: String,
     userAvatar: String,
-    onBranch: () -> Unit
+    onBranch: () -> Unit,
+    onRemember: () -> Unit
 ) {
     val isUser = message.role == "user"
     val garden = LocalGardenColors.current
@@ -431,18 +434,33 @@ private fun MessageBubble(
             }
 
             if (!isUser) {
-                TextButton(
-                    onClick = onBranch,
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                    modifier = Modifier.height(28.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.CallSplit,
-                        contentDescription = "从此分支",
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text("从此分支", style = MaterialTheme.typography.labelSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        onClick = onBranch,
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.CallSplit,
+                            contentDescription = "从此分支",
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text("从此分支", style = MaterialTheme.typography.labelSmall)
+                    }
+                    TextButton(
+                        onClick = onRemember,
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.BookmarkAdd,
+                            contentDescription = "记入长期记忆",
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text("记住", style = MaterialTheme.typography.labelSmall)
+                    }
                 }
             }
         }

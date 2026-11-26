@@ -60,3 +60,47 @@ data class MessageEntity(
     val reasoning: String = "",
     val createdAt: Long = System.currentTimeMillis()
 )
+
+@Entity(tableName = "knowledge_documents")
+data class KnowledgeDocumentEntity(
+    @PrimaryKey val id: String,
+    val title: String,
+    val sourceName: String = "",
+    val chunkCount: Int = 0,
+    val charCount: Int = 0,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "knowledge_chunks",
+    foreignKeys = [
+        ForeignKey(
+            entity = KnowledgeDocumentEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["documentId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("documentId")]
+)
+data class KnowledgeChunkEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val documentId: String,
+    val documentTitle: String,
+    val chunkIndex: Int,
+    val content: String
+)
+
+@Entity(
+    tableName = "memories",
+    indices = [Index("personaId"), Index("updatedAt")]
+)
+data class MemoryEntity(
+    @PrimaryKey val id: String,
+    val personaId: String? = null, // null = global user memory
+    val category: String = "fact", // "fact" | "preference" | "event" | "relationship"
+    val content: String,
+    val importance: Int = 3, // 1..5
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+)

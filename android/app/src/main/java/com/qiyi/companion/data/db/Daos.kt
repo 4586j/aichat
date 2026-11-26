@@ -68,3 +68,36 @@ interface MessageDao {
     @Insert
     suspend fun insertAll(messages: List<MessageEntity>)
 }
+
+@Dao
+interface KnowledgeDao {
+    @Query("SELECT * FROM knowledge_documents ORDER BY createdAt DESC")
+    fun observeDocuments(): Flow<List<KnowledgeDocumentEntity>>
+
+    @Query("SELECT * FROM knowledge_chunks")
+    suspend fun listAllChunks(): List<KnowledgeChunkEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertDocument(doc: KnowledgeDocumentEntity)
+
+    @Insert
+    suspend fun insertChunks(chunks: List<KnowledgeChunkEntity>)
+
+    @Query("DELETE FROM knowledge_documents WHERE id = :documentId")
+    suspend fun deleteDocument(documentId: String)
+}
+
+@Dao
+interface MemoryDao {
+    @Query("SELECT * FROM memories ORDER BY importance DESC, updatedAt DESC")
+    fun observeAll(): Flow<List<MemoryEntity>>
+
+    @Query("SELECT * FROM memories WHERE personaId IS NULL OR personaId = :personaId ORDER BY importance DESC, updatedAt DESC")
+    suspend fun listRelevantCandidates(personaId: String): List<MemoryEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(memory: MemoryEntity)
+
+    @Query("DELETE FROM memories WHERE id = :id")
+    suspend fun deleteById(id: String)
+}

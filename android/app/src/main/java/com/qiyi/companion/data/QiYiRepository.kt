@@ -2,9 +2,14 @@ package com.qiyi.companion.data
 
 import com.qiyi.companion.data.card.PersonaCardCodec
 import com.qiyi.companion.data.db.ConversationEntity
+import com.qiyi.companion.data.db.KnowledgeChunkEntity
+import com.qiyi.companion.data.db.KnowledgeDocumentEntity
+import com.qiyi.companion.data.db.MemoryEntity
 import com.qiyi.companion.data.db.MessageEntity
 import com.qiyi.companion.data.db.PersonaEntity
 import com.qiyi.companion.data.db.QiYiDatabase
+import com.qiyi.companion.data.knowledge.KnowledgeEngine
+import com.qiyi.companion.data.knowledge.KnowledgeHit
 import com.qiyi.companion.data.network.ChatPromptMessage
 import com.qiyi.companion.data.network.OpenAiClient
 import com.qiyi.companion.data.network.StreamChunk
@@ -23,6 +28,8 @@ class QiYiRepository(
     val settings: StateFlow<AppSettings> = prefs.settings
     val personas: Flow<List<PersonaEntity>> = db.personaDao().observeAll()
     val allConversations: Flow<List<ConversationEntity>> = db.conversationDao().observeAll()
+    val knowledgeDocuments: Flow<List<KnowledgeDocumentEntity>> = db.knowledgeDao().observeDocuments()
+    val memories: Flow<List<MemoryEntity>> = db.memoryDao().observeAll()
 
     suspend fun ensureDefaultPersona(): PersonaEntity {
         val existing = db.personaDao().listAll()
@@ -166,12 +173,97 @@ class QiYiRepository(
         return id
     }
 
-    suspend fun buildPromptMessages(persona: PersonaEntity, conversationId: String): List<ChatPromptMessage> {
+    suspend fun importKnowledgeDocument(title: String, rawContent: String, sourceName: String = ""): KnowledgeDocumentEntity {
+        val cleanTitle = title.trim().ifEmpty { "未命名文档" }.take(120)
+        val cleanContent = rawContent.trim()
+        require(cleanContent.isNotEmpty()) { "文档内容不能为空。" }
+        val chunks = KnowledgeEngine.chunkText(cleanContent)
+        require(chunks.isNotEmpty()) { "未能从文档中解析出有效文本段落。" }
+        val docId = UUID.randomUUID().toString()
+        val doc = KnowledgeDocumentEntity(
+            id = docId,
+            title = cleanTitle,
+            sourceName = sourceName.trim().take(120),
+            chunkCount = chunks.size,
+            charCount = cleanContent.length,
+            createdAt = System.currentTimeMillis()
+        )
+        db.knowledgeDao().upsertDocument(doc)
+        db.knowledgeDao().insertChunks(
+            chunks.mapIndexed { idx, text ->
+                KnowledgeChunkEntity(
+                    documentId = docId,
+                    documentTitle = cleanTitle,
+                    chunkIndex = idx,
+                    content = text
+                )
+            }
+        )
+        return doc
+    }
+
+    suspend fun deleteKnowledgeDocument(documentId: String) {
+        db.knowledgeDao().deleteDocument(documentId)
+    }
+
+    suspend fun searchKnowledge(query: String, topK: Int = 5): List<KnowledgeHit> {
+        val allChunks = db.knowledgeDao().listAllChunks()
+        return KnowledgeEngine.searchChunks(query, allChunks, topK)
+    }
+
+    suspend fun saveMemory(
+        existingId: String?,
+        personaId: String?,
+        category: String,
+        content: String,
+        importance: Int
+    ): MemoryEntity {
+        val cleanContent = content.trim().take(500)
+        require(cleanContent.isNotEmpty()) { "记忆内容不能为空。" }
+        val now = System.currentTimeMillis()
+        val entity = MemoryEntity(
+            id = existingId ?: UUID.randomUUID().toString(),
+            personaId = personaId?.takeIf { it.isNotBlank() },
+            category = category.trim().ifEmpty { "fact" },
+            content = cleanContent,
+            importance = importance.coerceIn(1, 5),
+            createdAt = now,
+            updatedAt = now
+        )
+        db.memoryDao().upsert(entity)
+        return entity
+    }
+
+    suspend fun deleteMemory(id: String) {
+        db.memoryDao().deleteById(id)
+    }
+
+    suspend fun buildPromptMessages(
+        persona: PersonaEntity,
+        conversationId: String,
+        latestQuery: String = ""
+    ): List<ChatPromptMessage> {
         val history = db.messageDao().listByConversation(conversationId).takeLast(24)
+        val effectiveQuery = latestQuery.trim().ifEmpty {
+            history.lastOrNull { it.role == "user" }?.content.orEmpty()
+        }
+        val knowledgeHits = if (effectiveQuery.isNotBlank()) {
+            KnowledgeEngine.searchChunks(effectiveQuery, db.knowledgeDao().listAllChunks(), topK = 3)
+        } else {
+            emptyList()
+        }
+        val memoryHits = KnowledgeEngine.recallMemories(
+            query = effectiveQuery,
+            candidates = db.memoryDao().listRelevantCandidates(persona.id),
+            topK = 5
+        )
+        val referenceBlock = KnowledgeEngine.buildReferenceContextBlock(knowledgeHits, memoryHits)
+
         val sys = buildString {
             append("角色名称：").append(persona.name).append('\n')
             if (persona.tone.isNotBlank()) append("说话语气：").append(persona.tone).append('\n')
             append("人设设定：\n").append(persona.systemPrompt)
+            if (referenceBlock.isNotBlank()) append(referenceBlock)
         }
         return buildList {
             add(ChatPromptMessage("system", sys))

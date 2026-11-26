@@ -5,8 +5,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.qiyi.companion.data.QiYiRepository
 import com.qiyi.companion.data.db.ConversationEntity
+import com.qiyi.companion.data.db.KnowledgeDocumentEntity
+import com.qiyi.companion.data.db.MemoryEntity
 import com.qiyi.companion.data.db.MessageEntity
 import com.qiyi.companion.data.db.PersonaEntity
+import com.qiyi.companion.data.knowledge.KnowledgeHit
 import com.qiyi.companion.data.network.StreamChunk
 import com.qiyi.companion.data.prefs.AppSettings
 import com.qiyi.companion.data.prefs.GardenThemeMode
@@ -42,6 +45,21 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
+
+    val knowledgeDocuments: StateFlow<List<KnowledgeDocumentEntity>> = repository.knowledgeDocuments.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    val memories: StateFlow<List<MemoryEntity>> = repository.memories.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    private val _knowledgeSearchResults = MutableStateFlow<List<KnowledgeHit>>(emptyList())
+    val knowledgeSearchResults: StateFlow<List<KnowledgeHit>> = _knowledgeSearchResults.asStateFlow()
 
     private val _activePersonaId = MutableStateFlow<String?>(null)
     val activePersonaId: StateFlow<String?> = _activePersonaId.asStateFlow()
@@ -139,7 +157,7 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
             }
 
             repository.saveUserMessage(convId, text)
-            val promptMessages = repository.buildPromptMessages(persona, convId)
+            val promptMessages = repository.buildPromptMessages(persona, convId, text)
 
             val contentBuilder = StringBuilder()
             val reasoningBuilder = StringBuilder()
@@ -331,6 +349,79 @@ class QiYiViewModel(private val repository: QiYiRepository) : ViewModel() {
     fun setUserAvatar(avatar: String) {
         repository.setUserAvatar(avatar)
         notify("已更新我的头像")
+    }
+
+    fun importKnowledgeDocument(title: String, rawContent: String, sourceName: String = "", onSaved: () -> Unit = {}) {
+        viewModelScope.launch {
+            runCatching { repository.importKnowledgeDocument(title, rawContent, sourceName) }
+                .onSuccess { doc ->
+                    notify("已导入《${doc.title}》（${doc.chunkCount} 个检索片段）")
+                    onSaved()
+                }
+                .onFailure { notify(it.message ?: "导入文档失败。") }
+        }
+    }
+
+    fun deleteKnowledgeDocument(doc: KnowledgeDocumentEntity) {
+        viewModelScope.launch {
+            runCatching { repository.deleteKnowledgeDocument(doc.id) }
+                .onSuccess {
+                    _knowledgeSearchResults.value = _knowledgeSearchResults.value.filterNot { it.chunk.documentId == doc.id }
+                    notify("已移除文档《${doc.title}》")
+                }
+                .onFailure { notify(it.message ?: "删除文档失败。") }
+        }
+    }
+
+    fun searchKnowledge(query: String) {
+        val clean = query.trim()
+        if (clean.isEmpty()) {
+            _knowledgeSearchResults.value = emptyList()
+            return
+        }
+        viewModelScope.launch {
+            runCatching { repository.searchKnowledge(clean, topK = 6) }
+                .onSuccess { hits -> _knowledgeSearchResults.value = hits }
+                .onFailure { notify(it.message ?: "检索知识库失败。") }
+        }
+    }
+
+    fun saveMemory(
+        existingId: String?,
+        personaId: String?,
+        category: String,
+        content: String,
+        importance: Int,
+        onSaved: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            runCatching { repository.saveMemory(existingId, personaId, category, content, importance) }
+                .onSuccess {
+                    notify(if (existingId == null) "已写入长期记忆" else "已更新长期记忆")
+                    onSaved()
+                }
+                .onFailure { notify(it.message ?: "保存记忆失败。") }
+        }
+    }
+
+    fun deleteMemory(memory: MemoryEntity) {
+        viewModelScope.launch {
+            runCatching { repository.deleteMemory(memory.id) }
+                .onSuccess { notify("已删除该条记忆") }
+                .onFailure { notify(it.message ?: "删除记忆失败。") }
+        }
+    }
+
+    fun rememberFromChat(content: String) {
+        val snippet = content.trim().replace(Regex("\\s+"), " ").take(240)
+        if (snippet.isEmpty()) return
+        saveMemory(
+            existingId = null,
+            personaId = null,
+            category = "event",
+            content = snippet,
+            importance = 4
+        )
     }
 
     fun effectiveModelFor(persona: PersonaEntity?): String = repository.effectiveModelFor(persona)

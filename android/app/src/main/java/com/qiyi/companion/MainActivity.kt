@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +32,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qiyi.companion.ui.QiYiViewModel
 import com.qiyi.companion.ui.screens.ChatScreen
+import com.qiyi.companion.ui.screens.LibraryScreen
 import com.qiyi.companion.ui.screens.PersonasScreen
 import com.qiyi.companion.ui.screens.SettingsScreen
 import com.qiyi.companion.ui.theme.QiYiGardenTheme
@@ -59,6 +61,7 @@ private fun QiYiAppRoot(viewModel: QiYiViewModel) {
         listOf(
             NavTab("对话", Icons.Default.ChatBubble),
             NavTab("人设", Icons.Default.Face),
+            NavTab("书阁", Icons.Default.MenuBook),
             NavTab("设置", Icons.Default.Settings)
         )
     }
@@ -95,6 +98,10 @@ private fun QiYiAppRoot(viewModel: QiYiViewModel) {
                 1 -> PersonasScreen(
                     viewModel = viewModel,
                     onOpenChat = { selectedTab = 0 },
+                    modifier = Modifier.padding(innerPadding)
+                )
+                2 -> LibraryScreen(
+                    viewModel = viewModel,
                     modifier = Modifier.padding(innerPadding)
                 )
                 else -> SettingsScreen(
