@@ -40,7 +40,13 @@ sealed interface StreamChunk {
     data class ContentDelta(val text: String) : StreamChunk
     data class ReasoningDelta(val text: String) : StreamChunk
     data class ToolStep(val summary: String) : StreamChunk
-    data class Usage(val promptTokens: Int, val completionTokens: Int, val totalTokens: Int) : StreamChunk
+    data class Usage(
+        val promptTokens: Int,
+        val cachedPromptTokens: Int = 0,
+        val completionTokens: Int = 0,
+        val reasoningTokens: Int = 0,
+        val totalTokens: Int = 0
+    ) : StreamChunk
     data object Done : StreamChunk
 }
 
@@ -207,10 +213,7 @@ class OpenAiClient(
                             val parsed = runCatching { json.parseToJsonElement(data).jsonObject }.getOrNull() ?: continue
                             val usageObj = parsed["usage"] as? JsonObject
                             if (usageObj != null) {
-                                val pTok = usageObj["prompt_tokens"]?.jsonPrimitive?.intOrNull ?: 0
-                                val cTok = usageObj["completion_tokens"]?.jsonPrimitive?.intOrNull ?: 0
-                                val tTok = usageObj["total_tokens"]?.jsonPrimitive?.intOrNull ?: (pTok + cTok)
-                                if (tTok > 0) trySend(StreamChunk.Usage(pTok, cTok, tTok))
+                                parseUsageChunk(usageObj)?.let { trySend(it) }
                             }
                             val delta = parsed["choices"]?.jsonArray?.firstOrNull()?.jsonObject?.get("delta")?.jsonObject ?: continue
                             val reasoning = delta["reasoning_content"]?.jsonPrimitive?.contentOrNull
@@ -305,10 +308,7 @@ class OpenAiClient(
 
                 val usageObj = responseRoot["usage"] as? JsonObject
                 if (usageObj != null) {
-                    val pTok = usageObj["prompt_tokens"]?.jsonPrimitive?.intOrNull ?: 0
-                    val cTok = usageObj["completion_tokens"]?.jsonPrimitive?.intOrNull ?: 0
-                    val tTok = usageObj["total_tokens"]?.jsonPrimitive?.intOrNull ?: (pTok + cTok)
-                    if (tTok > 0) emit(StreamChunk.Usage(pTok, cTok, tTok))
+                    parseUsageChunk(usageObj)?.let { emit(it) }
                 }
 
                 val msgObj = responseRoot["choices"]?.jsonArray?.firstOrNull()?.jsonObject
@@ -428,6 +428,33 @@ class OpenAiClient(
                     ?.mapNotNull { it.jsonPrimitive.doubleOrNull }
             }
         }.getOrNull()
+    }
+
+    private fun parseUsageChunk(usageObj: JsonObject): StreamChunk.Usage? {
+        val pTok = usageObj["prompt_tokens"]?.jsonPrimitive?.intOrNull
+            ?: usageObj["input_tokens"]?.jsonPrimitive?.intOrNull ?: 0
+        val cTok = usageObj["completion_tokens"]?.jsonPrimitive?.intOrNull
+            ?: usageObj["output_tokens"]?.jsonPrimitive?.intOrNull ?: 0
+        val tTok = usageObj["total_tokens"]?.jsonPrimitive?.intOrNull ?: (pTok + cTok)
+        val promptDetails = usageObj["prompt_tokens_details"] as? JsonObject
+        val cached = promptDetails?.get("cached_tokens")?.jsonPrimitive?.intOrNull
+            ?: usageObj["prompt_cache_hit_tokens"]?.jsonPrimitive?.intOrNull
+            ?: usageObj["cache_read_input_tokens"]?.jsonPrimitive?.intOrNull
+            ?: usageObj["cached_tokens"]?.jsonPrimitive?.intOrNull ?: 0
+        val compDetails = usageObj["completion_tokens_details"] as? JsonObject
+        val reasoning = compDetails?.get("reasoning_tokens")?.jsonPrimitive?.intOrNull
+            ?: usageObj["reasoning_tokens"]?.jsonPrimitive?.intOrNull ?: 0
+        return if (tTok > 0 || pTok > 0 || cTok > 0) {
+            StreamChunk.Usage(
+                promptTokens = pTok,
+                cachedPromptTokens = cached.coerceAtMost(pTok.coerceAtLeast(cached)),
+                completionTokens = cTok,
+                reasoningTokens = reasoning,
+                totalTokens = tTok
+            )
+        } else {
+            null
+        }
     }
 
     private fun toRequestMessage(msg: ChatPromptMessage): RequestMessage {

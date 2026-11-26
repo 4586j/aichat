@@ -24,6 +24,7 @@ import com.qiyi.companion.data.network.ModelServiceException
 import com.qiyi.companion.data.network.StreamChunk
 import com.qiyi.companion.data.prefs.AppSettings
 import com.qiyi.companion.data.prefs.GardenThemeMode
+import com.qiyi.companion.data.usage.UsageAnalytics
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -479,9 +480,13 @@ class QiYiViewModel(
                     val contentBuilder = StringBuilder()
                     val reasoningBuilder = StringBuilder()
                     val toolSteps = mutableListOf<String>()
+                    val startedAt = System.currentTimeMillis()
                     var promptTok = 0
+                    var cachedTok = 0
                     var completionTok = 0
+                    var reasoningTok = 0
                     var totalTok = 0
+                    var usageFromProvider = false
                     _streaming.value = StreamingState(
                         isStreaming = true,
                         conversationId = convId,
@@ -509,13 +514,17 @@ class QiYiViewModel(
                                     _streaming.value = _streaming.value.copy(reasoning = reasoningBuilder.toString())
                                 }
                                 is StreamChunk.Usage -> {
+                                    usageFromProvider = true
                                     promptTok += chunk.promptTokens
+                                    cachedTok += chunk.cachedPromptTokens
                                     completionTok += chunk.completionTokens
+                                    reasoningTok += chunk.reasoningTokens
                                     totalTok += chunk.totalTokens
                                 }
                                 StreamChunk.Done -> Unit
                             }
                         }
+                        val elapsedMs = (System.currentTimeMillis() - startedAt).coerceAtLeast(1L)
                         val finalContent = contentBuilder.toString().trim()
                         val finalReasoning = reasoningBuilder.toString().trim()
                         if (finalContent.isNotEmpty() || finalReasoning.isNotEmpty()) {
@@ -534,16 +543,24 @@ class QiYiViewModel(
                                 citationsJson = promptContext.citationsJson,
                                 toolTrace = toolSteps.joinToString("\n")
                             )
-                            val estPrompt = if (promptTok > 0) promptTok else (promptMessages.sumOf { it.content.length } / 2).coerceAtLeast(1)
-                            val estComp = if (completionTok > 0) completionTok else ((finalContent.length + finalReasoning.length) / 2).coerceAtLeast(1)
-                            val estTotal = if (totalTok > 0) totalTok else (estPrompt + estComp)
+                            val estPrompt = if (usageFromProvider && promptTok > 0) promptTok
+                            else promptMessages.sumOf { UsageAnalytics.estimateTextTokens(it.content) + 4 }.coerceAtLeast(1)
+                            val estReasoning = if (usageFromProvider && reasoningTok > 0) reasoningTok
+                            else UsageAnalytics.estimateTextTokens(finalReasoning)
+                            val estComp = if (usageFromProvider && completionTok > 0) completionTok
+                            else (UsageAnalytics.estimateTextTokens(finalContent) + estReasoning).coerceAtLeast(1)
+                            val estTotal = if (usageFromProvider && totalTok > 0) totalTok else (estPrompt + estComp)
                             repository.recordUsage(
                                 conversationId = convId,
                                 personaId = persona.id,
                                 model = repository.effectiveModelFor(persona),
                                 promptTokens = estPrompt,
+                                cachedPromptTokens = cachedTok,
                                 completionTokens = estComp,
-                                totalTokens = estTotal
+                                reasoningTokens = estReasoning,
+                                totalTokens = estTotal,
+                                durationMs = elapsedMs,
+                                source = if (usageFromProvider) "provider" else "estimated"
                             )
                         }
                     } catch (cancel: CancellationException) {
@@ -1042,6 +1059,14 @@ class QiYiViewModel(
             repository.clearUsageRecords()
             notify("已清空 Token 用量统计。")
         }
+    }
+
+    fun setCustomPricing(inputPer1M: Double, outputPer1M: Double) {
+        repository.setCustomPricing(inputPer1M, outputPer1M)
+        notify(
+            if (inputPer1M <= 0.0 && outputPer1M <= 0.0) "已恢复按模型默认单价估算。"
+            else "已保存自定义单价（输入 \$${inputPer1M} / 输出 \$${outputPer1M} 每百万 Token）。"
+        )
     }
 
     fun saveScheduledTask(

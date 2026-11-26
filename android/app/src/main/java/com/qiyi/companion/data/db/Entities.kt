@@ -139,8 +139,12 @@ data class UsageRecordEntity(
     val personaId: String,
     val model: String,
     val promptTokens: Int = 0,
+    val cachedPromptTokens: Int = 0,
     val completionTokens: Int = 0,
+    val reasoningTokens: Int = 0,
     val totalTokens: Int = 0,
+    val durationMs: Long = 0L,
+    val source: String = "estimated", // "provider" | "estimated"
     val createdAt: Long = System.currentTimeMillis()
 )
 

@@ -31,7 +31,9 @@ data class AppSettings(
     val toolsEnabled: Boolean = true,
     val musicBaseUrl: String = "",
     val musicSource: String = "local", // "local" | "qq" | "netease"
-    val hasMusicApiKey: Boolean = false
+    val hasMusicApiKey: Boolean = false,
+    val customInputPricePer1M: Double = 0.0,
+    val customOutputPricePer1M: Double = 0.0
 )
 
 /**
@@ -72,7 +74,9 @@ class SecurePreferences(context: Context) {
         toolsEnabled = plainPrefs.getBoolean(KEY_TOOLS_ENABLED, true),
         musicBaseUrl = plainPrefs.getString(KEY_MUSIC_BASE_URL, "") ?: "",
         musicSource = plainPrefs.getString(KEY_MUSIC_SOURCE, "local") ?: "local",
-        hasMusicApiKey = getMusicApiKey().isNotBlank()
+        hasMusicApiKey = getMusicApiKey().isNotBlank(),
+        customInputPricePer1M = plainPrefs.getFloat(KEY_INPUT_PRICE, 0f).toDouble(),
+        customOutputPricePer1M = plainPrefs.getFloat(KEY_OUTPUT_PRICE, 0f).toDouble()
     )
 
     fun getApiKey(): String = secretPrefs.getString(KEY_API_KEY, "") ?: ""
@@ -143,6 +147,14 @@ class SecurePreferences(context: Context) {
         _settings.value = readSnapshot()
     }
 
+    fun setCustomPricing(inputPer1M: Double, outputPer1M: Double) {
+        plainPrefs.edit()
+            .putFloat(KEY_INPUT_PRICE, inputPer1M.coerceAtLeast(0.0).toFloat())
+            .putFloat(KEY_OUTPUT_PRICE, outputPer1M.coerceAtLeast(0.0).toFloat())
+            .apply()
+        _settings.value = readSnapshot()
+    }
+
     companion object {
         private const val KEY_BASE_URL = "base_url"
         private const val KEY_DEFAULT_MODEL = "default_model"
@@ -156,5 +168,7 @@ class SecurePreferences(context: Context) {
         private const val KEY_MUSIC_BASE_URL = "music_base_url"
         private const val KEY_MUSIC_SOURCE = "music_source"
         private const val KEY_MUSIC_API_KEY = "music_api_key"
+        private const val KEY_INPUT_PRICE = "usage_input_price_1m"
+        private const val KEY_OUTPUT_PRICE = "usage_output_price_1m"
     }
 }

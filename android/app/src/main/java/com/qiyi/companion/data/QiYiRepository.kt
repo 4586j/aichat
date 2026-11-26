@@ -479,8 +479,12 @@ class QiYiRepository(
         personaId: String,
         model: String,
         promptTokens: Int,
-        completionTokens: Int,
-        totalTokens: Int
+        cachedPromptTokens: Int = 0,
+        completionTokens: Int = 0,
+        reasoningTokens: Int = 0,
+        totalTokens: Int = promptTokens + completionTokens,
+        durationMs: Long = 0L,
+        source: String = "estimated"
     ) {
         db.usageDao().insert(
             UsageRecordEntity(
@@ -488,11 +492,18 @@ class QiYiRepository(
                 personaId = personaId,
                 model = model,
                 promptTokens = promptTokens,
+                cachedPromptTokens = cachedPromptTokens,
                 completionTokens = completionTokens,
-                totalTokens = totalTokens
+                reasoningTokens = reasoningTokens,
+                totalTokens = totalTokens,
+                durationMs = durationMs,
+                source = source
             )
         )
     }
+
+    fun setCustomPricing(inputPer1M: Double, outputPer1M: Double) =
+        prefs.setCustomPricing(inputPer1M, outputPer1M)
 
     suspend fun clearUsageRecords() = db.usageDao().clearAll()
 
