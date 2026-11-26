@@ -438,6 +438,7 @@ fun ChatScreen(
                 ) {
                     GardenWindowButton(
                         text = "当前状态",
+                        primary = showChatStateDrawer,
                         onClick = { showChatStateDrawer = !showChatStateDrawer }
                     )
                     GardenWindowButton(
@@ -448,65 +449,8 @@ fun ChatScreen(
             }
         }
 
-        // 2.5 Collapsible 「当前状态」 Strip (aligned with mobile web live-v4-6-mobile-390.png)
+        // 2.5 Unified Collapsible 「当前状态」 Drawer (Mood/Relation + Context Usage/Compaction + Reply Linkage)
         AnimatedVisibility(visible = showChatStateDrawer) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp),
-                color = garden.paperCard,
-                border = BorderStroke(0.8.dp, garden.lineSoft)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showChatStateDialog = true }
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            GardenTagPill(text = "你", accent = garden.paperCard, background = garden.bamboo)
-                            Text(
-                                text = activeConversation?.userMood?.ifBlank { null } ?: "暂不判断 · 点击设置当前状态",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = garden.text,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            GardenTagPill(text = "角色", accent = garden.paperCard, background = garden.gold)
-                            Text(
-                                text = activeConversation?.assistantStyle?.ifBlank { null } ?: "跟随人设 · 正常",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = garden.text,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                    GardenTagPill(
-                        text = activeConversation?.relationshipStage?.ifBlank { null } ?: "初识",
-                        accent = garden.gold,
-                        background = garden.goldSoft
-                    )
-                }
-            }
-        }
-
-        // 2.6 Compact Context Usage Gauge + Compaction + Linkage Strip (zero extra vertical rows!)
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp),
-            color = garden.paperCard,
-            border = BorderStroke(0.7.dp, garden.lineSoft)
-        ) {
             val ctxColor = when (contextUsage.pressureLevel) {
                 ContextPressureLevel.NORMAL -> garden.bamboo
                 ContextPressureLevel.ELEVATED -> garden.gold
@@ -515,130 +459,194 @@ fun ChatScreen(
             val ctxUsedText = UsageAnalytics.formatCompactTokens(contextUsage.estimatedTotalTokens.toLong())
             val ctxLimitText = UsageAnalytics.formatCompactTokens(contextUsage.windowLimitTokens.toLong())
             val ctxPctText = String.format(Locale.US, "%.0f%%", contextUsage.usagePercent)
+            val activeFeatures = buildList {
+                if (settings.musicEnabled) add("音乐")
+                if (settings.stickerEnabled) add("表情")
+                if (settings.toolsEnabled) add("工具")
+            }.ifEmpty { listOf("纯对话") }
 
-            Row(
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .padding(horizontal = 10.dp),
+                color = garden.paperCard,
+                border = BorderStroke(0.8.dp, garden.lineSoft)
             ) {
-                // Live Context Usage Gauge (clickable to open Context & Compaction Sheet)
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable { showContextSheet = true }
-                        .padding(vertical = 2.dp, horizontal = 2.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Section A: Mood, Style & Relationship Stage
                     Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showChatStateDialog = true }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(ctxColor)
-                        )
-                        Text(
-                            text = "上下文 $ctxUsedText/$ctxLimitText ($ctxPctText)",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = garden.ink,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (contextUsage.hasCompaction) {
-                            Text(
-                                text = "已压缩",
-                                fontSize = 10.sp,
-                                color = garden.gold,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                    // Sleek 3dp proportional progress track
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(0.92f)
-                            .height(3.dp)
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(garden.paperDeep)
-                    ) {
-                        val fillRatio = contextUsage.usageRatio.coerceAtLeast(
-                            if (contextUsage.estimatedTotalTokens > 0) 0.03f else 0f
-                        )
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(fillRatio)
-                                .fillMaxHeight()
-                                .background(ctxColor)
-                        )
-                    }
-                }
-
-                Spacer(Modifier.width(6.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    // Compact Compaction trigger button
-                    Surface(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(7.dp))
-                            .clickable { showContextSheet = true },
-                        shape = RoundedCornerShape(7.dp),
-                        color = when {
-                            isCompacting -> garden.bambooSoft
-                            contextUsage.pressureLevel == ContextPressureLevel.CRITICAL -> garden.cinnabarSoft
-                            contextUsage.pressureLevel == ContextPressureLevel.ELEVATED -> garden.goldSoft
-                            else -> garden.paper
-                        },
-                        border = BorderStroke(
-                            0.85.dp,
-                            when {
-                                isCompacting -> garden.bamboo
-                                contextUsage.pressureLevel == ContextPressureLevel.CRITICAL -> garden.cinnabar
-                                contextUsage.pressureLevel == ContextPressureLevel.ELEVATED -> garden.gold
-                                else -> garden.line
-                            }
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Compress,
-                                contentDescription = "会话压缩",
-                                tint = ctxColor,
-                                modifier = Modifier.size(13.dp)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                GardenTagPill(text = "你", accent = garden.paperCard, background = garden.bamboo)
+                                Text(
+                                    text = activeConversation?.userMood?.ifBlank { null } ?: "暂不判断 · 点击设置当前状态",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = garden.text,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                GardenTagPill(text = "角色", accent = garden.paperCard, background = garden.gold)
+                                Text(
+                                    text = activeConversation?.assistantStyle?.ifBlank { null } ?: "跟随人设 · 正常",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = garden.text,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        GardenTagPill(
+                            text = activeConversation?.relationshipStage?.ifBlank { null } ?: "初识",
+                            accent = garden.gold,
+                            background = garden.goldSoft
+                        )
+                    }
+
+                    HorizontalDivider(color = garden.lineSoft, modifier = Modifier.padding(horizontal = 10.dp))
+
+                    // Section B: Live Context Window Usage + Compaction
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { showContextSheet = true }
+                                .padding(vertical = 2.dp, horizontal = 2.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(ctxColor)
+                                )
+                                Text(
+                                    text = "上下文 $ctxUsedText / $ctxLimitText ($ctxPctText)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = garden.ink,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (contextUsage.hasCompaction) {
+                                    Text(
+                                        text = "已压缩",
+                                        fontSize = 10.sp,
+                                        color = garden.gold,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.94f)
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(garden.paperDeep)
+                            ) {
+                                val fillRatio = contextUsage.usageRatio.coerceAtLeast(
+                                    if (contextUsage.estimatedTotalTokens > 0) 0.03f else 0f
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(fillRatio)
+                                        .fillMaxHeight()
+                                        .background(ctxColor)
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.width(8.dp))
+
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(7.dp))
+                                .clickable { showContextSheet = true },
+                            shape = RoundedCornerShape(7.dp),
+                            color = when {
+                                isCompacting -> garden.bambooSoft
+                                contextUsage.pressureLevel == ContextPressureLevel.CRITICAL -> garden.cinnabarSoft
+                                contextUsage.pressureLevel == ContextPressureLevel.ELEVATED -> garden.goldSoft
+                                else -> garden.paper
+                            },
+                            border = BorderStroke(
+                                0.85.dp,
+                                when {
+                                    isCompacting -> garden.bamboo
+                                    contextUsage.pressureLevel == ContextPressureLevel.CRITICAL -> garden.cinnabar
+                                    contextUsage.pressureLevel == ContextPressureLevel.ELEVATED -> garden.gold
+                                    else -> garden.line
+                                }
                             )
-                            Text(
-                                text = if (isCompacting) "压缩中" else "压缩",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = ctxColor,
-                                maxLines = 1
-                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Compress,
+                                    contentDescription = "会话压缩",
+                                    tint = ctxColor,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = if (isCompacting) "压缩中" else "会话压缩",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = ctxColor,
+                                    maxLines = 1
+                                )
+                            }
                         }
                     }
 
-                    // Reply Linkage quick entry
-                    TextButton(
-                        onClick = { showLinkageDialog = true },
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                        modifier = Modifier.height(26.dp)
+                    HorizontalDivider(color = garden.lineSoft, modifier = Modifier.padding(horizontal = 10.dp))
+
+                    // Section C: Reply Linkage
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showLinkageDialog = true }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        val activeCount = listOf(settings.musicEnabled, settings.stickerEnabled, settings.toolsEnabled).count { it }
                         Text(
-                            text = if (activeCount > 0) "联动($activeCount)" else "联动",
+                            text = "回复联动：${activeFeatures.joinToString(" · ")}",
                             style = MaterialTheme.typography.labelSmall,
+                            color = garden.muted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "联动设置",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium,
                             color = garden.bamboo
                         )
                     }
