@@ -64,7 +64,8 @@ data class DraftAttachment(
     val name: String,
     val content: String = "",
     val isImage: Boolean = false,
-    val imageDataUri: String? = null
+    val imageDataUri: String? = null,
+    val localPath: String = ""
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -300,7 +301,7 @@ class QiYiViewModel(
         notify("已添加附件「${name.trim().ifEmpty { "附件.txt" }}」")
     }
 
-    fun addDraftImage(name: String, dataUri: String) {
+    fun addDraftImage(name: String, dataUri: String, localPath: String = "") {
         if (!dataUri.startsWith("data:image/")) {
             notify("不支持的图片格式。")
             return
@@ -315,7 +316,8 @@ class QiYiViewModel(
             name = cleanName,
             content = "",
             isImage = true,
-            imageDataUri = dataUri
+            imageDataUri = dataUri,
+            localPath = localPath
         )
         notify("已添加图片「$cleanName」")
     }
@@ -323,6 +325,10 @@ class QiYiViewModel(
     fun removeDraftAttachment(index: Int) {
         val current = _draftAttachments.value
         if (index in current.indices) {
+            val removed = current[index]
+            if (removed.isImage && removed.localPath.isNotBlank()) {
+                runCatching { java.io.File(removed.localPath).delete() }
+            }
             _draftAttachments.value = current.filterIndexed { i, _ -> i != index }
         }
     }
@@ -381,19 +387,31 @@ class QiYiViewModel(
 
             val textAttachments = attachments.filter { !it.isImage }
             val imageAttachments = attachments.filter { it.isImage && !it.imageDataUri.isNullOrBlank() }
-            val imageMarker = if (imageAttachments.isNotEmpty()) {
-                imageAttachments.joinToString(" ") { "[图片：${it.name}]" }
+            val savedImagePaths = imageAttachments.map { it.localPath }.filter { it.isNotBlank() }
+            val imagePathsJson = if (savedImagePaths.isNotEmpty()) {
+                kotlinx.serialization.json.JsonArray(
+                    savedImagePaths.map { kotlinx.serialization.json.JsonPrimitive(it) }
+                ).toString()
             } else {
                 ""
             }
-            val displayBase = listOf(pureQuery, imageMarker).filter { it.isNotBlank() }.joinToString("\n")
+            val displayBase = if (savedImagePaths.isNotEmpty()) {
+                pureQuery
+            } else {
+                val imageMarker = if (imageAttachments.isNotEmpty()) {
+                    imageAttachments.joinToString(" ") { "[图片：${it.name}]" }
+                } else {
+                    ""
+                }
+                listOf(pureQuery, imageMarker).filter { it.isNotBlank() }.joinToString("\n")
+            }
             val fullUserContent = repository.buildMessageWithAttachments(
                 userText = displayBase,
                 attachments = textAttachments.map { it.name to it.content }
             )
             val imageDataUris = imageAttachments.mapNotNull { it.imageDataUri }
             _draftAttachments.value = emptyList()
-            repository.saveUserMessage(convId, fullUserContent)
+            repository.saveUserMessage(convId, fullUserContent, imagePathsJson)
             maybeHandleChatMusicIntent(pureQuery)
             runResponderQueue(
                 convId = convId,

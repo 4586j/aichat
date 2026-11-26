@@ -22,7 +22,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MailDraftEntity::class,
         ResumableRunEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class QiYiDatabase : RoomDatabase() {
@@ -213,6 +213,12 @@ abstract class QiYiDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_6_7: Migration = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `messages` ADD COLUMN `imagePathsJson` TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun getInstance(context: Context): QiYiDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -220,7 +226,7 @@ abstract class QiYiDatabase : RoomDatabase() {
                     QiYiDatabase::class.java,
                     "qiyi_companion.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .build()
                     .also { instance = it }
             }

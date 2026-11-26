@@ -68,6 +68,7 @@ data class MessageEntity(
     val stickerId: String = "",
     val citationsJson: String = "",
     val toolTrace: String = "",
+    val imagePathsJson: String = "",
     val createdAt: Long = System.currentTimeMillis()
 )
 

@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,6 +33,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -81,7 +83,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -90,6 +95,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qiyi.companion.data.db.ConversationEntity
 import com.qiyi.companion.data.db.MessageEntity
@@ -109,10 +116,15 @@ import com.qiyi.companion.ui.theme.GardenTagPill
 import com.qiyi.companion.ui.theme.GardenWindowButton
 import com.qiyi.companion.ui.theme.LocalGardenColors
 import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -148,6 +160,7 @@ fun ChatScreen(
     var showHistorySheet by remember { mutableStateOf(false) }
     var showGroupDialog by remember { mutableStateOf(false) }
     var pendingExportMd by remember { mutableStateOf<String?>(null) }
+    var lightboxImagePath by remember { mutableStateOf<String?>(null) }
 
     val attachFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -199,10 +212,14 @@ fun ChatScreen(
             }
             val out = ByteArrayOutputStream()
             scaled.compress(Bitmap.CompressFormat.JPEG, 82, out)
-            val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-            displayName to "data:image/jpeg;base64,$b64"
-        }.onSuccess { (name, dataUri) ->
-            viewModel.addDraftImage(name, dataUri)
+            val jpegBytes = out.toByteArray()
+            val imgDir = File(context.filesDir, "chat_images").apply { mkdirs() }
+            val destFile = File(imgDir, "img_${UUID.randomUUID()}.jpg")
+            destFile.writeBytes(jpegBytes)
+            val b64 = Base64.encodeToString(jpegBytes, Base64.NO_WRAP)
+            Triple(displayName, "data:image/jpeg;base64,$b64", destFile.absolutePath)
+        }.onSuccess { (name, dataUri, localPath) ->
+            viewModel.addDraftImage(name, dataUri, localPath)
         }.onFailure {
             viewModel.notify(it.message ?: "读取图片失败。")
         }
@@ -539,7 +556,8 @@ fun ChatScreen(
                         onWriteMail = {
                             val title = activeConversation?.title?.ifBlank { "栖忆对谈摘录" } ?: "栖忆对谈摘录"
                             onWriteAsMail(title, msg.content)
-                        }
+                        },
+                        onPreviewImage = { path -> lightboxImagePath = path }
                     )
                 }
 
@@ -721,31 +739,79 @@ fun ChatScreen(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 draftAttachments.forEachIndexed { idx, att ->
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = garden.bambooSoft,
-                                        border = BorderStroke(0.8.dp, garden.lineStrong)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically
+                                    if (att.isImage && att.localPath.isNotBlank()) {
+                                        val thumbBitmap = remember(att.localPath) {
+                                            runCatching { BitmapFactory.decodeFile(att.localPath)?.asImageBitmap() }.getOrNull()
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .size(68.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .border(1.dp, garden.gold.copy(alpha = 0.7f), RoundedCornerShape(8.dp))
+                                                .clickable { lightboxImagePath = att.localPath }
                                         ) {
-                                            Text(
-                                                text = att.name,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = garden.ink,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Spacer(Modifier.width(4.dp))
-                                            Icon(
-                                                imageVector = Icons.Default.Close,
-                                                contentDescription = "移除附件",
+                                            if (thumbBitmap != null) {
+                                                Image(
+                                                    bitmap = thumbBitmap,
+                                                    contentDescription = att.name,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            } else {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .background(garden.paperDeep),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(Icons.Default.Image, contentDescription = null, tint = garden.muted)
+                                                }
+                                            }
+                                            Box(
                                                 modifier = Modifier
-                                                    .size(14.dp)
+                                                    .align(Alignment.TopEnd)
+                                                    .padding(3.dp)
+                                                    .size(18.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color.Black.copy(alpha = 0.65f))
                                                     .clickable { viewModel.removeDraftAttachment(idx) },
-                                                tint = garden.muted
-                                            )
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Close,
+                                                    contentDescription = "移除图片",
+                                                    modifier = Modifier.size(12.dp),
+                                                    tint = Color.White
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = garden.bambooSoft,
+                                            border = BorderStroke(0.8.dp, garden.lineStrong)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = att.name,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = garden.ink,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Spacer(Modifier.width(4.dp))
+                                                Icon(
+                                                    imageVector = Icons.Default.Close,
+                                                    contentDescription = "移除附件",
+                                                    modifier = Modifier
+                                                        .size(14.dp)
+                                                        .clickable { viewModel.removeDraftAttachment(idx) },
+                                                    tint = garden.muted
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -932,6 +998,12 @@ fun ChatScreen(
             }
         )
     }
+    lightboxImagePath?.let { path ->
+        ImageLightboxDialog(
+            imagePath = path,
+            onDismiss = { lightboxImagePath = null }
+        )
+    }
 }
 
 @Composable
@@ -1046,7 +1118,8 @@ private fun MessageBubble(
     onRemember: () -> Unit,
     onCopy: () -> Unit,
     onRegenerate: () -> Unit,
-    onWriteMail: () -> Unit
+    onWriteMail: () -> Unit,
+    onPreviewImage: (String) -> Unit
 ) {
     val isUser = message.role == "user"
     val garden = LocalGardenColors.current
@@ -1079,6 +1152,12 @@ private fun MessageBubble(
 
             // Signature Begonia-Notched Bamboo Plaque User Bubble
             val plaqueShape = remember { BegoniaPlaqueShape(8.dp) }
+            val attachedImagePaths = remember(message.imagePathsJson) {
+                if (message.imagePathsJson.isBlank()) emptyList()
+                else runCatching {
+                    Json.decodeFromString(ListSerializer(String.serializer()), message.imagePathsJson)
+                }.getOrDefault(emptyList())
+            }
             Box(
                 modifier = Modifier
                     .widthIn(max = 310.dp)
@@ -1087,12 +1166,38 @@ private fun MessageBubble(
                     .border(1.dp, garden.gold.copy(alpha = 0.5f), plaqueShape)
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                SelectionContainer {
-                    GardenMarkdownText(
-                        markdown = message.content,
-                        textColor = garden.onUserBubble,
-                        isOnDarkBubble = true
-                    )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (attachedImagePaths.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            attachedImagePaths.forEach { imgPath ->
+                                val bmp = remember(imgPath) {
+                                    runCatching { BitmapFactory.decodeFile(imgPath)?.asImageBitmap() }.getOrNull()
+                                }
+                                if (bmp != null) {
+                                    Image(
+                                        bitmap = bmp,
+                                        contentDescription = "已发送图片预览",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .size(if (attachedImagePaths.size == 1) 168.dp else 104.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .border(0.8.dp, garden.gold.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                                            .clickable { onPreviewImage(imgPath) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    SelectionContainer {
+                        GardenMarkdownText(
+                            markdown = message.content,
+                            textColor = garden.onUserBubble,
+                            isOnDarkBubble = true
+                        )
+                    }
                 }
             }
         }
@@ -1637,6 +1742,53 @@ private fun ChatStateEditorDialog(
             }
         }
     )
+}
+
+@Composable
+private fun ImageLightboxDialog(
+    imagePath: String,
+    onDismiss: () -> Unit
+) {
+    val fullBitmap = remember(imagePath) {
+        runCatching { BitmapFactory.decodeFile(imagePath)?.asImageBitmap() }.getOrNull()
+    }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.88f))
+                .clickable(onClick = onDismiss),
+            contentAlignment = Alignment.Center
+        ) {
+            if (fullBitmap != null) {
+                Image(
+                    bitmap = fullBitmap,
+                    contentDescription = "图片大图预览",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                )
+            } else {
+                Text("图片文件不存在或已移除", color = Color.White)
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(24.dp)
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .clickable(onClick = onDismiss),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "关闭预览", tint = Color.White)
+            }
+        }
+    }
 }
 
 /**

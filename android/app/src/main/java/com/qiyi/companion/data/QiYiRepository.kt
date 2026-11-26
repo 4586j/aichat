@@ -230,10 +230,20 @@ class QiYiRepository(
         return branch
     }
 
-    suspend fun saveUserMessage(conversationId: String, content: String): Long {
+    suspend fun saveUserMessage(
+        conversationId: String,
+        content: String,
+        imagePathsJson: String = ""
+    ): Long {
         val now = System.currentTimeMillis()
         val id = db.messageDao().insert(
-            MessageEntity(conversationId = conversationId, role = "user", content = content, createdAt = now)
+            MessageEntity(
+                conversationId = conversationId,
+                role = "user",
+                content = content,
+                imagePathsJson = imagePathsJson,
+                createdAt = now
+            )
         )
         val conv = db.conversationDao().getById(conversationId)
         if (conv != null && conv.title == "新的对话") {
