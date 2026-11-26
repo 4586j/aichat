@@ -134,6 +134,7 @@ import java.util.UUID
 fun ChatScreen(
     viewModel: QiYiViewModel,
     onWriteAsMail: (subject: String, body: String) -> Unit = { _, _ -> },
+    onOpenGroupDialog: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val personas by viewModel.personas.collectAsStateWithLifecycle()
@@ -270,59 +271,11 @@ fun ChatScreen(
             .background(garden.paper)
             .imePadding()
     ) {
-        // 1. Mobile-Web-Aligned Header Strip: 「今天，聊点什么？」 + 历史对话 / 新建对话
+        // 1. Compact Persona Picker + 当前状态 + 群聊 Strip (maximizing chat reading height!)
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            shape = RoundedCornerShape(10.dp),
-            color = garden.paperCard,
-            border = BorderStroke(1.dp, garden.line)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = if (isGroup) activeConversation?.title ?: "雅集群聊" else "今天，聊点什么？",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = garden.ink,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(Modifier.width(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    GardenWindowButton(
-                        text = "导出",
-                        onClick = {
-                            viewModel.exportActiveConversationMarkdown { fileName, md ->
-                                pendingExportMd = md
-                                exportMdLauncher.launch(fileName)
-                            }
-                        }
-                    )
-                    GardenWindowButton(
-                        text = "历史",
-                        onClick = { showHistorySheet = true }
-                    )
-                    GardenWindowButton(
-                        text = "新建",
-                        primary = true,
-                        onClick = { viewModel.startNewConversation() }
-                    )
-                }
-            }
-        }
-
-        // 2. Persona Picker + Group Chat + Status Badge Strip
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp),
+                .padding(start = 10.dp, end = 10.dp, top = 6.dp),
             shape = RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp),
             color = garden.paperCard,
             border = BorderStroke(0.9.dp, garden.line)
@@ -482,7 +435,7 @@ fun ChatScreen(
                     )
                     GardenWindowButton(
                         text = "群聊",
-                        onClick = { showGroupDialog = true }
+                        onClick = onOpenGroupDialog
                     )
                 }
             }
@@ -1659,7 +1612,7 @@ private fun ConversationHistorySheet(
 }
 
 @Composable
-private fun CreateGroupChatDialog(
+fun CreateGroupChatDialog(
     personas: List<PersonaEntity>,
     onDismiss: () -> Unit,
     onCreate: (participantIds: List<String>, title: String) -> Unit

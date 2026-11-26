@@ -246,8 +246,13 @@ class QiYiViewModel(
             notify("正在生成回复，请先停止当前生成再切换角色。")
             return
         }
+        val wasInConversation = _activeConversationId.value != null
         _activePersonaId.value = personaId
         _activeConversationId.value = null
+        val roleName = personas.value.firstOrNull { it.id == personaId }?.name
+        if (wasInConversation && !roleName.isNullOrBlank()) {
+            notify("已切换至「$roleName」，开启新对话。")
+        }
     }
 
     fun selectConversation(conversationId: String) {
