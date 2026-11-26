@@ -383,17 +383,24 @@ fun ChatScreen(
                         personas.forEach { role ->
                             DropdownMenuItem(
                                 text = {
-                                    Column {
-                                        Text(
-                                            text = "${role.avatar.ifBlank { "🌿" }}  ${role.name}",
-                                            fontWeight = if (!isGroup && role.id == activePersona?.id) FontWeight.Bold else FontWeight.Normal
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        GardenSealAvatar(
+                                            label = role.avatar.ifBlank { role.name.take(1).ifBlank { "🌿" } },
+                                            size = 24.dp
                                         )
-                                        if (role.model.isNotBlank()) {
+                                        Spacer(Modifier.width(8.dp))
+                                        Column {
                                             Text(
-                                                text = "专属模型：${role.model}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = garden.bamboo
+                                                text = role.name,
+                                                fontWeight = if (!isGroup && role.id == activePersona?.id) FontWeight.Bold else FontWeight.Normal
                                             )
+                                            if (role.model.isNotBlank()) {
+                                                Text(
+                                                    text = "专属模型：${role.model}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = garden.bamboo
+                                                )
+                                            }
                                         }
                                     }
                                 },
@@ -1642,8 +1649,13 @@ private fun CreateGroupChatDialog(
                                     if (it) selectedIds.add(role.id) else selectedIds.remove(role.id)
                                 }
                             )
+                            GardenSealAvatar(
+                                label = role.avatar.ifBlank { role.name.take(1).ifBlank { "🌿" } },
+                                size = 24.dp
+                            )
+                            Spacer(Modifier.width(8.dp))
                             Text(
-                                text = "${role.avatar.ifBlank { "🌿" }} ${role.name}",
+                                text = role.name,
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             if (role.model.isNotBlank()) {

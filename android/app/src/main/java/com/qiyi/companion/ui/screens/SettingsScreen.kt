@@ -46,8 +46,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.qiyi.companion.data.media.AvatarImageHelper
 import com.qiyi.companion.data.prefs.GardenThemeMode
 import com.qiyi.companion.ui.QiYiViewModel
+import com.qiyi.companion.ui.theme.GardenSealAvatar
 import com.qiyi.companion.ui.theme.GardenWindowButton
 import com.qiyi.companion.ui.theme.LocalGardenColors
 
@@ -105,6 +107,15 @@ fun SettingsScreen(
         }.onFailure {
             viewModel.notify(it.message ?: "读取备份文件失败。")
         }
+    }
+
+    val userAvatarPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching { AvatarImageHelper.saveSquareAvatar(context, uri, "user_avatar") }
+            .onSuccess { path -> viewModel.setUserAvatar(path) }
+            .onFailure { viewModel.notify(it.message ?: "上传头像失败。") }
     }
 
     LaunchedEffect(settings.baseUrl, settings.defaultModel) {
@@ -318,12 +329,44 @@ fun SettingsScreen(
             }
         }
 
-        // Section 03: User Avatar
+        // Section 03: User Avatar (Local Image Upload + Emoji / Custom Text)
         SettingsCard(
             badge = "03",
             title = "我的头像",
-            subtitle = "显示在对话气泡右侧"
+            subtitle = "支持从手机相册上传自定义图片，或选择印章文字/图标"
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                GardenSealAvatar(
+                    label = settings.userAvatar.ifBlank { "我" },
+                    size = 52.dp,
+                    isUser = true
+                )
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        GardenWindowButton(
+                            text = "上传本地头像",
+                            primary = true,
+                            onClick = { userAvatarPicker.launch("image/*") }
+                        )
+                        if (AvatarImageHelper.isImageAvatar(settings.userAvatar)) {
+                            GardenWindowButton(
+                                text = "改回文字",
+                                onClick = { viewModel.setUserAvatar("我") }
+                            )
+                        }
+                    }
+                    Text(
+                        text = if (AvatarImageHelper.isImageAvatar(settings.userAvatar)) "已使用自定义相册图片" else "当前为印章文字头像",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = garden.muted
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)

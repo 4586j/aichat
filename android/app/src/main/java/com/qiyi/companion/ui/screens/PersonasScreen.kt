@@ -53,7 +53,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qiyi.companion.data.db.PersonaEntity
+import com.qiyi.companion.data.media.AvatarImageHelper
 import com.qiyi.companion.ui.QiYiViewModel
+import com.qiyi.companion.ui.theme.GardenSealAvatar
 import com.qiyi.companion.ui.theme.GardenTagPill
 import com.qiyi.companion.ui.theme.GardenWindowButton
 import com.qiyi.companion.ui.theme.LocalGardenColors
@@ -345,6 +347,7 @@ private fun PersonaEditorDialog(
     onDismiss: () -> Unit,
     onSave: (name: String, desc: String, tone: String, greeting: String, prompt: String, avatar: String, model: String) -> Unit
 ) {
+    val context = LocalContext.current
     var name by remember(initial) { mutableStateOf(initial?.name.orEmpty()) }
     var description by remember(initial) { mutableStateOf(initial?.description.orEmpty()) }
     var tone by remember(initial) { mutableStateOf(initial?.tone.orEmpty()) }
@@ -352,6 +355,14 @@ private fun PersonaEditorDialog(
     var systemPrompt by remember(initial) { mutableStateOf(initial?.systemPrompt.orEmpty()) }
     var avatar by remember(initial) { mutableStateOf(initial?.avatar.orEmpty().ifBlank { "🌿" }) }
     var model by remember(initial) { mutableStateOf(initial?.model.orEmpty()) }
+
+    val avatarPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching { AvatarImageHelper.saveSquareAvatar(context, uri, "persona_avatar") }
+            .onSuccess { path -> avatar = path }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -363,7 +374,23 @@ private fun PersonaEditorDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("头像图标", style = MaterialTheme.typography.labelMedium)
+                Text("角色头像", style = MaterialTheme.typography.labelMedium)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    GardenSealAvatar(label = avatar.ifBlank { name.take(1).ifBlank { "🌿" } }, size = 46.dp)
+                    GardenWindowButton(
+                        text = "上传本地头像",
+                        primary = true,
+                        onClick = { avatarPicker.launch("image/*") }
+                    )
+                    if (AvatarImageHelper.isImageAvatar(avatar)) {
+                        TextButton(onClick = { avatar = "🌿" }) {
+                            Text("改回图标")
+                        }
+                    }
+                }
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)

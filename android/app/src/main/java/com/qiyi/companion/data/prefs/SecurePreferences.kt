@@ -143,7 +143,7 @@ class SecurePreferences(context: Context) {
     }
 
     fun setUserAvatar(avatar: String) {
-        plainPrefs.edit().putString(KEY_USER_AVATAR, avatar.trim().take(8)).apply()
+        plainPrefs.edit().putString(KEY_USER_AVATAR, avatar.trim().take(512)).apply()
         _settings.value = readSnapshot()
     }
 

@@ -1,6 +1,7 @@
 package com.qiyi.companion.ui.theme
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -17,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
@@ -32,6 +36,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.qiyi.companion.data.media.AvatarImageHelper
 
 /**
  * Classical inverted-corner plaque shape (海棠缺角匾额) matching the web user message bubble.
@@ -58,7 +63,8 @@ class BegoniaPlaqueShape(private val notchSize: Dp = 8.dp) : Shape {
 }
 
 /**
- * Rounded-square classical seal avatar (matching mobile web `[望]` / `[我]`).
+ * Rounded-square classical seal avatar (matching mobile web `[望]` / `[我]`),
+ * supporting uploaded local images, PC Base64 image avatars, emojis, and serif text.
  */
 @Composable
 fun GardenSealAvatar(
@@ -67,7 +73,15 @@ fun GardenSealAvatar(
     isUser: Boolean = false
 ) {
     val garden = LocalGardenColors.current
-    val text = label.trim().ifEmpty { if (isUser) "我" else "望" }.take(2)
+    val imageBitmap = remember(label) {
+        if (AvatarImageHelper.isImageAvatar(label)) AvatarImageHelper.decodeAvatarBitmap(label) else null
+    }
+    val text = if (AvatarImageHelper.isImageAvatar(label)) {
+        if (isUser) "我" else "望"
+    } else {
+        label.trim().ifEmpty { if (isUser) "我" else "望" }.take(2)
+    }
+
     Box(
         modifier = Modifier
             .size(size)
@@ -76,13 +90,22 @@ fun GardenSealAvatar(
             .border(1.dp, if (isUser) garden.lineStrong else garden.gold.copy(alpha = 0.7f), RoundedCornerShape(8.dp)),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = text,
-            fontFamily = FontFamily.Serif,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = if (size >= 44.dp) 18.sp else 13.sp,
-            color = if (isUser) garden.bambooDark else garden.ink
-        )
+        if (imageBitmap != null) {
+            Image(
+                bitmap = imageBitmap,
+                contentDescription = "头像",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Text(
+                text = text,
+                fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = if (size >= 44.dp) 18.sp else 13.sp,
+                color = if (isUser) garden.bambooDark else garden.ink
+            )
+        }
     }
 }
 
