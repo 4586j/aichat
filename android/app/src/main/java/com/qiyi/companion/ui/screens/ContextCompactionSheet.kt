@@ -48,6 +48,7 @@ import com.qiyi.companion.data.context.ContextUsageSnapshot
 import com.qiyi.companion.data.usage.UsageAnalytics
 import com.qiyi.companion.ui.theme.GardenTagPill
 import com.qiyi.companion.ui.theme.GardenWindowButton
+import com.qiyi.companion.ui.theme.IosSquircleShape
 import com.qiyi.companion.ui.theme.LocalGardenColors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -136,7 +137,7 @@ fun ContextCompactionSheet(
         // 1. Live Context Usage Breakdown Card
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
+            shape = IosSquircleShape(22.dp),
             color = garden.paper,
             border = BorderStroke(0.7.dp, garden.lineSoft)
         ) {
@@ -303,7 +304,7 @@ fun ContextCompactionSheet(
         // 3. Conversation Compaction Actions Card
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
+            shape = IosSquircleShape(22.dp),
             color = garden.paper,
             border = BorderStroke(0.7.dp, garden.lineSoft)
         ) {

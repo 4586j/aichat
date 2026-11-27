@@ -62,6 +62,8 @@ import com.qiyi.companion.ui.QiYiViewModel
 import com.qiyi.companion.ui.theme.GardenSealAvatar
 import com.qiyi.companion.ui.theme.GardenTagPill
 import com.qiyi.companion.ui.theme.GardenWindowButton
+import com.qiyi.companion.ui.theme.IosSquircleShape
+import com.qiyi.companion.ui.theme.LiquidGlassSegmentedControl
 import com.qiyi.companion.ui.theme.LocalGardenColors
 
 private val UserAvatarPresets = listOf("我", "🍵", "🌙", "🌿", "📚", "🖋️", "☁️", "✨")
@@ -156,38 +158,18 @@ fun SettingsScreen(
             .fillMaxSize()
             .background(garden.paper)
     ) {
-        // Smooth Pill Segmented Control: 「我的」 vs 「设置」
-        Surface(
+        // iOS 26 Liquid Glass Segmented Control: 「我的」 vs 「设置」
+        LiquidGlassSegmentedControl(
+            labels = listOf("我的", "设置"),
+            icons = listOf(Icons.Default.Person, Icons.Default.Tune),
+            selectedIndex = subTab,
+            onSelect = { subTab = it },
+            height = 42.dp,
+            fontSize = 14.sp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp, vertical = 10.dp)
-                .height(42.dp),
-            shape = RoundedCornerShape(999.dp),
-            color = garden.paperDeep.copy(alpha = 0.78f),
-            border = BorderStroke(0.6.dp, garden.lineSoft)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                SettingsSegmentPill(
-                    label = "我的",
-                    icon = Icons.Default.Person,
-                    selected = subTab == 0,
-                    onClick = { subTab = 0 },
-                    modifier = Modifier.weight(1f)
-                )
-                SettingsSegmentPill(
-                    label = "设置",
-                    icon = Icons.Default.Tune,
-                    selected = subTab == 1,
-                    onClick = { subTab = 1 },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
+        )
 
         Column(
             modifier = Modifier
@@ -203,7 +185,7 @@ fun SettingsScreen(
                 // =========================================================
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(22.dp),
+                    shape = IosSquircleShape(26.dp),
                     color = garden.paperCard,
                     shadowElevation = 1.dp,
                     border = BorderStroke(0.7.dp, garden.lineSoft)
@@ -327,12 +309,13 @@ fun SettingsScreen(
                                 GardenThemeMode.AUTUMN -> Color(0xFFF5E9D6) to Color(0xFF8C462B)
                                 GardenThemeMode.NIGHT -> Color(0xFF161D1E) to Color(0xFF69B8AE)
                             }
+                            val themeCardShape = remember { IosSquircleShape(18.dp) }
                             Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
+                                    .clip(themeCardShape)
                                     .clickable { viewModel.setThemeMode(mode) },
-                                shape = RoundedCornerShape(16.dp),
+                                shape = themeCardShape,
                                 color = if (selected) garden.bambooSoft else garden.paper,
                                 border = BorderStroke(
                                     if (selected) 1.3.dp else 0.7.dp,
@@ -741,7 +724,7 @@ private fun ProfileStatBubble(
     val garden = LocalGardenColors.current
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
+        shape = IosSquircleShape(16.dp),
         color = garden.paper,
         border = BorderStroke(0.6.dp, garden.lineSoft)
     ) {
@@ -801,7 +784,7 @@ private fun SettingsCard(
     val garden = LocalGardenColors.current
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = IosSquircleShape(26.dp),
         color = garden.paperCard,
         shadowElevation = 0.8.dp,
         border = BorderStroke(0.7.dp, garden.lineSoft)

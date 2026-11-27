@@ -121,6 +121,8 @@ import com.qiyi.companion.ui.theme.GardenMarkdownText
 import com.qiyi.companion.ui.theme.GardenSealAvatar
 import com.qiyi.companion.ui.theme.GardenTagPill
 import com.qiyi.companion.ui.theme.GardenWindowButton
+import com.qiyi.companion.ui.theme.IosSquircleShape
+import com.qiyi.companion.ui.theme.LiquidGlassSurface
 import com.qiyi.companion.ui.theme.LocalGardenColors
 import kotlinx.coroutines.launch
 import kotlinx.serialization.builtins.ListSerializer
@@ -278,14 +280,14 @@ fun ChatScreen(
             .background(garden.paper)
             .imePadding()
     ) {
-        // 1. Compact Floating Persona Picker + 当前状态 + 群聊 Strip
+        // 1. Compact Floating iOS-Squircle Persona Picker + 当前状态 + 群聊 Strip
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = 10.dp, end = 10.dp, top = 8.dp),
-            shape = RoundedCornerShape(18.dp),
+            shape = IosSquircleShape(22.dp),
             color = garden.paperCard,
-            shadowElevation = 0.5.dp,
+            shadowElevation = 0.8.dp,
             border = BorderStroke(0.7.dp, garden.lineSoft)
         ) {
             Row(
@@ -296,16 +298,10 @@ fun ChatScreen(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Box(modifier = Modifier.weight(1f)) {
-                    Surface(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .clickable { personaMenuExpanded = true },
+                    LiquidGlassSurface(
                         shape = RoundedCornerShape(999.dp),
-                        color = if (personaMenuExpanded) garden.paperCard else garden.paper,
-                        border = BorderStroke(
-                            width = if (personaMenuExpanded) 1.1.dp else 0.7.dp,
-                            color = if (personaMenuExpanded) garden.gold.copy(alpha = 0.8f) else garden.lineSoft
-                        )
+                        elevation = if (personaMenuExpanded) 3.dp else 1.5.dp,
+                        onClick = { personaMenuExpanded = true }
                     ) {
                         Row(
                             modifier = Modifier.padding(start = 6.dp, end = 11.dp, top = 4.dp, bottom = 4.dp),
@@ -470,9 +466,9 @@ fun ChatScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 10.dp, end = 10.dp, top = 6.dp),
-                shape = RoundedCornerShape(18.dp),
+                shape = IosSquircleShape(22.dp),
                 color = garden.paperCard,
-                shadowElevation = 0.5.dp,
+                shadowElevation = 0.8.dp,
                 border = BorderStroke(0.7.dp, garden.lineSoft)
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -899,9 +895,9 @@ fun ChatScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(start = 10.dp, end = 10.dp, bottom = 8.dp),
-                    shape = RoundedCornerShape(22.dp),
+                    shape = IosSquircleShape(26.dp),
                     color = garden.paperCard,
-                    shadowElevation = 1.dp,
+                    shadowElevation = 1.2.dp,
                     border = BorderStroke(0.75.dp, garden.lineSoft)
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp)) {
@@ -1260,9 +1256,9 @@ private fun WelcomeCard(persona: PersonaEntity?, effectiveModel: String, isGroup
     val garden = LocalGardenColors.current
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = IosSquircleShape(26.dp),
         color = garden.paperCard,
-        shadowElevation = 1.dp,
+        shadowElevation = 1.2.dp,
         border = BorderStroke(0.7.dp, garden.lineSoft)
     ) {
         Column(

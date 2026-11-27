@@ -42,6 +42,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -80,6 +81,9 @@ import com.qiyi.companion.ui.screens.PersonasScreen
 import com.qiyi.companion.ui.screens.SettingsScreen
 import com.qiyi.companion.ui.screens.TasksScreen
 import com.qiyi.companion.ui.screens.UsageSheet
+import com.qiyi.companion.ui.theme.IosSquircleShape
+import com.qiyi.companion.ui.theme.LiquidGlassSegmentedControl
+import com.qiyi.companion.ui.theme.LiquidGlassSurface
 import com.qiyi.companion.ui.theme.LocalGardenColors
 import com.qiyi.companion.ui.theme.QiYiGardenTheme
 import kotlinx.coroutines.launch
@@ -176,7 +180,17 @@ private fun QiYiAppRoot(viewModel: QiYiViewModel) {
                     .fillMaxSize()
                     .navigationBarsPadding(),
                 containerColor = MaterialTheme.colorScheme.background,
-                snackbarHost = { SnackbarHost(snackbarHostState) },
+                snackbarHost = {
+                    SnackbarHost(snackbarHostState) { data ->
+                        Snackbar(
+                            snackbarData = data,
+                            shape = IosSquircleShape(18.dp),
+                            containerColor = garden.paperCard,
+                            contentColor = garden.ink,
+                            actionColor = garden.bamboo
+                        )
+                    }
+                },
                 topBar = {
                     GardenTopNavBar(
                         tabs = tabs,
@@ -314,20 +328,17 @@ private fun GardenTopNavBar(
                 .fillMaxWidth()
                 .padding(horizontal = 10.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Left History Drawer Trigger Pill (smooth rounded capsule)
-            Surface(
-                modifier = Modifier
-                    .height(36.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .clickable(onClick = onOpenHistoryDrawer),
+            // Left Liquid Glass 「☰ 历史」 Pill
+            LiquidGlassSurface(
+                modifier = Modifier.height(38.dp),
                 shape = RoundedCornerShape(999.dp),
-                color = garden.paperCard,
-                border = BorderStroke(1.dp, garden.gold.copy(alpha = 0.72f))
+                elevation = 3.dp,
+                onClick = onOpenHistoryDrawer
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 11.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -348,55 +359,23 @@ private fun GardenTopNavBar(
                 }
             }
 
-            // Smooth Unified Pill Track for 5 Navigation Tabs (zero boxy borders!)
-            Surface(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(36.dp),
-                shape = RoundedCornerShape(999.dp),
-                color = garden.paperDeep.copy(alpha = 0.75f),
-                border = BorderStroke(0.6.dp, garden.lineSoft)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(3.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    tabs.forEachIndexed { index, label ->
-                        val selected = selectedTab == index
-                        Surface(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(999.dp))
-                                .clickable { onSelectTab(index) },
-                            shape = RoundedCornerShape(999.dp),
-                            color = if (selected) garden.bamboo else androidx.compose.ui.graphics.Color.Transparent,
-                            shadowElevation = if (selected) 1.5.dp else 0.dp
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = label,
-                                    fontFamily = FontFamily.Serif,
-                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                                    fontSize = 12.5.sp,
-                                    color = if (selected) garden.paperCard else garden.muted,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            // iOS 26 Liquid Glass Sliding Segmented Selector for 5 Navigation Tabs
+            LiquidGlassSegmentedControl(
+                labels = tabs,
+                selectedIndex = selectedTab,
+                onSelect = onSelectTab,
+                modifier = Modifier.weight(1f),
+                height = 38.dp,
+                fontSize = 12.5.sp
+            )
         }
 
-        // Delicate Cinnabar Hairline Accent
+        // Whisper-soft divider
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(1.2.dp)
-                .background(garden.cinnabar.copy(alpha = 0.55f))
+                .height(0.7.dp)
+                .background(garden.lineSoft)
         )
 
         // Compact Utility Strip (状态/音乐 + 导出/新建 + 用量/邮件/音乐)
@@ -506,15 +485,12 @@ private fun CompactUtilityTextButton(
     onClick: () -> Unit
 ) {
     val garden = LocalGardenColors.current
-    val pillShape = RoundedCornerShape(999.dp)
-    Surface(
-        modifier = Modifier
-            .height(30.dp)
-            .clip(pillShape)
-            .clickable(onClick = onClick),
-        shape = pillShape,
-        color = if (primary) garden.bamboo else garden.paper,
-        border = BorderStroke(0.75.dp, if (primary) garden.gold.copy(alpha = 0.55f) else garden.line.copy(alpha = 0.8f))
+    LiquidGlassSurface(
+        modifier = Modifier.height(31.dp),
+        shape = RoundedCornerShape(999.dp),
+        tinted = primary,
+        elevation = if (primary) 3.dp else 2.dp,
+        onClick = onClick
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp),
@@ -546,22 +522,19 @@ private fun UtilityIconButton(
     active: Boolean = false
 ) {
     val garden = LocalGardenColors.current
-    Surface(
-        modifier = Modifier
-            .size(31.dp)
-            .clip(CircleShape)
-            .clickable(onClick = onClick),
+    LiquidGlassSurface(
+        modifier = Modifier.size(31.dp),
         shape = CircleShape,
-        color = if (active) garden.cinnabarSoft else garden.paper,
-        border = BorderStroke(0.7.dp, if (active) garden.cinnabar.copy(alpha = 0.65f) else garden.line.copy(alpha = 0.75f))
+        tinted = active,
+        accentColor = if (active) garden.cinnabar else null,
+        elevation = 2.dp,
+        onClick = onClick
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = icon,
-                contentDescription = contentDescription,
-                tint = if (active) garden.cinnabar else garden.ink,
-                modifier = Modifier.size(16.dp)
-            )
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = if (active) garden.paperCard else garden.ink,
+            modifier = Modifier.size(16.dp)
+        )
     }
 }

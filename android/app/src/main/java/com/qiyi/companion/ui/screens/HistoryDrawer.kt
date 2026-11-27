@@ -58,6 +58,7 @@ import com.qiyi.companion.data.db.ConversationEntity
 import com.qiyi.companion.data.db.PersonaEntity
 import com.qiyi.companion.ui.QiYiViewModel
 import com.qiyi.companion.ui.theme.GardenSealAvatar
+import com.qiyi.companion.ui.theme.IosSquircleShape
 import com.qiyi.companion.ui.theme.LocalGardenColors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -280,7 +281,7 @@ private fun FolderSectionCard(
     val garden = LocalGardenColors.current
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = IosSquircleShape(20.dp),
         color = garden.paper,
         border = BorderStroke(0.7.dp, garden.lineSoft)
     ) {
