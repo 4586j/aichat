@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.qiyi.companion.data.QiYiRepository
+import com.qiyi.companion.data.chat.ChatGenerationManager
 import com.qiyi.companion.data.context.ContextCompactionEngine
 import com.qiyi.companion.data.context.ContextUsageSnapshot
 import com.qiyi.companion.data.db.ConversationEntity
@@ -19,8 +20,10 @@ import com.qiyi.companion.data.db.ScheduledTaskEntity
 import com.qiyi.companion.data.db.UsageRecordEntity
 import com.qiyi.companion.data.knowledge.KnowledgeHit
 import com.qiyi.companion.data.media.MusicIntentDetector
+import com.qiyi.companion.data.media.MusicPlayMode
 import com.qiyi.companion.data.media.MusicPlaybackState
 import com.qiyi.companion.data.media.MusicPlayerController
+import com.qiyi.companion.data.media.MusicSearchSource
 import com.qiyi.companion.data.media.StickerCatalog
 import com.qiyi.companion.data.network.ModelServiceException
 import com.qiyi.companion.data.network.StreamChunk
@@ -73,7 +76,8 @@ data class DraftAttachment(
 @OptIn(ExperimentalCoroutinesApi::class)
 class QiYiViewModel(
     private val repository: QiYiRepository,
-    private val musicPlayer: MusicPlayerController
+    private val musicPlayer: MusicPlayerController,
+    private val generationManager: ChatGenerationManager
 ) : ViewModel() {
 
     val settings: StateFlow<AppSettings> = repository.settings
@@ -117,6 +121,12 @@ class QiYiViewModel(
 
     private val _onlineMusicResults = MutableStateFlow<List<MusicTrackEntity>>(emptyList())
     val onlineMusicResults: StateFlow<List<MusicTrackEntity>> = _onlineMusicResults.asStateFlow()
+
+    private val _musicSearchSource = MutableStateFlow(MusicSearchSource.ALL)
+    val musicSearchSource: StateFlow<MusicSearchSource> = _musicSearchSource.asStateFlow()
+
+    private val _isSearchingMusic = MutableStateFlow(false)
+    val isSearchingMusic: StateFlow<Boolean> = _isSearchingMusic.asStateFlow()
 
     val personas: StateFlow<List<PersonaEntity>> = repository.personas.stateIn(
         scope = viewModelScope,
@@ -200,8 +210,14 @@ class QiYiViewModel(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ContextUsageSnapshot())
 
-    private val _streaming = MutableStateFlow(StreamingState())
-    val streaming: StateFlow<StreamingState> = _streaming.asStateFlow()
+    val streamingByConversation: StateFlow<Map<String, StreamingState>> = generationManager.streamingByConversation
+
+    val streaming: StateFlow<StreamingState> = combine(
+        streamingByConversation,
+        _activeConversationId
+    ) { map, cid ->
+        if (cid.isNullOrBlank()) StreamingState() else (map[cid] ?: StreamingState())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), StreamingState())
 
     private val _quotaCheckpoint = MutableStateFlow<QuotaCheckpointState?>(null)
     val quotaCheckpoint: StateFlow<QuotaCheckpointState?> = _quotaCheckpoint.asStateFlow()
@@ -221,10 +237,15 @@ class QiYiViewModel(
     private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val notices: SharedFlow<String> = _notices.asSharedFlow()
 
-    private var activeStreamJob: Job? = null
     private var quotaTimerJob: Job? = null
 
     init {
+        viewModelScope.launch {
+            generationManager.notices.collect { msg -> _notices.tryEmit(msg) }
+        }
+        viewModelScope.launch {
+            generationManager.quotaCheckpoints.collect { cp -> scheduleQuotaResume(cp) }
+        }
         viewModelScope.launch {
             val defaultPersona = repository.ensureDefaultPersona()
             if (_activePersonaId.value == null) {
@@ -267,7 +288,7 @@ class QiYiViewModel(
                     it.enabled && (now - it.lastRunAt) >= it.intervalMinutes * 60_000L
                 }
                 for (task in due) {
-                    if (_runningTaskId.value == null && !_streaming.value.isStreaming) {
+                    if (_runningTaskId.value == null && streamingByConversation.value.isEmpty()) {
                         runCatching { repository.runScheduledTaskNow(task) }
                     }
                 }
@@ -276,24 +297,18 @@ class QiYiViewModel(
     }
 
     fun selectPersona(personaId: String) {
-        if (_streaming.value.isStreaming) {
-            notify("正在生成回复，请先停止当前生成再切换角色。")
-            return
-        }
         val wasInConversation = _activeConversationId.value != null
+        val prevGenerating = generationManager.isGenerating(_activeConversationId.value)
         _activePersonaId.value = personaId
         _activeConversationId.value = null
         val roleName = personas.value.firstOrNull { it.id == personaId }?.name
         if (wasInConversation && !roleName.isNullOrBlank()) {
-            notify("已切换至「$roleName」，开启新对话。")
+            val bgHint = if (prevGenerating) "（原对话仍在后台继续生成）" else ""
+            notify("已切换至「$roleName」，开启新对话$bgHint。")
         }
     }
 
     fun selectConversation(conversationId: String) {
-        if (_streaming.value.isStreaming) {
-            notify("正在生成回复，请先停止当前生成再切换对话。")
-            return
-        }
         val target = allConversations.value.firstOrNull { it.id == conversationId }
         if (target != null) {
             _activePersonaId.value = target.personaId
@@ -302,18 +317,14 @@ class QiYiViewModel(
     }
 
     fun startNewConversation() {
-        if (_streaming.value.isStreaming) {
-            notify("正在生成回复，请先停止当前生成。")
-            return
-        }
+        val prevGenerating = generationManager.isGenerating(_activeConversationId.value)
         _activeConversationId.value = null
+        if (prevGenerating) {
+            notify("已新建对话，原对话仍在后台继续生成。")
+        }
     }
 
     fun createGroupConversation(participantIds: List<String>, title: String) {
-        if (_streaming.value.isStreaming) {
-            notify("正在生成回复，请先停止当前生成。")
-            return
-        }
         viewModelScope.launch {
             runCatching { repository.createGroupConversation(participantIds, title) }
                 .onSuccess { conv ->
@@ -375,7 +386,12 @@ class QiYiViewModel(
     fun sendMessage(rawText: String) {
         val text = rawText.trim()
         val attachments = _draftAttachments.value
-        if ((text.isEmpty() && attachments.isEmpty()) || _streaming.value.isStreaming) return
+        val activeCid = _activeConversationId.value
+        if (text.isEmpty() && attachments.isEmpty()) return
+        if (generationManager.isGenerating(activeCid)) {
+            notify("当前对话正在回复中，请稍候或先停止生成。")
+            return
+        }
 
         cancelQuotaCheckpoint()
 
@@ -463,11 +479,11 @@ class QiYiViewModel(
     }
 
     fun regenerateAssistantMessage(message: MessageEntity) {
-        if (_streaming.value.isStreaming) {
-            notify("正在生成回复，请先停止当前生成。")
+        val convId = message.conversationId
+        if (generationManager.isGenerating(convId)) {
+            notify("当前对话正在生成回复，请先停止生成。")
             return
         }
-        val convId = message.conversationId
         viewModelScope.launch {
             val conv = repository.getConversation(convId) ?: return@launch
             val targetPersonaId = message.senderPersonaId ?: conv.personaId
@@ -482,8 +498,8 @@ class QiYiViewModel(
     }
 
     fun deleteConversation(conversationId: String) {
-        if (_streaming.value.isStreaming && _streaming.value.conversationId == conversationId) {
-            stopGeneration()
+        if (generationManager.isGenerating(conversationId)) {
+            generationManager.stopGeneration(conversationId)
         }
         viewModelScope.launch {
             runCatching { repository.deleteConversation(conversationId) }
@@ -520,148 +536,13 @@ class QiYiViewModel(
         isGroupChat: Boolean,
         latestImageDataUris: List<String> = emptyList()
     ) {
-        if (responderIds.isEmpty()) return
-        activeStreamJob = viewModelScope.launch {
-            try {
-                for ((index, pid) in responderIds.withIndex()) {
-                    val persona = repository.getPersona(pid) ?: continue
-                    val promptContext = repository.buildPromptContext(
-                        persona = persona,
-                        conversationId = convId,
-                        latestQuery = latestQuery,
-                        isGroupChat = isGroupChat,
-                        latestImageDataUris = latestImageDataUris
-                    )
-                    val promptMessages = promptContext.messages
-
-                    val contentBuilder = StringBuilder()
-                    val reasoningBuilder = StringBuilder()
-                    val toolSteps = mutableListOf<String>()
-                    val startedAt = System.currentTimeMillis()
-                    var promptTok = 0
-                    var cachedTok = 0
-                    var completionTok = 0
-                    var reasoningTok = 0
-                    var totalTok = 0
-                    var usageFromProvider = false
-                    _streaming.value = StreamingState(
-                        isStreaming = true,
-                        conversationId = convId,
-                        speakerName = persona.name,
-                        speakerAvatar = persona.avatar.ifBlank { persona.name.take(1) },
-                        content = "",
-                        reasoning = ""
-                    )
-
-                    try {
-                        val useTools = settings.value.toolsEnabled && latestImageDataUris.isEmpty()
-                        repository.streamReply(persona, promptMessages, toolsEnabled = useTools).collect { chunk ->
-                            when (chunk) {
-                                is StreamChunk.ContentDelta -> {
-                                    contentBuilder.append(chunk.text)
-                                    _streaming.value = _streaming.value.copy(content = contentBuilder.toString())
-                                }
-                                is StreamChunk.ReasoningDelta -> {
-                                    reasoningBuilder.append(chunk.text)
-                                    _streaming.value = _streaming.value.copy(reasoning = reasoningBuilder.toString())
-                                }
-                                is StreamChunk.ToolStep -> {
-                                    toolSteps.add(chunk.summary)
-                                    reasoningBuilder.append("\n[工具] ").append(chunk.summary)
-                                    _streaming.value = _streaming.value.copy(reasoning = reasoningBuilder.toString())
-                                }
-                                is StreamChunk.Usage -> {
-                                    usageFromProvider = true
-                                    promptTok += chunk.promptTokens
-                                    cachedTok += chunk.cachedPromptTokens
-                                    completionTok += chunk.completionTokens
-                                    reasoningTok += chunk.reasoningTokens
-                                    totalTok += chunk.totalTokens
-                                }
-                                StreamChunk.Done -> Unit
-                            }
-                        }
-                        val elapsedMs = (System.currentTimeMillis() - startedAt).coerceAtLeast(1L)
-                        val finalContent = contentBuilder.toString().trim()
-                        val finalReasoning = reasoningBuilder.toString().trim()
-                        if (finalContent.isNotEmpty() || finalReasoning.isNotEmpty()) {
-                            val matchedSticker = if (settings.value.stickerEnabled) {
-                                StickerCatalog.matchSticker(latestQuery, finalContent)?.id.orEmpty()
-                            } else {
-                                ""
-                            }
-                            repository.saveAssistantMessage(
-                                conversationId = convId,
-                                content = finalContent.ifEmpty { "（模型未返回正文）" },
-                                reasoning = finalReasoning,
-                                senderPersonaId = persona.id,
-                                senderName = persona.name,
-                                stickerId = matchedSticker,
-                                citationsJson = promptContext.citationsJson,
-                                toolTrace = toolSteps.joinToString("\n")
-                            )
-                            val estPrompt = if (usageFromProvider && promptTok > 0) promptTok
-                            else promptMessages.sumOf { UsageAnalytics.estimateTextTokens(it.content) + 4 }.coerceAtLeast(1)
-                            val estReasoning = if (usageFromProvider && reasoningTok > 0) reasoningTok
-                            else UsageAnalytics.estimateTextTokens(finalReasoning)
-                            val estComp = if (usageFromProvider && completionTok > 0) completionTok
-                            else (UsageAnalytics.estimateTextTokens(finalContent) + estReasoning).coerceAtLeast(1)
-                            val estTotal = if (usageFromProvider && totalTok > 0) totalTok else (estPrompt + estComp)
-                            repository.recordUsage(
-                                conversationId = convId,
-                                personaId = persona.id,
-                                model = repository.effectiveModelFor(persona),
-                                promptTokens = estPrompt,
-                                cachedPromptTokens = cachedTok,
-                                completionTokens = estComp,
-                                reasoningTokens = estReasoning,
-                                totalTokens = estTotal,
-                                durationMs = elapsedMs,
-                                source = if (usageFromProvider) "provider" else "estimated"
-                            )
-                        }
-                    } catch (cancel: CancellationException) {
-                        val partialContent = contentBuilder.toString().trim()
-                        val partialReasoning = reasoningBuilder.toString().trim()
-                        if (partialContent.isNotEmpty()) {
-                            repository.saveAssistantMessage(
-                                conversationId = convId,
-                                content = "$partialContent\n\n（已手动停止生成）",
-                                reasoning = partialReasoning,
-                                senderPersonaId = persona.id,
-                                senderName = persona.name
-                            )
-                        }
-                        notify("已停止生成。")
-                        throw cancel
-                    } catch (err: ModelServiceException) {
-                        if (err.isQuotaLimit) {
-                            val waitSeconds = (err.retryAfterSeconds ?: 60L).coerceIn(5L, 600L)
-                            scheduleQuotaResume(
-                                QuotaCheckpointState(
-                                    conversationId = convId,
-                                    pendingPersonaIds = responderIds.drop(index),
-                                    latestQuery = latestQuery,
-                                    isGroupChat = isGroupChat,
-                                    remainingSeconds = waitSeconds,
-                                    reason = err.message ?: "模型额度受限（HTTP 429）"
-                                )
-                            )
-                            return@launch
-                        } else {
-                            notify(err.message ?: "生成回复失败，请检查网络或模型配置。")
-                            return@launch
-                        }
-                    } catch (err: Exception) {
-                        notify(err.message ?: "生成回复失败，请检查网络或模型配置。")
-                        return@launch
-                    }
-                }
-            } finally {
-                _streaming.value = StreamingState()
-                activeStreamJob = null
-            }
-        }
+        generationManager.startResponderQueue(
+            convId = convId,
+            responderIds = responderIds,
+            latestQuery = latestQuery,
+            isGroupChat = isGroupChat,
+            latestImageDataUris = latestImageDataUris
+        )
     }
 
     private fun scheduleQuotaResume(checkpoint: QuotaCheckpointState, persistToDb: Boolean = true) {
@@ -693,7 +574,7 @@ class QiYiViewModel(
             val current = _quotaCheckpoint.value ?: return@launch
             _quotaCheckpoint.value = null
             repository.deleteResumableRunsForConversation(current.conversationId)
-            if (!_streaming.value.isStreaming) {
+            if (!generationManager.isGenerating(current.conversationId)) {
                 runResponderQueue(
                     convId = current.conversationId,
                     responderIds = current.pendingPersonaIds,
@@ -709,7 +590,7 @@ class QiYiViewModel(
         quotaTimerJob?.cancel()
         _quotaCheckpoint.value = null
         viewModelScope.launch { repository.deleteResumableRunsForConversation(current.conversationId) }
-        if (!_streaming.value.isStreaming) {
+        if (!generationManager.isGenerating(current.conversationId)) {
             runResponderQueue(
                 convId = current.conversationId,
                 responderIds = current.pendingPersonaIds,
@@ -730,13 +611,13 @@ class QiYiViewModel(
     }
 
     fun stopGeneration() {
-        activeStreamJob?.cancel()
+        generationManager.stopGeneration(_activeConversationId.value)
     }
 
     fun branchFromMessage(messageId: Long) {
         val convId = _activeConversationId.value ?: return
-        if (_streaming.value.isStreaming) {
-            notify("请先停止当前生成再创建分支。")
+        if (generationManager.isGenerating(convId)) {
+            notify("当前对话正在回复中，请先停止生成再创建分支。")
             return
         }
         viewModelScope.launch {
@@ -1062,33 +943,101 @@ class QiYiViewModel(
         }
     }
 
-    fun searchMusic(query: String) {
+    fun selectMusicSearchSource(source: MusicSearchSource, currentQuery: String = "") {
+        _musicSearchSource.value = source
+        if (currentQuery.isNotBlank() || source == MusicSearchSource.SERVER) {
+            searchMusic(currentQuery, sourceOverride = source)
+        }
+    }
+
+    fun searchMusic(query: String, sourceOverride: MusicSearchSource? = null) {
         val clean = query.trim()
-        if (clean.isEmpty()) {
+        val activeSource = sourceOverride ?: _musicSearchSource.value
+        if (clean.isEmpty() && activeSource != MusicSearchSource.SERVER) {
             _onlineMusicResults.value = emptyList()
             return
         }
         viewModelScope.launch {
-            val localMatches = MusicIntentDetector.matchLocalTracks(clean, repository.listMusicTracks())
-            if (settings.value.musicBaseUrl.isBlank()) {
-                notify(if (localMatches.isNotEmpty()) "本地曲库找到 ${localMatches.size} 首匹配歌曲。" else "本地曲库无匹配歌曲，可在设置中配置兼容音乐服务或导入本地音频。")
-                return@launch
-            }
-            runCatching { repository.searchOnlineMusic(clean) }
-                .onSuccess { list ->
-                    _onlineMusicResults.value = list
-                    notify(if (list.isEmpty()) "未搜到在线曲目。" else "已搜到 ${list.size} 首在线曲目。")
+            _isSearchingMusic.value = true
+            try {
+                val localMatches = if (clean.isNotEmpty()) {
+                    MusicIntentDetector.matchLocalTracks(clean, repository.listMusicTracks())
+                } else {
+                    emptyList()
                 }
-                .onFailure { notify(it.message ?: "在线搜歌失败。") }
+                if (settings.value.musicBaseUrl.isBlank()) {
+                    notify(if (localMatches.isNotEmpty()) "本地曲库找到 ${localMatches.size} 首匹配歌曲。" else "未配置在线音乐服务，可先到「设置」填写音乐服务地址或导入本地音频。")
+                    return@launch
+                }
+                runCatching { repository.searchOnlineMusic(clean, sourceOverride = activeSource.key) }
+                    .onSuccess { list ->
+                        val favIds = musicTracks.value.filter { it.isFavorite }.map { it.id }.toSet()
+                        _onlineMusicResults.value = list.map { t ->
+                            if (t.id in favIds) t.copy(isFavorite = true) else t
+                        }
+                        if (list.isEmpty()) {
+                            notify("「${activeSource.label}」未搜到匹配曲目，可直接切换其他音源。")
+                        }
+                    }
+                    .onFailure { notify(it.message ?: "在线搜歌失败。") }
+            } finally {
+                _isSearchingMusic.value = false
+            }
         }
     }
 
-    fun playTrack(track: MusicTrackEntity) = musicPlayer.play(track, repository.getMusicApiKey())
+    fun playTrack(track: MusicTrackEntity) {
+        musicPlayer.play(track, repository.getMusicApiKey())
+        viewModelScope.launch { repository.touchTrackPlayed(track) }
+    }
+
+    fun playQueueIndex(index: Int) = musicPlayer.playQueueIndex(index, repository.getMusicApiKey())
+
+    fun replaceQueueAndPlay(tracks: List<MusicTrackEntity>, startIndex: Int = 0) {
+        if (tracks.isEmpty()) return
+        musicPlayer.replaceQueueAndPlay(tracks, startIndex, repository.getMusicApiKey())
+        notify("已将 ${tracks.size} 首歌曲加入播放队列并开始播放")
+    }
+
+    fun enqueueNext(track: MusicTrackEntity) {
+        musicPlayer.enqueueNext(track)
+        notify("已将《${track.title}》设为下一首播放")
+    }
+
+    fun enqueueEnd(track: MusicTrackEntity) {
+        musicPlayer.enqueueEnd(track)
+        notify("已将《${track.title}》加入播放队列")
+    }
+
+    fun removeFromQueue(index: Int) = musicPlayer.removeFromQueue(index)
+
+    fun clearPlayQueue() {
+        musicPlayer.clearQueue()
+        notify("已清空播放队列")
+    }
+
+    fun toggleFavoriteTrack(track: MusicTrackEntity) {
+        viewModelScope.launch {
+            runCatching { repository.toggleFavoriteTrack(track) }
+                .onSuccess { nowFav ->
+                    _onlineMusicResults.value = _onlineMusicResults.value.map {
+                        if (it.id == track.id) it.copy(isFavorite = nowFav) else it
+                    }
+                    notify(if (nowFav) "已喜欢《${track.title}》" else "已取消喜欢《${track.title}》")
+                }
+                .onFailure { notify(it.message ?: "操作收藏失败。") }
+        }
+    }
+
     fun togglePlayPause() = musicPlayer.togglePlayPause()
     fun seekMusic(positionMs: Long) = musicPlayer.seekTo(positionMs)
     fun playNextTrack() = musicPlayer.playNext(repository.getMusicApiKey())
     fun playPreviousTrack() = musicPlayer.playPrevious(repository.getMusicApiKey())
-    fun toggleLoopSingle() = musicPlayer.toggleLoopSingle()
+    fun cyclePlayMode() {
+        val next = musicPlayer.cyclePlayMode()
+        notify("播放模式：${next.label}")
+    }
+    fun toggleLoopSingle() = cyclePlayMode()
 
     fun deleteTrack(track: MusicTrackEntity) {
         viewModelScope.launch {
@@ -1133,12 +1082,12 @@ class QiYiViewModel(
     }
 
     fun compactActiveConversation(useAi: Boolean = true, keepRecentCount: Int = 4) {
-        if (_streaming.value.isStreaming) {
-            notify("正在生成回复，请先停止当前生成再压缩会话。")
+        val convId = _activeConversationId.value
+        if (generationManager.isGenerating(convId)) {
+            notify("当前对话正在回复中，请稍候或先停止生成再压缩。")
             return
         }
         if (_isCompacting.value) return
-        val convId = _activeConversationId.value
         if (convId.isNullOrBlank()) {
             notify("当前为新对话，暂无需压缩。")
             return
@@ -1236,11 +1185,15 @@ class QiYiViewModel(
     }
 
     companion object {
-        fun factory(repository: QiYiRepository, musicPlayer: MusicPlayerController): ViewModelProvider.Factory =
+        fun factory(
+            repository: QiYiRepository,
+            musicPlayer: MusicPlayerController,
+            generationManager: ChatGenerationManager
+        ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return QiYiViewModel(repository, musicPlayer) as T
+                    return QiYiViewModel(repository, musicPlayer, generationManager) as T
                 }
             }
     }

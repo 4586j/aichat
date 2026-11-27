@@ -22,7 +22,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MailDraftEntity::class,
         ResumableRunEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class QiYiDatabase : RoomDatabase() {
@@ -227,6 +227,15 @@ abstract class QiYiDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_8_9: Migration = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `music_tracks` ADD COLUMN `album` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `music_tracks` ADD COLUMN `coverUrl` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `music_tracks` ADD COLUMN `isFavorite` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `music_tracks` ADD COLUMN `lastPlayedAt` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): QiYiDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -241,7 +250,8 @@ abstract class QiYiDatabase : RoomDatabase() {
                         MIGRATION_4_5,
                         MIGRATION_5_6,
                         MIGRATION_6_7,
-                        MIGRATION_7_8
+                        MIGRATION_7_8,
+                        MIGRATION_8_9
                     )
                     .build()
                     .also { instance = it }

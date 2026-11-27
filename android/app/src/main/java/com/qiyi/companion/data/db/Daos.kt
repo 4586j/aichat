@@ -146,14 +146,23 @@ interface MemoryDao {
 
 @Dao
 interface MusicTrackDao {
-    @Query("SELECT * FROM music_tracks ORDER BY createdAt DESC")
+    @Query("SELECT * FROM music_tracks ORDER BY isFavorite DESC, lastPlayedAt DESC, createdAt DESC")
     fun observeAll(): Flow<List<MusicTrackEntity>>
 
-    @Query("SELECT * FROM music_tracks ORDER BY createdAt DESC")
+    @Query("SELECT * FROM music_tracks ORDER BY isFavorite DESC, lastPlayedAt DESC, createdAt DESC")
     suspend fun listAll(): List<MusicTrackEntity>
+
+    @Query("SELECT * FROM music_tracks WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): MusicTrackEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(track: MusicTrackEntity)
+
+    @Query("UPDATE music_tracks SET isFavorite = :isFavorite WHERE id = :id")
+    suspend fun setFavorite(id: String, isFavorite: Boolean)
+
+    @Query("UPDATE music_tracks SET lastPlayedAt = :playedAt WHERE id = :id")
+    suspend fun touchPlayed(id: String, playedAt: Long)
 
     @Query("DELETE FROM music_tracks WHERE id = :id")
     suspend fun deleteById(id: String)

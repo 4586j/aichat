@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -988,76 +989,83 @@ fun ChatScreen(
                                 }
                             }
                         }
+                        // Unified Spacious Composer Area:
+                        // Hint line lives inside the typing area when empty and vanishes immediately upon typing!
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 8.dp)
+                                .heightIn(min = 76.dp)
                         ) {
                             if (draft.isEmpty()) {
-                                Text(
-                                    text = if (isGroup) "在群聊中发言，或用 @角色名 指定回复..." else "和${activePersona?.name ?: "望舒"}聊聊今天的想法...",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = garden.muted
-                                )
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(end = 96.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = if (isGroup) "在群聊中发言，或用 @角色名 指定回复..." else "和${activePersona?.name ?: "望舒"}聊聊今天的想法...",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = garden.muted
+                                    )
+                                    Text(
+                                        text = "对话保存在本地，发送时调用所选模型",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = garden.muted.copy(alpha = 0.72f)
+                                    )
+                                }
                             }
                             BasicTextField(
                                 value = draft,
                                 onValueChange = { draft = it },
-                                textStyle = MaterialTheme.typography.bodyMedium.copy(color = garden.text),
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                    color = garden.text,
+                                    lineHeight = 22.sp
+                                ),
                                 cursorBrush = SolidColor(garden.bamboo),
-                                maxLines = 4,
-                                modifier = Modifier.fillMaxWidth()
+                                minLines = 3,
+                                maxLines = 6,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(end = 94.dp, bottom = 2.dp)
                             )
-                        }
-                        HorizontalDivider(color = garden.lineSoft)
-                        Spacer(Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "对话保存在本地，发送时调用所选模型",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = garden.muted,
-                                modifier = Modifier.weight(1f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            if (streaming.isStreaming) {
-                                CinnabarPillButton(
-                                    text = "停止",
-                                    onClick = { viewModel.stopGeneration() },
-                                    icon = {
-                                        Icon(
-                                            imageVector = Icons.Default.StopCircle,
-                                            contentDescription = null,
-                                            tint = garden.paperCard,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                )
-                            } else {
-                                CinnabarPillButton(
-                                    text = "发送",
-                                    enabled = draft.isNotBlank() || draftAttachments.isNotEmpty(),
-                                    onClick = {
-                                        val toSend = draft.trim()
-                                        if (toSend.isNotEmpty() || draftAttachments.isNotEmpty()) {
-                                            draft = ""
-                                            viewModel.sendMessage(toSend)
+                            Box(
+                                modifier = Modifier.align(Alignment.BottomEnd)
+                            ) {
+                                if (streaming.isStreaming) {
+                                    CinnabarPillButton(
+                                        text = "停止",
+                                        onClick = { viewModel.stopGeneration() },
+                                        icon = {
+                                            Icon(
+                                                imageVector = Icons.Default.StopCircle,
+                                                contentDescription = null,
+                                                tint = garden.paperCard,
+                                                modifier = Modifier.size(16.dp)
+                                            )
                                         }
-                                    },
-                                    icon = {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.Send,
-                                            contentDescription = null,
-                                            tint = garden.paperCard,
-                                            modifier = Modifier.size(15.dp)
-                                        )
-                                    }
-                                )
+                                    )
+                                } else {
+                                    CinnabarPillButton(
+                                        text = "发送",
+                                        enabled = draft.isNotBlank() || draftAttachments.isNotEmpty(),
+                                        onClick = {
+                                            val toSend = draft.trim()
+                                            if (toSend.isNotEmpty() || draftAttachments.isNotEmpty()) {
+                                                draft = ""
+                                                viewModel.sendMessage(toSend)
+                                            }
+                                        },
+                                        icon = {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                                contentDescription = null,
+                                                tint = garden.paperCard,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        }
+                                    )
+                                }
                             }
                         }
                     }

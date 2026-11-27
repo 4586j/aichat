@@ -126,10 +126,14 @@ data class MusicTrackEntity(
     @PrimaryKey val id: String,
     val title: String,
     val artist: String = "",
-    val source: String = "local", // "local" | "qq" | "netease"
+    val album: String = "",
+    val source: String = "local", // "local" | "server" | "qq" | "netease"
     val localPath: String = "",
     val remoteUrl: String = "",
+    val coverUrl: String = "",
     val durationMs: Long = 0L,
+    val isFavorite: Boolean = false,
+    val lastPlayedAt: Long = 0L,
     val createdAt: Long = System.currentTimeMillis()
 )
 

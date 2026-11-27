@@ -1,11 +1,15 @@
 package com.qiyi.companion
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -48,6 +52,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -95,7 +100,7 @@ class MainActivity : ComponentActivity() {
         val app = application as QiYiApplication
         setContent {
             val viewModel: QiYiViewModel = viewModel(
-                factory = QiYiViewModel.factory(app.repository, app.musicPlayer)
+                factory = QiYiViewModel.factory(app.repository, app.musicPlayer, app.generationManager)
             )
             QiYiAppRoot(viewModel = viewModel)
         }
@@ -139,6 +144,22 @@ private fun QiYiAppRoot(viewModel: QiYiViewModel) {
     }
 
     val tabs = remember { listOf("对话", "人设", "书阁", "任务", "设置") }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { /* optional grant for status-bar media & background reply notifications */ }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.notices.collect { msg ->
@@ -252,8 +273,10 @@ private fun QiYiAppRoot(viewModel: QiYiViewModel) {
         }
 
         if (showMusicSheet) {
+            val musicSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
             ModalBottomSheet(
                 onDismissRequest = { showMusicSheet = false },
+                sheetState = musicSheetState,
                 containerColor = garden.paperCard
             ) {
                 MusicAndStickerSheet(viewModel = viewModel)

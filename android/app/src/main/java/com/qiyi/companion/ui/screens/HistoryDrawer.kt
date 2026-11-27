@@ -79,6 +79,7 @@ fun HistoryDrawerContent(
     val personas by viewModel.personas.collectAsStateWithLifecycle()
     val allConversations by viewModel.allConversations.collectAsStateWithLifecycle()
     val activeConversationId by viewModel.activeConversationId.collectAsStateWithLifecycle()
+    val streamingByConv by viewModel.streamingByConversation.collectAsStateWithLifecycle()
     val garden = LocalGardenColors.current
 
     // Folder expanded state map (key = personaId or "__group__"), defaults to expanded = true
@@ -198,6 +199,7 @@ fun HistoryDrawerContent(
                             ConversationTreeRow(
                                 conv = conv,
                                 selected = conv.id == activeConversationId,
+                                isGenerating = streamingByConv[conv.id]?.isStreaming == true,
                                 formattedTime = formatter.format(Date(conv.updatedAt)),
                                 onClick = {
                                     viewModel.selectConversation(conv.id)
@@ -252,6 +254,7 @@ fun HistoryDrawerContent(
                             ConversationTreeRow(
                                 conv = conv,
                                 selected = conv.id == activeConversationId,
+                                isGenerating = streamingByConv[conv.id]?.isStreaming == true,
                                 formattedTime = formatter.format(Date(conv.updatedAt)),
                                 onClick = {
                                     viewModel.selectConversation(conv.id)
@@ -373,6 +376,7 @@ private fun FolderSectionCard(
 private fun ConversationTreeRow(
     conv: ConversationEntity,
     selected: Boolean,
+    isGenerating: Boolean = false,
     formattedTime: String,
     onClick: () -> Unit,
     onDelete: () -> Unit
@@ -389,27 +393,47 @@ private fun ConversationTreeRow(
             modifier = Modifier
                 .width(1.dp)
                 .fillMaxHeight()
-                .background(if (selected) garden.bamboo else garden.lineSoft)
+                .background(if (selected || isGenerating) garden.bamboo else garden.lineSoft)
         )
         Spacer(Modifier.width(8.dp))
         Row(
             modifier = Modifier
                 .weight(1f)
-                .clip(RoundedCornerShape(6.dp))
+                .clip(RoundedCornerShape(10.dp))
                 .background(if (selected) garden.bambooSoft else Color.Transparent)
                 .clickable(onClick = onClick)
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = conv.title,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (selected) garden.bamboo else garden.ink,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Text(
+                        text = conv.title,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (selected) garden.bamboo else garden.ink,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (isGenerating) {
+                        Surface(
+                            shape = RoundedCornerShape(999.dp),
+                            color = garden.bambooSoft
+                        ) {
+                            Text(
+                                text = "生成中",
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = garden.bamboo,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                }
                 Text(
                     text = buildString {
                         append(formattedTime)

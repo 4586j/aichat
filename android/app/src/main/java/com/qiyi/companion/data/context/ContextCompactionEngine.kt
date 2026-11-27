@@ -63,7 +63,26 @@ data class CompactionPlan(
  */
 object ContextCompactionEngine {
 
-    const val MAX_ACTIVE_HISTORY_MESSAGES = 24
+    const val MAX_ACTIVE_HISTORY_MESSAGES = 36
+    const val CACHE_STEP_DROP_MESSAGES = 12
+
+    /**
+     * Stepwise history trimming designed for Prefix Prompt Caching:
+     * Instead of sliding by 1 message every turn (which invalidates 100% of prefix cache),
+     * drops oldest turns in stable [stepDrop] chunks so consecutive turns preserve an identical prefix.
+     */
+    fun selectCacheFriendlyHistoryWindow(
+        uncompacted: List<MessageEntity>,
+        maxWindow: Int = MAX_ACTIVE_HISTORY_MESSAGES,
+        stepDrop: Int = CACHE_STEP_DROP_MESSAGES
+    ): List<MessageEntity> {
+        if (uncompacted.size <= maxWindow) return uncompacted
+        val safeStep = stepDrop.coerceAtLeast(2)
+        val overflow = uncompacted.size - maxWindow
+        val batchesToDrop = ((overflow - 1) / safeStep) + 1
+        val dropCount = (batchesToDrop * safeStep).coerceAtMost((uncompacted.size - 4).coerceAtLeast(0))
+        return uncompacted.drop(dropCount)
+    }
 
     fun inferContextWindowTokens(model: String, overrideLimit: Int = 0): Int {
         if (overrideLimit > 0) return overrideLimit
@@ -126,7 +145,7 @@ object ContextCompactionEngine {
         } else {
             messages
         }
-        val activeWindowMessages = uncompacted.takeLast(MAX_ACTIVE_HISTORY_MESSAGES)
+        val activeWindowMessages = selectCacheFriendlyHistoryWindow(uncompacted)
         val activeHistoryTokens = activeWindowMessages.sumOf { msg ->
             UsageAnalytics.estimateTextTokens(msg.content) + 6
         }

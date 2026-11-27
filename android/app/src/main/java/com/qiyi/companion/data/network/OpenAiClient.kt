@@ -58,11 +58,17 @@ class ModelServiceException(
 ) : Exception(message)
 
 @Serializable
+private data class StreamOptions(
+    val include_usage: Boolean = true
+)
+
+@Serializable
 private data class ChatCompletionRequest(
     val model: String,
     val messages: List<RequestMessage>,
     val stream: Boolean = false,
-    val max_tokens: Int = 3000
+    val max_tokens: Int = 3000,
+    val stream_options: StreamOptions? = null
 )
 
 @Serializable
@@ -78,8 +84,9 @@ class OpenAiClient(
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 ) {
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
+    private val streamOptionsUnsupportedHosts = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 
     fun normalizeBaseUrl(raw: String): String {
         val trimmed = raw.trim().trimEnd('/')
@@ -162,36 +169,54 @@ class OpenAiClient(
             close(ModelServiceException("请先在设置或角色配置中填写模型 ID。"))
             return@callbackFlow
         }
-        val payload = json.encodeToString(
-            ChatCompletionRequest.serializer(),
-            ChatCompletionRequest(
-                model = cleanModel,
-                messages = messages.map { toRequestMessage(it) },
-                stream = true,
-                max_tokens = 3000
-            )
-        )
-        val reqBuilder = Request.Builder()
-            .url("$normalized/chat/completions")
-            .header("Accept", "text/event-stream")
-            .post(payload.toRequestBody(jsonMediaType))
-        if (apiKey.isNotBlank()) reqBuilder.header("Authorization", "Bearer ${apiKey.trim()}")
 
-        val call: Call = httpClient.newCall(reqBuilder.build())
+        fun buildCall(withStreamOptions: Boolean): Call {
+            val payload = json.encodeToString(
+                ChatCompletionRequest.serializer(),
+                ChatCompletionRequest(
+                    model = cleanModel,
+                    messages = messages.map { toRequestMessage(it) },
+                    stream = true,
+                    max_tokens = 3000,
+                    stream_options = if (withStreamOptions) StreamOptions(include_usage = true) else null
+                )
+            )
+            val reqBuilder = Request.Builder()
+                .url("$normalized/chat/completions")
+                .header("Accept", "text/event-stream")
+                .post(payload.toRequestBody(jsonMediaType))
+            if (apiKey.isNotBlank()) reqBuilder.header("Authorization", "Bearer ${apiKey.trim()}")
+            return httpClient.newCall(reqBuilder.build())
+        }
+
+        val tryIncludeUsage = streamOptionsUnsupportedHosts[normalized] != true
+        val currentCallRef = java.util.concurrent.atomic.AtomicReference(buildCall(tryIncludeUsage))
         val worker = Thread {
             try {
-                call.execute().use { resp ->
-                    if (!resp.isSuccessful) {
-                        close(mapHttpError(resp.code, resp.header("Retry-After")))
+                var resp = currentCallRef.get().execute()
+                // Auto-downgrade cleanly if an older gateway rejects stream_options with 400/422
+                if (tryIncludeUsage && (resp.code == 400 || resp.code == 422)) {
+                    resp.close()
+                    streamOptionsUnsupportedHosts[normalized] = true
+                    currentCallRef.set(buildCall(false))
+                    resp = currentCallRef.get().execute()
+                }
+                resp.use { activeResp ->
+                    if (!activeResp.isSuccessful) {
+                        close(mapHttpError(activeResp.code, activeResp.header("Retry-After")))
                         return@use
                     }
-                    val contentType = resp.header("Content-Type").orEmpty().lowercase()
-                    val body = resp.body ?: run {
+                    val contentType = activeResp.header("Content-Type").orEmpty().lowercase()
+                    val body = activeResp.body ?: run {
                         close(ModelServiceException("模型服务返回空响应。"))
                         return@use
                     }
                     if (contentType.contains("application/json")) {
                         val root = json.parseToJsonElement(body.string()).jsonObject
+                        val usageObj = root["usage"] as? JsonObject
+                        if (usageObj != null) {
+                            parseUsageChunk(usageObj)?.let { trySend(it) }
+                        }
                         val msg = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject?.get("message")?.jsonObject
                         val reasoning = msg?.get("reasoning_content")?.jsonPrimitive?.contentOrNull.orEmpty()
                         val content = msg?.get("content")?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -203,7 +228,7 @@ class OpenAiClient(
                     }
 
                     body.charStream().buffered().use { reader ->
-                        while (!call.isCanceled()) {
+                        while (!currentCallRef.get().isCanceled()) {
                             val line = reader.readLine() ?: break
                             val trimmed = line.trim()
                             if (!trimmed.startsWith("data:")) continue
@@ -227,7 +252,7 @@ class OpenAiClient(
                     close()
                 }
             } catch (err: IOException) {
-                if (call.isCanceled()) {
+                if (currentCallRef.get().isCanceled()) {
                     close()
                 } else {
                     close(ModelServiceException("连接模型服务中断，请检查网络或配置：${err.message ?: "IO 异常"}"))
@@ -239,7 +264,7 @@ class OpenAiClient(
         worker.start()
 
         awaitClose {
-            call.cancel()
+            currentCallRef.get().cancel()
         }
     }
 
