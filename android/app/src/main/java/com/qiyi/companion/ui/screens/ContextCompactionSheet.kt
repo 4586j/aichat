@@ -136,9 +136,9 @@ fun ContextCompactionSheet(
         // 1. Live Context Usage Breakdown Card
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(10.dp),
+            shape = RoundedCornerShape(18.dp),
             color = garden.paper,
-            border = BorderStroke(0.9.dp, garden.line)
+            border = BorderStroke(0.7.dp, garden.lineSoft)
         ) {
             Column(
                 modifier = Modifier.padding(12.dp),
@@ -282,11 +282,11 @@ fun ContextCompactionSheet(
                     val selected = windowOverride == limitVal
                     Surface(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(999.dp))
                             .clickable { onSelectWindowLimit(limitVal) },
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(999.dp),
                         color = if (selected) garden.bamboo else garden.paper,
-                        border = BorderStroke(0.9.dp, if (selected) garden.bamboo else garden.line)
+                        border = BorderStroke(0.8.dp, if (selected) garden.bamboo else garden.lineSoft)
                     ) {
                         Text(
                             text = label,
@@ -303,9 +303,9 @@ fun ContextCompactionSheet(
         // 3. Conversation Compaction Actions Card
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(10.dp),
+            shape = RoundedCornerShape(18.dp),
             color = garden.paper,
-            border = BorderStroke(0.9.dp, garden.line)
+            border = BorderStroke(0.7.dp, garden.lineSoft)
         ) {
             Column(
                 modifier = Modifier.padding(12.dp),
@@ -353,11 +353,11 @@ fun ContextCompactionSheet(
                             val selected = keepRecent == count
                             Surface(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(7.dp))
+                                    .clip(RoundedCornerShape(999.dp))
                                     .clickable { keepRecent = count },
-                                shape = RoundedCornerShape(7.dp),
+                                shape = RoundedCornerShape(999.dp),
                                 color = if (selected) garden.goldSoft else garden.paperCard,
-                                border = BorderStroke(0.9.dp, if (selected) garden.gold else garden.line)
+                                border = BorderStroke(0.8.dp, if (selected) garden.gold else garden.lineSoft)
                             ) {
                                 Text(
                                     text = "${count}条",

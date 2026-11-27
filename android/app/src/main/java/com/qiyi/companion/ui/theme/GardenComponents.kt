@@ -87,12 +87,13 @@ fun GardenSealAvatar(
         label.trim().ifEmpty { if (isUser) "我" else "望" }.take(2)
     }
 
+    val avatarShape = RoundedCornerShape(size * 0.34f)
     Box(
         modifier = Modifier
             .size(size)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(avatarShape)
             .background(if (isUser) garden.bambooSoft else garden.paperTint)
-            .border(1.dp, if (isUser) garden.lineStrong else garden.gold.copy(alpha = 0.7f), RoundedCornerShape(8.dp)),
+            .border(0.8.dp, if (isUser) garden.lineStrong.copy(alpha = 0.65f) else garden.gold.copy(alpha = 0.5f), avatarShape),
         contentAlignment = Alignment.Center
     ) {
         if (imageBitmap != null) {
@@ -115,8 +116,7 @@ fun GardenSealAvatar(
 }
 
 /**
- * Classical framed Xuan-paper / Bamboo scenic window button ("器物成形 · 框中藏景")
- * with subtle vertical gradient, inner hairline frame, and 4-corner mud-gold accents.
+ * Smooth jade-like Classical Garden pill button with satin gradient and delicate border.
  */
 @Composable
 fun GardenWindowButton(
@@ -130,20 +130,19 @@ fun GardenWindowButton(
     val topColor = if (primary) garden.bamboo else garden.paperCard
     val bottomColor = if (primary) garden.bambooDark else garden.paper
     val fg = if (primary) garden.paperCard else garden.ink
-    val outerBorder = if (primary) garden.gold.copy(alpha = 0.85f) else garden.line
-    val innerBorder = if (primary) garden.gold.copy(alpha = 0.42f) else garden.lineSoft
-    val cornerAccent = if (primary) garden.gold.copy(alpha = 0.85f) else garden.gold.copy(alpha = 0.55f)
+    val outerBorder = if (primary) garden.gold.copy(alpha = 0.55f) else garden.line.copy(alpha = 0.85f)
     val alpha = if (enabled) 1f else 0.48f
+    val pillShape = RoundedCornerShape(999.dp)
 
     Surface(
         modifier = modifier
-            .height(35.dp)
-            .clip(RoundedCornerShape(7.dp))
+            .height(36.dp)
+            .clip(pillShape)
             .clickable(enabled = enabled, onClick = onClick),
-        shape = RoundedCornerShape(7.dp),
+        shape = pillShape,
         color = Color.Transparent,
-        shadowElevation = if (enabled) (if (primary) 2.dp else 1.dp) else 0.dp,
-        border = BorderStroke(1.dp, outerBorder.copy(alpha = outerBorder.alpha * alpha))
+        shadowElevation = if (enabled && primary) 2.dp else 0.dp,
+        border = BorderStroke(0.9.dp, outerBorder.copy(alpha = outerBorder.alpha * alpha))
     ) {
         Box(
             modifier = Modifier
@@ -153,28 +152,7 @@ fun GardenWindowButton(
                         colors = listOf(topColor.copy(alpha = alpha), bottomColor.copy(alpha = alpha))
                     )
                 )
-                .drawWithContent {
-                    drawContent()
-                    val inset = 3.dp.toPx()
-                    val len = 4.5.dp.toPx()
-                    val sw = 1.dp.toPx()
-                    val c = cornerAccent.copy(alpha = cornerAccent.alpha * alpha)
-                    // Top-left
-                    drawLine(c, Offset(inset, inset), Offset(inset + len, inset), sw)
-                    drawLine(c, Offset(inset, inset), Offset(inset, inset + len), sw)
-                    // Top-right
-                    drawLine(c, Offset(size.width - inset, inset), Offset(size.width - inset - len, inset), sw)
-                    drawLine(c, Offset(size.width - inset, inset), Offset(size.width - inset, inset + len), sw)
-                    // Bottom-left
-                    drawLine(c, Offset(inset, size.height - inset), Offset(inset + len, size.height - inset), sw)
-                    drawLine(c, Offset(inset, size.height - inset), Offset(inset, size.height - inset - len), sw)
-                    // Bottom-right
-                    drawLine(c, Offset(size.width - inset, size.height - inset), Offset(size.width - inset - len, size.height - inset), sw)
-                    drawLine(c, Offset(size.width - inset, size.height - inset), Offset(size.width - inset, size.height - inset - len), sw)
-                }
-                .padding(2.5.dp)
-                .border(0.6.dp, innerBorder.copy(alpha = innerBorder.alpha * alpha), RoundedCornerShape(4.5.dp))
-                .padding(horizontal = 11.dp),
+                .padding(horizontal = 15.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -262,16 +240,16 @@ fun GardenTagPill(
     val fg = accent ?: garden.cinnabar
     val bg = background ?: garden.cinnabarSoft
     Surface(
-        shape = RoundedCornerShape(4.dp),
+        shape = RoundedCornerShape(999.dp),
         color = bg,
-        border = BorderStroke(0.8.dp, fg.copy(alpha = 0.55f))
+        border = BorderStroke(0.6.dp, fg.copy(alpha = 0.38f))
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelSmall,
             color = fg,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 2.5.dp)
         )
     }
 }

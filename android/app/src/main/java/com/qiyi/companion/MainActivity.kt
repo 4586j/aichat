@@ -149,6 +149,7 @@ private fun QiYiAppRoot(viewModel: QiYiViewModel) {
             drawerState = drawerState,
             drawerContent = {
                 ModalDrawerSheet(
+                    drawerShape = RoundedCornerShape(topEnd = 26.dp, bottomEnd = 26.dp),
                     drawerContainerColor = garden.paperCard,
                     drawerContentColor = garden.text,
                     modifier = Modifier.width(304.dp)
@@ -311,27 +312,24 @@ private fun GardenTopNavBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 6.dp),
+                .padding(horizontal = 10.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            // Left History Drawer Trigger Plaque (replacing static 栖忆 plaque)
+            // Left History Drawer Trigger Pill (smooth rounded capsule)
             Surface(
                 modifier = Modifier
-                    .height(38.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .height(36.dp)
+                    .clip(RoundedCornerShape(999.dp))
                     .clickable(onClick = onOpenHistoryDrawer),
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(999.dp),
                 color = garden.paperCard,
-                border = BorderStroke(1.2.dp, garden.gold)
+                border = BorderStroke(1.dp, garden.gold.copy(alpha = 0.72f))
             ) {
                 Row(
-                    modifier = Modifier
-                        .padding(2.dp)
-                        .border(0.6.dp, garden.line, RoundedCornerShape(4.dp))
-                        .padding(horizontal = 7.dp),
+                    modifier = Modifier.padding(horizontal = 11.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Menu,
@@ -343,62 +341,62 @@ private fun GardenTopNavBar(
                         text = "历史",
                         fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        letterSpacing = 0.5.sp,
+                        fontSize = 13.5.sp,
+                        letterSpacing = 0.4.sp,
                         color = garden.ink
                     )
                 }
             }
 
-            // Classical Window Tabs
-            Row(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            // Smooth Unified Pill Track for 5 Navigation Tabs (zero boxy borders!)
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(36.dp),
+                shape = RoundedCornerShape(999.dp),
+                color = garden.paperDeep.copy(alpha = 0.75f),
+                border = BorderStroke(0.6.dp, garden.lineSoft)
             ) {
-                tabs.forEachIndexed { index, label ->
-                    val selected = selectedTab == index
-                    Surface(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(38.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable { onSelectTab(index) },
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (selected) garden.bamboo else garden.paperCard,
-                        border = BorderStroke(
-                            width = 1.dp,
-                            color = if (selected) garden.gold.copy(alpha = 0.85f) else garden.line
-                        )
-                    ) {
-                        Box(
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    tabs.forEachIndexed { index, label ->
+                        val selected = selectedTab == index
+                        Surface(
                             modifier = Modifier
-                                .padding(2.dp)
-                                .border(
-                                    width = 0.6.dp,
-                                    color = if (selected) garden.gold.copy(alpha = 0.45f) else garden.lineSoft,
-                                    shape = RoundedCornerShape(4.dp)
-                                ),
-                            contentAlignment = Alignment.Center
+                                .weight(1f)
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(999.dp))
+                                .clickable { onSelectTab(index) },
+                            shape = RoundedCornerShape(999.dp),
+                            color = if (selected) garden.bamboo else androidx.compose.ui.graphics.Color.Transparent,
+                            shadowElevation = if (selected) 1.5.dp else 0.dp
                         ) {
-                            Text(
-                                text = label,
-                                fontFamily = FontFamily.Serif,
-                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                                fontSize = 12.5.sp,
-                                color = if (selected) garden.paperCard else garden.ink
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = label,
+                                    fontFamily = FontFamily.Serif,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                                    fontSize = 12.5.sp,
+                                    color = if (selected) garden.paperCard else garden.muted,
+                                    maxLines = 1
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Signature Cinnabar Lacquer Accent Bar (朱漆横梁)
+        // Delicate Cinnabar Hairline Accent
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(2.5.dp)
-                .background(garden.cinnabar)
+                .height(1.2.dp)
+                .background(garden.cinnabar.copy(alpha = 0.55f))
         )
 
         // Compact Utility Strip (状态/音乐 + 导出/新建 + 用量/邮件/音乐)
@@ -508,17 +506,18 @@ private fun CompactUtilityTextButton(
     onClick: () -> Unit
 ) {
     val garden = LocalGardenColors.current
+    val pillShape = RoundedCornerShape(999.dp)
     Surface(
         modifier = Modifier
             .height(30.dp)
-            .clip(RoundedCornerShape(6.dp))
+            .clip(pillShape)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(6.dp),
+        shape = pillShape,
         color = if (primary) garden.bamboo else garden.paper,
-        border = BorderStroke(0.9.dp, if (primary) garden.gold.copy(alpha = 0.85f) else garden.line)
+        border = BorderStroke(0.75.dp, if (primary) garden.gold.copy(alpha = 0.55f) else garden.line.copy(alpha = 0.8f))
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp),
+            modifier = Modifier.padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(3.dp)
         ) {
@@ -549,12 +548,12 @@ private fun UtilityIconButton(
     val garden = LocalGardenColors.current
     Surface(
         modifier = Modifier
-            .size(30.dp)
-            .clip(RoundedCornerShape(6.dp))
+            .size(31.dp)
+            .clip(CircleShape)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(6.dp),
+        shape = CircleShape,
         color = if (active) garden.cinnabarSoft else garden.paper,
-        border = BorderStroke(0.8.dp, if (active) garden.cinnabar else garden.line)
+        border = BorderStroke(0.7.dp, if (active) garden.cinnabar.copy(alpha = 0.65f) else garden.line.copy(alpha = 0.75f))
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(

@@ -21,8 +21,10 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -30,7 +32,6 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.UnfoldLess
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.HorizontalDivider
@@ -279,20 +280,20 @@ private fun FolderSectionCard(
     val garden = LocalGardenColors.current
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(16.dp),
         color = garden.paper,
-        border = BorderStroke(0.8.dp, garden.line)
+        border = BorderStroke(0.7.dp, garden.lineSoft)
     ) {
         Column(modifier = Modifier.padding(vertical = 4.dp)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(onClick = onToggleExpand)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = if (expanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
+                    imageVector = if (expanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
                     contentDescription = if (expanded) "折叠目录" else "展开目录",
                     tint = garden.muted,
                     modifier = Modifier.size(18.dp)
@@ -336,12 +337,12 @@ private fun FolderSectionCard(
                 }
                 Surface(
                     modifier = Modifier
-                        .size(26.dp)
-                        .clip(RoundedCornerShape(6.dp))
+                        .size(28.dp)
+                        .clip(CircleShape)
                         .clickable(onClick = onCreateNew),
-                    shape = RoundedCornerShape(6.dp),
+                    shape = CircleShape,
                     color = garden.paperCard,
-                    border = BorderStroke(0.8.dp, garden.line)
+                    border = BorderStroke(0.7.dp, garden.line.copy(alpha = 0.8f))
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(

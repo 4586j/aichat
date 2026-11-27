@@ -278,36 +278,37 @@ fun ChatScreen(
             .background(garden.paper)
             .imePadding()
     ) {
-        // 1. Compact Persona Picker + 当前状态 + 群聊 Strip (maximizing chat reading height!)
+        // 1. Compact Floating Persona Picker + 当前状态 + 群聊 Strip
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 10.dp, end = 10.dp, top = 6.dp),
-            shape = RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp),
+                .padding(start = 10.dp, end = 10.dp, top = 8.dp),
+            shape = RoundedCornerShape(18.dp),
             color = garden.paperCard,
-            border = BorderStroke(0.9.dp, garden.line)
+            shadowElevation = 0.5.dp,
+            border = BorderStroke(0.7.dp, garden.lineSoft)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Box(modifier = Modifier.weight(1f)) {
                     Surface(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(999.dp))
                             .clickable { personaMenuExpanded = true },
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(999.dp),
                         color = if (personaMenuExpanded) garden.paperCard else garden.paper,
                         border = BorderStroke(
-                            width = if (personaMenuExpanded) 1.3.dp else 0.9.dp,
-                            color = if (personaMenuExpanded) garden.gold else garden.line
+                            width = if (personaMenuExpanded) 1.1.dp else 0.7.dp,
+                            color = if (personaMenuExpanded) garden.gold.copy(alpha = 0.8f) else garden.lineSoft
                         )
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                            modifier = Modifier.padding(start = 6.dp, end = 11.dp, top = 4.dp, bottom = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             GardenSealAvatar(
@@ -346,11 +347,11 @@ fun ChatScreen(
                     DropdownMenu(
                         expanded = personaMenuExpanded,
                         onDismissRequest = { personaMenuExpanded = false },
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(18.dp),
                         containerColor = garden.paperCard,
                         tonalElevation = 0.dp,
                         shadowElevation = 6.dp,
-                        border = BorderStroke(1.2.dp, garden.gold.copy(alpha = 0.78f)),
+                        border = BorderStroke(0.9.dp, garden.gold.copy(alpha = 0.65f)),
                         modifier = Modifier.widthIn(min = 216.dp, max = 276.dp)
                     ) {
                         Text(
@@ -468,9 +469,11 @@ fun ChatScreen(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp),
+                    .padding(start = 10.dp, end = 10.dp, top = 6.dp),
+                shape = RoundedCornerShape(18.dp),
                 color = garden.paperCard,
-                border = BorderStroke(0.8.dp, garden.lineSoft)
+                shadowElevation = 0.5.dp,
+                border = BorderStroke(0.7.dp, garden.lineSoft)
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     // Section A: Mood, Style & Relationship Stage
@@ -583,9 +586,9 @@ fun ChatScreen(
 
                         Surface(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(7.dp))
+                                .clip(RoundedCornerShape(999.dp))
                                 .clickable { showContextSheet = true },
-                            shape = RoundedCornerShape(7.dp),
+                            shape = RoundedCornerShape(999.dp),
                             color = when {
                                 isCompacting -> garden.bambooSoft
                                 contextUsage.pressureLevel == ContextPressureLevel.CRITICAL -> garden.cinnabarSoft
@@ -593,12 +596,12 @@ fun ChatScreen(
                                 else -> garden.paper
                             },
                             border = BorderStroke(
-                                0.85.dp,
+                                0.8.dp,
                                 when {
                                     isCompacting -> garden.bamboo
                                     contextUsage.pressureLevel == ContextPressureLevel.CRITICAL -> garden.cinnabar
                                     contextUsage.pressureLevel == ContextPressureLevel.ELEVATED -> garden.gold
-                                    else -> garden.line
+                                    else -> garden.line.copy(alpha = 0.8f)
                                 }
                             )
                         ) {
@@ -663,19 +666,16 @@ fun ChatScreen(
             )
         }
 
-        // 4. Message List inside Xuan-paper Garden Canvas + Floating "↓ 回到最新回复" Pill
+        // 4. Open, Borderless Xuan-paper Message Canvas + Floating "↓ 回到最新回复" Pill
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp)
-                .background(garden.paperCard.copy(alpha = 0.65f))
-                .border(0.8.dp, garden.lineSoft)
         ) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 if (messages.isEmpty() && !streaming.isStreaming) {
@@ -792,18 +792,13 @@ fun ChatScreen(
             }
         }
 
-        // 5. Mobile-Web-Aligned Collapsible Bottom Composer
+        // 5. Soft Collapsible Bottom Composer
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(garden.paper)
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.5.dp)
-                    .background(garden.ink.copy(alpha = 0.7f))
-            )
+            HorizontalDivider(color = garden.lineSoft, thickness = 0.7.dp)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -904,11 +899,12 @@ fun ChatScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(start = 10.dp, end = 10.dp, bottom = 8.dp),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(22.dp),
                     color = garden.paperCard,
-                    border = BorderStroke(1.dp, garden.line)
+                    shadowElevation = 1.dp,
+                    border = BorderStroke(0.75.dp, garden.lineSoft)
                 ) {
-                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp)) {
                         if (draftAttachments.isNotEmpty()) {
                             Row(
                                 modifier = Modifier
@@ -1264,9 +1260,10 @@ private fun WelcomeCard(persona: PersonaEntity?, effectiveModel: String, isGroup
     val garden = LocalGardenColors.current
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(22.dp),
         color = garden.paperCard,
-        border = BorderStroke(1.dp, garden.line)
+        shadowElevation = 1.dp,
+        border = BorderStroke(0.7.dp, garden.lineSoft)
     ) {
         Column(
             modifier = Modifier.padding(18.dp),
@@ -1356,8 +1353,10 @@ private fun MessageBubble(
                 GardenSealAvatar(label = userAvatar, size = 26.dp, isUser = true)
             }
 
-            // Signature Begonia-Notched Bamboo Plaque User Bubble
-            val plaqueShape = remember { BegoniaPlaqueShape(8.dp) }
+            // Smooth Jade-Rounded User Bubble
+            val userBubbleShape = remember {
+                RoundedCornerShape(topStart = 20.dp, topEnd = 6.dp, bottomStart = 20.dp, bottomEnd = 20.dp)
+            }
             val attachedImagePaths = remember(message.imagePathsJson) {
                 if (message.imagePathsJson.isBlank()) emptyList()
                 else runCatching {
@@ -1367,10 +1366,10 @@ private fun MessageBubble(
             Box(
                 modifier = Modifier
                     .widthIn(max = 310.dp)
-                    .clip(plaqueShape)
+                    .clip(userBubbleShape)
                     .background(garden.userBubble)
-                    .border(1.dp, garden.gold.copy(alpha = 0.5f), plaqueShape)
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .border(0.8.dp, garden.gold.copy(alpha = 0.4f), userBubbleShape)
+                    .padding(horizontal = 15.dp, vertical = 11.dp)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (attachedImagePaths.isNotEmpty()) {
@@ -1452,19 +1451,25 @@ private fun MessageBubble(
                 Spacer(Modifier.height(6.dp))
             }
 
-            // Signature Xuan-paper Assistant Card with 3dp Cinnabar Left Vertical Accent Stripe
+            // Smooth Xuan-paper Assistant Bubble with subtle cinnabar accent
+            val assistantBubbleShape = remember {
+                RoundedCornerShape(topStart = 6.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 20.dp)
+            }
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(6.dp),
+                shape = assistantBubbleShape,
                 color = garden.assistantBubble,
-                border = BorderStroke(0.9.dp, garden.line)
+                shadowElevation = 0.5.dp,
+                border = BorderStroke(0.7.dp, garden.lineSoft)
             ) {
                 Row(modifier = Modifier.height(IntrinsicSize.Min)) {
                     Box(
                         modifier = Modifier
+                            .padding(vertical = 10.dp, horizontal = 0.dp)
                             .width(3.dp)
                             .fillMaxHeight()
-                            .background(garden.cinnabar)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(garden.cinnabar.copy(alpha = 0.78f))
                     )
                     SelectionContainer(
                         modifier = Modifier
