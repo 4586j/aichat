@@ -44,6 +44,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -92,6 +93,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -672,12 +674,17 @@ fun ChatScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 if (messages.isEmpty() && !streaming.isStreaming) {
                     item(key = "welcome") {
-                        WelcomeCard(persona = activePersona, effectiveModel = effectiveModel, isGroup = isGroup)
+                        WelcomeCard(
+                            persona = activePersona,
+                            effectiveModel = effectiveModel,
+                            isGroup = isGroup,
+                            onSelectPrompt = { promptText -> draft = promptText }
+                        )
                     }
                 }
 
@@ -1260,55 +1267,100 @@ private fun QuotaCheckpointBanner(
 }
 
 @Composable
-private fun WelcomeCard(persona: PersonaEntity?, effectiveModel: String, isGroup: Boolean) {
+private fun WelcomeCard(
+    persona: PersonaEntity?,
+    effectiveModel: String,
+    isGroup: Boolean,
+    onSelectPrompt: (String) -> Unit = {}
+) {
     val garden = LocalGardenColors.current
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = IosSquircleShape(26.dp),
-        color = garden.paperCard,
-        shadowElevation = 1.2.dp,
-        border = BorderStroke(0.7.dp, garden.lineSoft)
+    val starterPrompts = remember(isGroup) {
+        if (isGroup) {
+            listOf("大家来聊聊今天的灵感", "帮我从不同角度分析一件事", "一起头脑风暴个方案")
+        } else {
+            listOf("帮我理清一件事", "陪我随便聊聊近况", "写一段简洁有温度的话", "帮我检索书阁里的笔记")
+        }
+    }
+
+    // Open Gemini-style Editorial Greeting (no heavy outer rectangular box!)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 34.dp, bottom = 12.dp, start = 4.dp, end = 4.dp),
+        horizontalAlignment = Alignment.Start
     ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            GardenSealAvatar(
-                label = if (isGroup) "群" else persona?.avatar.orEmpty().ifBlank { persona?.name?.take(1) ?: "望" },
-                size = 50.dp
-            )
-            Spacer(Modifier.height(10.dp))
-            Text(
-                text = if (isGroup) "多角色雅集群聊" else persona?.name ?: "望舒",
-                style = MaterialTheme.typography.titleLarge,
-                color = garden.ink
-            )
-            if (!isGroup && !persona?.description.isNullOrBlank()) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = persona!!.description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = garden.muted
-                )
+        GardenSealAvatar(
+            label = if (isGroup) "群" else persona?.avatar.orEmpty().ifBlank { persona?.name?.take(1) ?: "望" },
+            size = 46.dp
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(
+            text = if (isGroup) "多角色雅集群聊" else "你好，我是${persona?.name ?: "望舒"}",
+            fontFamily = FontFamily.Serif,
+            fontWeight = FontWeight.Bold,
+            fontSize = 25.sp,
+            lineHeight = 32.sp,
+            color = garden.ink
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = if (isGroup) {
+                "每位角色都将使用各自的人设与专属模型回应，可用 @角色名 点名发言。"
+            } else {
+                persona?.greeting.orEmpty().ifBlank { "今天想聊点什么？可以随口聊聊近况，也可以一起把一件事理清楚。" }
+            },
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontSize = 15.sp,
+                lineHeight = 23.sp
+            ),
+            color = garden.muted
+        )
+
+        Spacer(Modifier.height(20.dp))
+
+        // Gemini-style quick starter prompt chips
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            starterPrompts.chunked(2).forEach { rowItems ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    rowItems.forEach { prompt ->
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .clickable { onSelectPrompt(prompt) },
+                            shape = RoundedCornerShape(999.dp),
+                            color = garden.paperCard,
+                            shadowElevation = 0.5.dp,
+                            border = BorderStroke(0.7.dp, garden.lineSoft)
+                        ) {
+                            Text(
+                                text = prompt,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = garden.text,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
             }
-            Spacer(Modifier.height(10.dp))
-            HorizontalDivider(color = garden.lineSoft)
-            Spacer(Modifier.height(10.dp))
-            Text(
-                text = if (isGroup) {
-                    "每位角色都将使用各自的人设与专属模型依次回应；发送消息时可用 @角色名 点名某位角色发言。"
-                } else {
-                    persona?.greeting.orEmpty().ifBlank { "你好呀，今天想聊点什么？" }
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = garden.text
-            )
-            if (!isGroup && effectiveModel.isBlank()) {
-                Spacer(Modifier.height(10.dp))
+        }
+
+        if (!isGroup && effectiveModel.isBlank()) {
+            Spacer(Modifier.height(16.dp))
+            Surface(
+                shape = IosSquircleShape(14.dp),
+                color = garden.cinnabarSoft.copy(alpha = 0.7f),
+                border = BorderStroke(0.6.dp, garden.cinnabar.copy(alpha = 0.35f))
+            ) {
                 Text(
-                    text = "提示：请先前往顶部「设置」填写模型服务 Base URL、API Key 与默认模型 ID。",
+                    text = "提示：前往顶部「设置」填写模型 Base URL、API Key 与默认模型 ID 即可开聊。",
                     style = MaterialTheme.typography.labelSmall,
-                    color = garden.cinnabar
+                    color = garden.cinnabar,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                 )
             }
         }
@@ -1330,108 +1382,98 @@ private fun MessageBubble(
 ) {
     val isUser = message.role == "user"
     val garden = LocalGardenColors.current
-    val timeFormatter = remember { SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()) }
+    val isDark = garden.paper.luminance() < 0.35f
+    val timeFormatter = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     var reasoningExpanded by remember(message.id) { mutableStateOf(false) }
 
     if (isUser) {
+        // Gemini-style clean right-aligned soft tinted pill (no noisy header clutter above!)
+        val userBubbleShape = remember {
+            RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp, bottomStart = 22.dp, bottomEnd = 6.dp)
+        }
+        val attachedImagePaths = remember(message.imagePathsJson) {
+            if (message.imagePathsJson.isBlank()) emptyList()
+            else runCatching {
+                Json.decodeFromString(ListSerializer(String.serializer()), message.imagePathsJson)
+            }.getOrDefault(emptyList())
+        }
+        val pillBg = if (isDark) garden.paperCard else garden.bambooSoft
+        val pillBorder = if (isDark) garden.lineSoft else garden.bamboo.copy(alpha = 0.16f)
+
         Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.End
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.padding(bottom = 5.dp)
-            ) {
-                Text(
-                    text = timeFormatter.format(Date(message.createdAt)),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = garden.muted
-                )
-                Text(
-                    text = "你",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = garden.ink
-                )
-                GardenSealAvatar(label = userAvatar, size = 26.dp, isUser = true)
-            }
-
-            // Smooth Jade-Rounded User Bubble
-            val userBubbleShape = remember {
-                RoundedCornerShape(topStart = 20.dp, topEnd = 6.dp, bottomStart = 20.dp, bottomEnd = 20.dp)
-            }
-            val attachedImagePaths = remember(message.imagePathsJson) {
-                if (message.imagePathsJson.isBlank()) emptyList()
-                else runCatching {
-                    Json.decodeFromString(ListSerializer(String.serializer()), message.imagePathsJson)
-                }.getOrDefault(emptyList())
-            }
-            Box(
-                modifier = Modifier
-                    .widthIn(max = 310.dp)
-                    .clip(userBubbleShape)
-                    .background(garden.userBubble)
-                    .border(0.8.dp, garden.gold.copy(alpha = 0.4f), userBubbleShape)
-                    .padding(horizontal = 15.dp, vertical = 11.dp)
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (attachedImagePaths.isNotEmpty()) {
-                        Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            attachedImagePaths.forEach { imgPath ->
-                                val bmp = remember(imgPath) {
-                                    runCatching { BitmapFactory.decodeFile(imgPath)?.asImageBitmap() }.getOrNull()
-                                }
-                                if (bmp != null) {
-                                    Image(
-                                        bitmap = bmp,
-                                        contentDescription = "已发送图片预览",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .size(if (attachedImagePaths.size == 1) 168.dp else 104.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .border(0.8.dp, garden.gold.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
-                                            .clickable { onPreviewImage(imgPath) }
-                                    )
-                                }
-                            }
+            if (attachedImagePaths.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    attachedImagePaths.forEach { imgPath ->
+                        val bmp = remember(imgPath) {
+                            runCatching { BitmapFactory.decodeFile(imgPath)?.asImageBitmap() }.getOrNull()
+                        }
+                        if (bmp != null) {
+                            val imgShape = remember { IosSquircleShape(16.dp) }
+                            Image(
+                                bitmap = bmp,
+                                contentDescription = "已发送图片预览",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(if (attachedImagePaths.size == 1) 176.dp else 108.dp)
+                                    .clip(imgShape)
+                                    .border(0.7.dp, garden.lineSoft, imgShape)
+                                    .clickable { onPreviewImage(imgPath) }
+                            )
                         }
                     }
-                    SelectionContainer {
+                }
+            }
+            if (message.content.isNotBlank()) {
+                Surface(
+                    modifier = Modifier.widthIn(max = 304.dp),
+                    shape = userBubbleShape,
+                    color = pillBg,
+                    border = BorderStroke(0.7.dp, pillBorder)
+                ) {
+                    SelectionContainer(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp)
+                    ) {
                         GardenMarkdownText(
                             markdown = message.content,
-                            textColor = garden.onUserBubble,
-                            isOnDarkBubble = true
+                            textColor = garden.ink,
+                            isOnDarkBubble = false
                         )
                     }
                 }
             }
         }
     } else {
+        // Gemini-style Editorial Full-Width Unboxed Assistant Response
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp),
             horizontalAlignment = Alignment.Start
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(bottom = 6.dp)
+                modifier = Modifier.padding(bottom = 8.dp)
             ) {
-                GardenSealAvatar(label = speakerAvatar, size = 26.dp)
+                GardenSealAvatar(label = speakerAvatar, size = 24.dp)
                 Text(
                     text = speakerName,
                     fontFamily = FontFamily.Serif,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 13.sp,
+                    fontSize = 13.5.sp,
                     color = garden.ink
                 )
                 Text(
                     text = timeFormatter.format(Date(message.createdAt)),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = garden.muted
+                    fontSize = 11.sp,
+                    color = garden.muted.copy(alpha = 0.72f)
                 )
             }
 
@@ -1443,60 +1485,36 @@ private fun MessageBubble(
                     onToggle = { toolExpanded = !toolExpanded },
                     title = "工具调用过程"
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
             }
 
             if (message.reasoning.isNotBlank()) {
                 ReasoningBlock(
                     reasoning = message.reasoning,
                     expanded = reasoningExpanded,
-                    onToggle = { reasoningExpanded = !reasoningExpanded }
+                    onToggle = { reasoningExpanded = !reasoningExpanded },
+                    title = "显示思考过程"
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
             }
 
-            // Smooth Xuan-paper Assistant Bubble with subtle cinnabar accent
-            val assistantBubbleShape = remember {
-                RoundedCornerShape(topStart = 6.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 20.dp)
-            }
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = assistantBubbleShape,
-                color = garden.assistantBubble,
-                shadowElevation = 0.5.dp,
-                border = BorderStroke(0.7.dp, garden.lineSoft)
-            ) {
-                Row(modifier = Modifier.height(IntrinsicSize.Min)) {
-                    Box(
-                        modifier = Modifier
-                            .padding(vertical = 10.dp, horizontal = 0.dp)
-                            .width(3.dp)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(garden.cinnabar.copy(alpha = 0.78f))
-                    )
-                    SelectionContainer(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 13.dp, vertical = 11.dp)
-                    ) {
-                        val clipboard = LocalClipboardManager.current
-                        GardenMarkdownText(
-                            markdown = message.content,
-                            textColor = garden.onAssistantBubble,
-                            isOnDarkBubble = false,
-                            onCopyCode = { code ->
-                                clipboard.setText(AnnotatedString(code))
-                            }
-                        )
+            // Full-width unboxed typography straight on the warm Xuan-paper canvas
+            SelectionContainer(modifier = Modifier.fillMaxWidth()) {
+                val clipboard = LocalClipboardManager.current
+                GardenMarkdownText(
+                    markdown = message.content,
+                    textColor = garden.text,
+                    isOnDarkBubble = false,
+                    onCopyCode = { code ->
+                        clipboard.setText(AnnotatedString(code))
                     }
-                }
+                )
             }
 
             if (message.stickerId.isNotBlank()) {
                 val sticker = StickerCatalog.findById(message.stickerId)
                 if (sticker != null) {
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(8.dp))
                     StickerCard(sticker = sticker, size = 76.dp)
                 }
             }
@@ -1504,7 +1522,7 @@ private fun MessageBubble(
             val citations = remember(message.citationsJson) { KnowledgeEngine.decodeCitations(message.citationsJson) }
             if (citations.isNotEmpty()) {
                 var selectedCitation by remember { mutableStateOf<CitationItem?>(null) }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1512,17 +1530,17 @@ private fun MessageBubble(
                     citations.forEach { cite ->
                         Surface(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(RoundedCornerShape(999.dp))
                                 .clickable { selectedCitation = cite },
-                            shape = RoundedCornerShape(6.dp),
-                            color = garden.goldSoft,
-                            border = BorderStroke(0.7.dp, garden.gold.copy(alpha = 0.6f))
+                            shape = RoundedCornerShape(999.dp),
+                            color = garden.paperCard,
+                            border = BorderStroke(0.7.dp, garden.gold.copy(alpha = 0.55f))
                         ) {
                             Text(
                                 text = "[${cite.index}] 《${cite.documentTitle.take(14)}》",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = garden.ink,
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                             )
                         }
                     }
@@ -1539,54 +1557,28 @@ private fun MessageBubble(
                 }
             }
 
+            Spacer(Modifier.height(6.dp))
+
+            // Clean Gemini-style minimal action icon strip
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                TextButton(
-                    onClick = onCopy,
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                    modifier = Modifier.height(28.dp)
-                ) {
-                    Icon(Icons.Default.ContentCopy, contentDescription = "复制", modifier = Modifier.size(13.dp), tint = garden.muted)
-                    Spacer(Modifier.width(3.dp))
-                    Text("复制", style = MaterialTheme.typography.labelSmall, color = garden.muted)
+                IconButton(onClick = onCopy, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = "复制", modifier = Modifier.size(16.dp), tint = garden.muted)
                 }
-                TextButton(
-                    onClick = onRegenerate,
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                    modifier = Modifier.height(28.dp)
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "重新生成", modifier = Modifier.size(14.dp), tint = garden.muted)
-                    Spacer(Modifier.width(3.dp))
-                    Text("重生成", style = MaterialTheme.typography.labelSmall, color = garden.muted)
+                IconButton(onClick = onRegenerate, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Refresh, contentDescription = "重新生成", modifier = Modifier.size(17.dp), tint = garden.muted)
                 }
-                TextButton(
-                    onClick = onBranch,
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                    modifier = Modifier.height(28.dp)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.CallSplit, contentDescription = "从此分支", modifier = Modifier.size(14.dp), tint = garden.muted)
-                    Spacer(Modifier.width(3.dp))
-                    Text("分支", style = MaterialTheme.typography.labelSmall, color = garden.muted)
+                IconButton(onClick = onBranch, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.CallSplit, contentDescription = "从此分支", modifier = Modifier.size(17.dp), tint = garden.muted)
                 }
-                TextButton(
-                    onClick = onRemember,
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                    modifier = Modifier.height(28.dp)
-                ) {
-                    Icon(Icons.Default.BookmarkAdd, contentDescription = "记入长期记忆", modifier = Modifier.size(14.dp), tint = garden.muted)
-                    Spacer(Modifier.width(3.dp))
-                    Text("记住", style = MaterialTheme.typography.labelSmall, color = garden.muted)
+                IconButton(onClick = onRemember, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.BookmarkAdd, contentDescription = "记入长期记忆", modifier = Modifier.size(17.dp), tint = garden.muted)
                 }
-                TextButton(
-                    onClick = onWriteMail,
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                    modifier = Modifier.height(28.dp)
-                ) {
-                    Icon(Icons.Default.MailOutline, contentDescription = "写成邮件", modifier = Modifier.size(14.dp), tint = garden.muted)
-                    Spacer(Modifier.width(3.dp))
-                    Text("写成邮件", style = MaterialTheme.typography.labelSmall, color = garden.muted)
+                IconButton(onClick = onWriteMail, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.MailOutline, contentDescription = "写成邮件", modifier = Modifier.size(17.dp), tint = garden.muted)
                 }
             }
         }
@@ -1601,24 +1593,38 @@ private fun StreamingBubble(
     val garden = LocalGardenColors.current
     var reasoningExpanded by remember { mutableStateOf(true) }
 
+    // Same full-width unboxed Gemini layout so settling causes zero layout jump!
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 2.dp),
         horizontalAlignment = Alignment.Start
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 6.dp)
+            modifier = Modifier.padding(bottom = 8.dp)
         ) {
-            GardenSealAvatar(label = streaming.speakerAvatar.ifBlank { "望" }, size = 26.dp)
+            GardenSealAvatar(label = streaming.speakerAvatar.ifBlank { "望" }, size = 24.dp)
             Text(
                 text = streaming.speakerName.ifBlank { "正在回应" },
                 fontFamily = FontFamily.Serif,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 13.sp,
+                fontSize = 13.5.sp,
                 color = garden.ink
             )
-            Text("回应中…", style = MaterialTheme.typography.labelSmall, color = garden.bamboo)
+            Surface(
+                shape = RoundedCornerShape(999.dp),
+                color = garden.bambooSoft
+            ) {
+                Text(
+                    text = if (streaming.content.isBlank()) "思考中…" else "回应中…",
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = garden.bamboo,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                )
+            }
         }
 
         if (streaming.reasoning.isNotBlank()) {
@@ -1628,33 +1634,27 @@ private fun StreamingBubble(
                 onToggle = { reasoningExpanded = !reasoningExpanded },
                 title = "思考过程 · 推理中"
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(8.dp))
         }
 
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(6.dp),
-            color = garden.assistantBubble,
-            border = BorderStroke(1.dp, garden.bamboo.copy(alpha = 0.6f))
-        ) {
-            Row(modifier = Modifier.height(IntrinsicSize.Min)) {
-                Box(
-                    modifier = Modifier
-                        .width(3.dp)
-                        .fillMaxHeight()
-                        .background(garden.bamboo)
-                )
-                Text(
-                    text = streaming.content.ifBlank { "正在组织回复…" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = garden.onAssistantBubble,
-                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 11.dp)
-                )
-            }
+        if (streaming.content.isNotBlank()) {
+            GardenMarkdownText(
+                markdown = streaming.content,
+                textColor = garden.text,
+                isOnDarkBubble = false
+            )
+        } else {
+            Text(
+                text = "正在组织回复…",
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 24.sp),
+                color = garden.muted
+            )
         }
+
+        Spacer(Modifier.height(6.dp))
         TextButton(
             onClick = onStop,
-            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
             modifier = Modifier.height(28.dp)
         ) {
             Text("停止生成", style = MaterialTheme.typography.labelSmall, color = garden.cinnabar)
@@ -1667,40 +1667,62 @@ private fun ReasoningBlock(
     reasoning: String,
     expanded: Boolean,
     onToggle: () -> Unit,
-    title: String = "思考过程"
+    title: String = "显示思考过程"
 ) {
     val garden = LocalGardenColors.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-            .clickable(onClick = onToggle)
-            .padding(vertical = 2.dp)
-    ) {
-        Box(
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // Gemini-style minimal "Show thinking ▾" soft pill
+        Surface(
             modifier = Modifier
-                .width(2.dp)
-                .fillMaxHeight()
-                .background(garden.line)
-        )
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = 10.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .clickable(onClick = onToggle),
+            shape = RoundedCornerShape(999.dp),
+            color = garden.paperDeep.copy(alpha = 0.65f)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = garden.bamboo,
+                    modifier = Modifier.size(13.dp)
+                )
                 Text(
-                    text = if (expanded) "▾ $title" else "▸ $title",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = garden.muted
+                    text = title,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = garden.ink
+                )
+                Icon(
+                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = garden.muted,
+                    modifier = Modifier.size(15.dp)
                 )
             }
-            AnimatedVisibility(visible = expanded) {
+        }
+        AnimatedVisibility(visible = expanded) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp, start = 6.dp)
+                    .height(IntrinsicSize.Min)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(2.dp)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(garden.line)
+                )
                 Text(
                     text = reasoning,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodySmall.copy(lineHeight = 20.sp),
                     color = garden.muted,
-                    modifier = Modifier.padding(top = 4.dp)
+                    modifier = Modifier.padding(start = 10.dp, bottom = 2.dp)
                 )
             }
         }

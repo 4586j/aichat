@@ -213,7 +213,7 @@ fun GardenMarkdownText(
 
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
         blocks.forEach { block ->
             when (block) {
@@ -223,51 +223,81 @@ fun GardenMarkdownText(
                         fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.Bold,
                         fontSize = when (block.level) {
-                            1 -> 18.sp
-                            2 -> 16.sp
-                            else -> 15.sp
+                            1 -> 19.sp
+                            2 -> 17.sp
+                            else -> 15.5.sp
                         },
-                        color = textColor
+                        lineHeight = when (block.level) {
+                            1 -> 27.sp
+                            2 -> 24.sp
+                            else -> 22.sp
+                        },
+                        color = textColor,
+                        modifier = Modifier.padding(top = 4.dp)
                     )
                 }
 
                 is MarkdownBlock.Paragraph -> {
                     Text(
                         text = GardenMarkdownParser.parseInline(block.text, inlineCodeBg, inlineCodeFg),
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = 15.sp,
+                            lineHeight = 24.sp
+                        ),
                         color = textColor
                     )
                 }
 
                 is MarkdownBlock.Quote -> {
-                    Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Min)
+                            .padding(vertical = 2.dp)
+                    ) {
                         Box(
                             modifier = Modifier
-                                .width(2.5.dp)
+                                .width(3.dp)
                                 .fillMaxHeight()
-                                .background(if (isOnDarkBubble) garden.gold else garden.bamboo)
+                                .background(
+                                    (if (isOnDarkBubble) garden.gold else garden.bamboo).copy(alpha = 0.7f),
+                                    RoundedCornerShape(999.dp)
+                                )
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(10.dp))
                         Text(
                             text = GardenMarkdownParser.parseInline(block.text, inlineCodeBg, inlineCodeFg),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = textColor.copy(alpha = 0.85f)
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontSize = 14.sp,
+                                lineHeight = 22.sp
+                            ),
+                            color = textColor.copy(alpha = 0.82f)
                         )
                     }
                 }
 
                 is MarkdownBlock.BulletItem -> {
-                    Row(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 4.dp)
+                    ) {
                         Text(
                             text = if (block.bullet in listOf("-", "*", "•")) "•" else block.bullet,
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontSize = 15.sp,
+                                lineHeight = 24.sp
+                            ),
                             fontWeight = FontWeight.SemiBold,
                             color = if (isOnDarkBubble) garden.gold else garden.bamboo
                         )
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(8.dp))
                         Text(
                             text = GardenMarkdownParser.parseInline(block.text, inlineCodeBg, inlineCodeFg),
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontSize = 15.sp,
+                                lineHeight = 24.sp
+                            ),
                             color = textColor,
                             modifier = Modifier.weight(1f)
                         )
@@ -277,41 +307,42 @@ fun GardenMarkdownText(
                 is MarkdownBlock.CodeBlock -> {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (isOnDarkBubble) garden.ink.copy(alpha = 0.35f) else garden.reasoningBg,
-                        border = BorderStroke(0.8.dp, garden.line)
+                        shape = IosSquircleShape(16.dp),
+                        color = if (isOnDarkBubble) garden.ink.copy(alpha = 0.35f) else garden.paperCard,
+                        border = BorderStroke(0.75.dp, garden.lineSoft)
                     ) {
                         Column {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(if (isOnDarkBubble) garden.ink.copy(alpha = 0.25f) else garden.paperDeep)
-                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                                    .background(if (isOnDarkBubble) garden.ink.copy(alpha = 0.25f) else garden.paperDeep.copy(alpha = 0.75f))
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
                                     text = block.language.ifBlank { "code" },
                                     fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium,
                                     color = if (isOnDarkBubble) garden.gold else garden.muted
                                 )
                                 if (onCopyCode != null) {
                                     Row(
                                         modifier = Modifier
                                             .clickable { onCopyCode(block.code) }
-                                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                                            .padding(horizontal = 6.dp, vertical = 2.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.ContentCopy,
                                             contentDescription = "复制代码",
-                                            modifier = Modifier.size(12.dp),
+                                            modifier = Modifier.size(13.dp),
                                             tint = if (isOnDarkBubble) garden.paperCard else garden.muted
                                         )
-                                        Spacer(Modifier.width(3.dp))
+                                        Spacer(Modifier.width(4.dp))
                                         Text(
-                                            text = "复制",
+                                            text = "复制代码",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = if (isOnDarkBubble) garden.paperCard else garden.muted
                                         )
@@ -322,11 +353,11 @@ fun GardenMarkdownText(
                                 text = block.code,
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 12.5.sp,
-                                lineHeight = 18.sp,
+                                lineHeight = 19.sp,
                                 color = textColor,
                                 modifier = Modifier
                                     .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                                    .padding(horizontal = 12.dp, vertical = 10.dp)
                             )
                         }
                     }
@@ -334,12 +365,12 @@ fun GardenMarkdownText(
 
                 is MarkdownBlock.AttachmentPill -> {
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(999.dp),
                         color = if (isOnDarkBubble) garden.bamboo else garden.bambooSoft,
-                        border = BorderStroke(0.7.dp, garden.gold.copy(alpha = 0.6f))
+                        border = BorderStroke(0.6.dp, garden.gold.copy(alpha = 0.45f))
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
@@ -348,9 +379,9 @@ fun GardenMarkdownText(
                                 modifier = Modifier.size(13.dp),
                                 tint = if (isOnDarkBubble) garden.gold else garden.bamboo
                             )
-                            Spacer(Modifier.width(4.dp))
+                            Spacer(Modifier.width(5.dp))
                             Text(
-                                text = "已附文件：${block.name}",
+                                text = "附件：${block.name}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = textColor
                             )
