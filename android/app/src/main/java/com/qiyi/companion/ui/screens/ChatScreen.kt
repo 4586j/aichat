@@ -7,6 +7,7 @@ import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BookmarkAdd
@@ -59,6 +61,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -90,6 +93,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -797,125 +801,91 @@ fun ChatScreen(
         }
 
         // 5. Soft Collapsible Bottom Composer
+        // Gemini-style Floating Unified Composer (zero outside bar clutter, full-width typing + integrated bottom toolbar)
+        var composerFocused by remember { mutableStateOf(false) }
+        val canSend = draft.isNotBlank() || draftAttachments.isNotEmpty()
+        val anyLinkageEnabled = settings.toolsEnabled || settings.musicEnabled || settings.stickerEnabled
+        val composerBorderColor by animateColorAsState(
+            targetValue = if (composerFocused) garden.bamboo.copy(alpha = 0.58f) else garden.lineSoft,
+            label = "composerBorderColor"
+        )
+        val sendBgColor by animateColorAsState(
+            targetValue = when {
+                streaming.isStreaming -> garden.cinnabar
+                canSend -> garden.bamboo
+                else -> garden.paperDeep
+            },
+            label = "sendBgColor"
+        )
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(garden.paper)
+                .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 10.dp)
         ) {
-            HorizontalDivider(color = garden.lineSoft, thickness = 0.7.dp)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "发送消息",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = garden.ink,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable { attachFileLauncher.launch(arrayOf("text/*", "application/json", "*/*")) }
-                            .padding(horizontal = 4.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AttachFile,
-                            contentDescription = "添加文件",
-                            modifier = Modifier.size(14.dp),
-                            tint = garden.bamboo
-                        )
-                        Text(
-                            text = "+ 文件",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = garden.bamboo,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable { attachImageLauncher.launch("image/*") }
-                            .padding(horizontal = 4.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Image,
-                            contentDescription = "添加图片",
-                            modifier = Modifier.size(14.dp),
-                            tint = garden.gold
-                        )
-                        Text(
-                            text = "+ 图片",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = garden.gold,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "换行继续写，轻触发送",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = garden.muted
-                    )
-                    Surface(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .clickable { composerCollapsed = !composerCollapsed },
-                        shape = RoundedCornerShape(999.dp),
-                        color = garden.paperCard,
-                        border = BorderStroke(0.8.dp, garden.line)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = if (composerCollapsed) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = garden.muted
-                            )
-                            Text(
-                                text = if (composerCollapsed) "展开" else "隐藏",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = garden.muted
-                            )
-                        }
-                    }
-                }
-            }
-
-            AnimatedVisibility(visible = !composerCollapsed) {
+            if (composerCollapsed) {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 10.dp, end = 10.dp, bottom = 8.dp),
-                    shape = IosSquircleShape(26.dp),
+                        .clip(RoundedCornerShape(999.dp))
+                        .clickable { composerCollapsed = false },
+                    shape = RoundedCornerShape(999.dp),
                     color = garden.paperCard,
-                    shadowElevation = 1.2.dp,
+                    shadowElevation = 2.dp,
                     border = BorderStroke(0.75.dp, garden.lineSoft)
                 ) {
-                    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = garden.bamboo
+                            )
+                            Text(
+                                text = "问问${activePersona?.name ?: "望舒"}…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = garden.muted
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.ExpandLess,
+                            contentDescription = "展开输入框",
+                            modifier = Modifier.size(18.dp),
+                            tint = garden.muted
+                        )
+                    }
+                }
+            } else {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = IosSquircleShape(28.dp),
+                    color = garden.paperCard,
+                    shadowElevation = if (composerFocused) 5.dp else 2.5.dp,
+                    border = BorderStroke(if (composerFocused) 1.1.dp else 0.75.dp, composerBorderColor)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 10.dp)
+                    ) {
                         if (draftAttachments.isNotEmpty()) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .horizontalScroll(rememberScrollState())
-                                    .padding(bottom = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    .padding(bottom = 10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 draftAttachments.forEachIndexed { idx, att ->
                                     if (att.isImage && att.localPath.isNotBlank()) {
@@ -924,9 +894,9 @@ fun ChatScreen(
                                         }
                                         Box(
                                             modifier = Modifier
-                                                .size(68.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .border(1.dp, garden.gold.copy(alpha = 0.7f), RoundedCornerShape(8.dp))
+                                                .size(64.dp)
+                                                .clip(IosSquircleShape(14.dp))
+                                                .border(0.8.dp, garden.lineStrong, IosSquircleShape(14.dp))
                                                 .clickable { lightboxImagePath = att.localPath }
                                         ) {
                                             if (thumbBitmap != null) {
@@ -949,7 +919,7 @@ fun ChatScreen(
                                             Box(
                                                 modifier = Modifier
                                                     .align(Alignment.TopEnd)
-                                                    .padding(3.dp)
+                                                    .padding(4.dp)
                                                     .size(18.dp)
                                                     .clip(CircleShape)
                                                     .background(Color.Black.copy(alpha = 0.65f))
@@ -966,22 +936,29 @@ fun ChatScreen(
                                         }
                                     } else {
                                         Surface(
-                                            shape = RoundedCornerShape(6.dp),
+                                            shape = RoundedCornerShape(999.dp),
                                             color = garden.bambooSoft,
-                                            border = BorderStroke(0.8.dp, garden.lineStrong)
+                                            border = BorderStroke(0.6.dp, garden.lineSoft)
                                         ) {
                                             Row(
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                                verticalAlignment = Alignment.CenterVertically
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                                             ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.AttachFile,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(13.dp),
+                                                    tint = garden.bamboo
+                                                )
                                                 Text(
                                                     text = att.name,
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = garden.ink,
                                                     maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.widthIn(max = 150.dp)
                                                 )
-                                                Spacer(Modifier.width(4.dp))
                                                 Icon(
                                                     imageVector = Icons.Default.Close,
                                                     contentDescription = "移除附件",
@@ -996,29 +973,31 @@ fun ChatScreen(
                                 }
                             }
                         }
-                        // Unified Spacious Composer Area:
-                        // Hint line lives inside the typing area when empty and vanishes immediately upon typing!
+
+                        // Full-width unobstructed typing zone; subtle hint disappears immediately when typing
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 76.dp)
+                                .heightIn(min = 52.dp)
+                                .padding(end = 4.dp)
                         ) {
                             if (draft.isEmpty()) {
                                 Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(end = 96.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text(
-                                        text = if (isGroup) "在群聊中发言，或用 @角色名 指定回复..." else "和${activePersona?.name ?: "望舒"}聊聊今天的想法...",
-                                        style = MaterialTheme.typography.bodyMedium,
+                                        text = if (isGroup) "在群聊中发言，可用 @角色名 点名回复…" else "问问${activePersona?.name ?: "望舒"}，或聊聊今天的想法…",
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontSize = 15.5.sp,
+                                            lineHeight = 23.sp
+                                        ),
                                         color = garden.muted
                                     )
                                     Text(
-                                        text = "对话保存在本地，发送时调用所选模型",
+                                        text = "对话保存在本地 · 换行继续写，轻触右下角发送",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = garden.muted.copy(alpha = 0.72f)
+                                        color = garden.muted.copy(alpha = 0.66f)
                                     )
                                 }
                             }
@@ -1026,52 +1005,153 @@ fun ChatScreen(
                                 value = draft,
                                 onValueChange = { draft = it },
                                 textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                    fontSize = 15.5.sp,
                                     color = garden.text,
-                                    lineHeight = 22.sp
+                                    lineHeight = 23.sp
                                 ),
                                 cursorBrush = SolidColor(garden.bamboo),
-                                minLines = 3,
+                                minLines = 2,
                                 maxLines = 6,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(end = 94.dp, bottom = 2.dp)
+                                    .onFocusChanged { composerFocused = it.isFocused }
                             )
-                            Box(
-                                modifier = Modifier.align(Alignment.BottomEnd)
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        // Integrated Gemini-style bottom action toolbar
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                if (streaming.isStreaming) {
-                                    CinnabarPillButton(
-                                        text = "停止",
-                                        onClick = { viewModel.stopGeneration() },
-                                        icon = {
-                                            Icon(
-                                                imageVector = Icons.Default.StopCircle,
-                                                contentDescription = null,
-                                                tint = garden.paperCard,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
+                                Surface(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .clickable { attachImageLauncher.launch("image/*") },
+                                    shape = CircleShape,
+                                    color = garden.paperDeep.copy(alpha = 0.65f)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.Image,
+                                            contentDescription = "添加图片",
+                                            modifier = Modifier.size(18.dp),
+                                            tint = garden.ink
+                                        )
+                                    }
+                                }
+                                Surface(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .clickable { attachFileLauncher.launch(arrayOf("text/*", "application/json", "*/*")) },
+                                    shape = CircleShape,
+                                    color = garden.paperDeep.copy(alpha = 0.65f)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.AttachFile,
+                                            contentDescription = "添加文件",
+                                            modifier = Modifier.size(18.dp),
+                                            tint = garden.ink
+                                        )
+                                    }
+                                }
+                                Surface(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .clickable { showLinkageDialog = true },
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = if (anyLinkageEnabled) garden.bambooSoft else garden.paperDeep.copy(alpha = 0.6f),
+                                    border = BorderStroke(
+                                        0.6.dp,
+                                        if (anyLinkageEnabled) garden.bamboo.copy(alpha = 0.28f) else garden.lineSoft
                                     )
-                                } else {
-                                    CinnabarPillButton(
-                                        text = "发送",
-                                        enabled = draft.isNotBlank() || draftAttachments.isNotEmpty(),
-                                        onClick = {
-                                            val toSend = draft.trim()
-                                            if (toSend.isNotEmpty() || draftAttachments.isNotEmpty()) {
-                                                draft = ""
-                                                viewModel.sendMessage(toSend)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.AutoAwesome,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                            tint = if (anyLinkageEnabled) garden.bamboo else garden.muted
+                                        )
+                                        Text(
+                                            text = "工具",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (anyLinkageEnabled) garden.ink else garden.muted,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .clickable { composerCollapsed = true },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "收起输入框",
+                                        modifier = Modifier.size(20.dp),
+                                        tint = garden.muted
+                                    )
+                                }
+
+                                // Gemini-style circular Send / Stop button
+                                Surface(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .clickable(enabled = streaming.isStreaming || canSend) {
+                                            if (streaming.isStreaming) {
+                                                viewModel.stopGeneration()
+                                            } else {
+                                                val toSend = draft.trim()
+                                                if (toSend.isNotEmpty() || draftAttachments.isNotEmpty()) {
+                                                    draft = ""
+                                                    viewModel.sendMessage(toSend)
+                                                }
                                             }
                                         },
-                                        icon = {
+                                    shape = CircleShape,
+                                    color = sendBgColor,
+                                    shadowElevation = if (streaming.isStreaming || canSend) 2.dp else 0.dp
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        if (streaming.isStreaming) {
                                             Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.Send,
-                                                contentDescription = null,
-                                                tint = garden.paperCard,
-                                                modifier = Modifier.size(15.dp)
+                                                imageVector = Icons.Default.Stop,
+                                                contentDescription = "停止生成",
+                                                modifier = Modifier.size(20.dp),
+                                                tint = Color(0xFFFFF8F6)
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.ArrowUpward,
+                                                contentDescription = "发送",
+                                                modifier = Modifier.size(20.dp),
+                                                tint = if (canSend) Color(0xFFF3F8F5) else garden.muted.copy(alpha = 0.52f)
                                             )
                                         }
-                                    )
+                                    }
                                 }
                             }
                         }
