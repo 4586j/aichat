@@ -1,13 +1,18 @@
 package com.qiyi.companion.ui
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.qiyi.companion.data.QiYiRepository
+import com.qiyi.companion.data.agent.ApprovalTicket
 import com.qiyi.companion.data.chat.ChatGenerationManager
 import com.qiyi.companion.data.context.ContextCompactionEngine
 import com.qiyi.companion.data.context.ContextUsageSnapshot
+import com.qiyi.companion.data.db.AgentAuditLogEntity
+import com.qiyi.companion.data.db.AuthorizedDirectoryEntity
 import com.qiyi.companion.data.db.ConversationEntity
+import com.qiyi.companion.data.db.FileSnapshotEntity
 import com.qiyi.companion.data.db.KnowledgeDocumentEntity
 import com.qiyi.companion.data.db.MailDraftEntity
 import com.qiyi.companion.data.db.MemoryEntity
@@ -112,6 +117,26 @@ class QiYiViewModel(
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
+
+    val authorizedDirectories: StateFlow<List<AuthorizedDirectoryEntity>> = repository.authorizedDirectories.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    val fileSnapshots: StateFlow<List<FileSnapshotEntity>> = repository.fileSnapshots.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    val agentAuditLogs: StateFlow<List<AgentAuditLogEntity>> = repository.agentAuditLogs.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    val pendingApprovals: StateFlow<Map<String, ApprovalTicket>> = generationManager.pendingApprovals
 
     private val _runningTaskId = MutableStateFlow<String?>(null)
     val runningTaskId: StateFlow<String?> = _runningTaskId.asStateFlow()
@@ -1179,6 +1204,56 @@ class QiYiViewModel(
                 .onFailure { notify(it.message ?: "删除失败。") }
         }
     }
+
+    fun resolveApproval(ticketId: String, approved: Boolean) {
+        val ok = generationManager.resolveApproval(ticketId, approved)
+        if (ok) {
+            notify(if (approved) "已允许执行该设备指令。" else "已拒绝该设备指令。")
+        }
+    }
+
+    fun setDeviceAgentSettings(
+        enabled: Boolean? = null,
+        securityMode: String? = null,
+        allowDirectAppLaunch: Boolean? = null,
+        floatingOrbEnabled: Boolean? = null
+    ) {
+        repository.setDeviceAgentSettings(enabled, securityMode, allowDirectAppLaunch, floatingOrbEnabled)
+    }
+
+    fun addAuthorizedDirectory(treeUri: Uri, customAlias: String? = null) {
+        viewModelScope.launch {
+            runCatching { repository.addAuthorizedDirectory(treeUri, customAlias) }
+                .onSuccess { dir -> notify("已添加授权文件夹「${dir.alias}」(${dir.displayName})") }
+                .onFailure { notify(it.message ?: "添加授权文件夹失败。") }
+        }
+    }
+
+    fun removeAuthorizedDirectory(id: String) {
+        viewModelScope.launch {
+            runCatching { repository.removeAuthorizedDirectory(id) }
+                .onSuccess { notify("已取消该目录的访问授权。") }
+                .onFailure { notify(it.message ?: "移除授权目录失败。") }
+        }
+    }
+
+    fun restoreFileSnapshot(snapshotId: String) {
+        viewModelScope.launch {
+            runCatching { repository.restoreFileSnapshot(snapshotId) }
+                .onSuccess { msg -> notify(msg) }
+                .onFailure { notify(it.message ?: "撤销文件改动失败。") }
+        }
+    }
+
+    fun clearAgentAuditLogs() {
+        viewModelScope.launch {
+            runCatching { repository.clearAgentAuditLogs() }
+                .onSuccess { notify("已清空手机助理审计日志。") }
+                .onFailure { notify(it.message ?: "清空日志失败。") }
+        }
+    }
+
+    fun listInstalledAppsCount(): Int = repository.listInstalledAppsCount()
 
     fun notify(message: String) {
         _notices.tryEmit(message)

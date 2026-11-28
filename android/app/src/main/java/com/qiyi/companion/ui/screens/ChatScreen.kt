@@ -110,6 +110,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.qiyi.companion.data.agent.ApprovalTicket
 import com.qiyi.companion.data.context.ContextPressureLevel
 import com.qiyi.companion.data.db.ConversationEntity
 import com.qiyi.companion.data.db.MessageEntity
@@ -162,6 +163,12 @@ fun ChatScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val contextUsage by viewModel.contextUsage.collectAsStateWithLifecycle()
     val isCompacting by viewModel.isCompacting.collectAsStateWithLifecycle()
+    val pendingApprovals by viewModel.pendingApprovals.collectAsStateWithLifecycle()
+    val activeApprovals = remember(pendingApprovals, activeConversationId) {
+        pendingApprovals.values
+            .filter { activeConversationId == null || it.conversationId == activeConversationId }
+            .sortedBy { it.createdAt }
+    }
 
     val personaMap = remember(personas) { personas.associateBy { it.id } }
     val activePersona = personas.firstOrNull { it.id == activePersonaId } ?: personas.firstOrNull()
@@ -756,6 +763,16 @@ fun ChatScreen(
                         )
                     }
                 }
+
+                if (activeApprovals.isNotEmpty()) {
+                    items(activeApprovals, key = { "approval_${it.ticketId}" }) { ticket ->
+                        ApprovalTicketCard(
+                            ticket = ticket,
+                            onApprove = { viewModel.resolveApproval(ticket.ticketId, approved = true) },
+                            onReject = { viewModel.resolveApproval(ticket.ticketId, approved = false) }
+                        )
+                    }
+                }
             }
 
             // Floating "↓ 回到最新回复" Pill (aligned with composer-6-mobile-pinned.png)
@@ -1273,6 +1290,21 @@ fun ChatScreen(
                             Text("允许自动调用计算器、日期、统计与知识深搜", style = MaterialTheme.typography.labelSmall, color = garden.muted)
                         }
                     }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.setDeviceAgentSettings(enabled = !settings.deviceAgentEnabled) },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = settings.deviceAgentEnabled,
+                            onCheckedChange = { viewModel.setDeviceAgentSettings(enabled = it) }
+                        )
+                        Column {
+                            Text("手机助理权限沙箱", style = MaterialTheme.typography.bodyMedium)
+                            Text("授权目录文件读写、打开软件、日程闹钟与草稿起草（敏感动作强审批）", style = MaterialTheme.typography.labelSmall, color = garden.muted)
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -1296,6 +1328,140 @@ fun ChatScreen(
             imagePath = path,
             onDismiss = { lightboxImagePath = null }
         )
+    }
+}
+
+@Composable
+private fun ApprovalTicketCard(
+    ticket: ApprovalTicket,
+    onApprove: () -> Unit,
+    onReject: () -> Unit
+) {
+    val garden = LocalGardenColors.current
+    var diffExpanded by remember(ticket.ticketId) { mutableStateOf(true) }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = IosSquircleShape(20.dp),
+        color = garden.paperCard,
+        shadowElevation = 2.dp,
+        border = BorderStroke(1.dp, garden.gold.copy(alpha = 0.72f))
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = garden.goldSoft
+                ) {
+                    Text(
+                        text = "安全审批",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = garden.cinnabarDark,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
+                    )
+                }
+                Text(
+                    text = ticket.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = garden.ink,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            if (ticket.summary.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = ticket.summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = garden.muted
+                )
+            }
+
+            if (ticket.diffPreview.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .clickable { diffExpanded = !diffExpanded }
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = if (diffExpanded) "收起改动预览" else "查看改动预览",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = garden.bamboo,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Icon(
+                        imageVector = if (diffExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = garden.bamboo
+                    )
+                }
+                if (diffExpanded) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp),
+                        shape = IosSquircleShape(14.dp),
+                        color = garden.paperDeep.copy(alpha = 0.7f),
+                        border = BorderStroke(0.6.dp, garden.lineSoft)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            ticket.diffPreview.split("\n").forEach { line ->
+                                val lineColor = when {
+                                    line.startsWith("+") -> garden.bamboo
+                                    line.startsWith("-") -> garden.cinnabar
+                                    line.startsWith("@@") -> garden.gold
+                                    else -> garden.text
+                                }
+                                Text(
+                                    text = line,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.5.sp,
+                                    lineHeight = 16.sp,
+                                    color = lineColor
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                GardenWindowButton(
+                    text = "拒绝执行",
+                    primary = false,
+                    onClick = onReject,
+                    modifier = Modifier.weight(1f)
+                )
+                GardenWindowButton(
+                    text = "允许执行",
+                    primary = true,
+                    onClick = onApprove,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
     }
 }
 

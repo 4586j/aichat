@@ -248,3 +248,60 @@ interface ResumableRunDao {
     @Query("DELETE FROM resumable_runs WHERE conversationId = :conversationId")
     suspend fun deleteByConversation(conversationId: String)
 }
+
+@Dao
+interface AuthorizedDirectoryDao {
+    @Query("SELECT * FROM authorized_directories ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<AuthorizedDirectoryEntity>>
+
+    @Query("SELECT * FROM authorized_directories ORDER BY createdAt DESC")
+    suspend fun listAll(): List<AuthorizedDirectoryEntity>
+
+    @Query("SELECT * FROM authorized_directories WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): AuthorizedDirectoryEntity?
+
+    @Query("SELECT * FROM authorized_directories WHERE alias = :alias LIMIT 1")
+    suspend fun getByAlias(alias: String): AuthorizedDirectoryEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(dir: AuthorizedDirectoryEntity)
+
+    @Query("DELETE FROM authorized_directories WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
+
+@Dao
+interface FileSnapshotDao {
+    @Query("SELECT * FROM file_snapshots ORDER BY createdAt DESC LIMIT 50")
+    fun observeRecent(): Flow<List<FileSnapshotEntity>>
+
+    @Query("SELECT * FROM file_snapshots ORDER BY createdAt DESC")
+    suspend fun listAll(): List<FileSnapshotEntity>
+
+    @Query("SELECT * FROM file_snapshots WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): FileSnapshotEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(snapshot: FileSnapshotEntity)
+
+    @Query("UPDATE file_snapshots SET restoredAt = :restoredAt WHERE id = :id")
+    suspend fun markRestored(id: String, restoredAt: Long)
+
+    @Query("DELETE FROM file_snapshots WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
+
+@Dao
+interface AgentAuditLogDao {
+    @Query("SELECT * FROM agent_audit_logs ORDER BY createdAt DESC LIMIT 100")
+    fun observeRecent(): Flow<List<AgentAuditLogEntity>>
+
+    @Query("SELECT * FROM agent_audit_logs ORDER BY createdAt DESC LIMIT 100")
+    suspend fun listRecent(): List<AgentAuditLogEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(log: AgentAuditLogEntity)
+
+    @Query("DELETE FROM agent_audit_logs")
+    suspend fun clearAll()
+}

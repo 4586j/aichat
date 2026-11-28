@@ -2,6 +2,8 @@ package com.qiyi.companion.data.chat
 
 import android.content.Context
 import com.qiyi.companion.data.QiYiRepository
+import com.qiyi.companion.data.agent.ApprovalBroker
+import com.qiyi.companion.data.agent.ApprovalTicket
 import com.qiyi.companion.data.media.StickerCatalog
 import com.qiyi.companion.data.network.ModelServiceException
 import com.qiyi.companion.data.network.StreamChunk
@@ -36,6 +38,8 @@ class ChatGenerationManager(
 ) {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val activeJobs = ConcurrentHashMap<String, Job>()
+    val approvalBroker = ApprovalBroker()
+    val pendingApprovals: StateFlow<Map<String, ApprovalTicket>> = approvalBroker.pendingTickets
 
     private val _streamingByConversation = MutableStateFlow<Map<String, StreamingState>>(emptyMap())
     val streamingByConversation: StateFlow<Map<String, StreamingState>> = _streamingByConversation.asStateFlow()
@@ -46,6 +50,10 @@ class ChatGenerationManager(
     private val _quotaCheckpoints = MutableSharedFlow<QuotaCheckpointState>(extraBufferCapacity = 8)
     val quotaCheckpoints: SharedFlow<QuotaCheckpointState> = _quotaCheckpoints.asSharedFlow()
 
+    fun resolveApproval(ticketId: String, approved: Boolean): Boolean {
+        return approvalBroker.resolve(ticketId, approved)
+    }
+
     fun isGenerating(conversationId: String?): Boolean {
         if (conversationId.isNullOrBlank()) return false
         return activeJobs[conversationId]?.isActive == true
@@ -53,6 +61,7 @@ class ChatGenerationManager(
 
     fun stopGeneration(conversationId: String?) {
         if (conversationId.isNullOrBlank()) return
+        approvalBroker.cancelConversation(conversationId)
         activeJobs[conversationId]?.cancel()
     }
 
@@ -106,7 +115,20 @@ class ChatGenerationManager(
                     try {
                         val settingsNow = repository.settings.value
                         val useTools = settingsNow.toolsEnabled && latestImageDataUris.isEmpty()
-                        repository.streamReply(persona, promptMessages, toolsEnabled = useTools).collect { chunk ->
+                        repository.streamReply(
+                            persona = persona,
+                            promptMessages = promptMessages,
+                            toolsEnabled = useTools,
+                            conversationId = convId,
+                            approvalBroker = approvalBroker,
+                            onWaitingApproval = { ticket ->
+                                if (ticket != null) {
+                                    syncForegroundNotification("等待确认：${ticket.title}")
+                                } else {
+                                    syncForegroundNotification(persona.name)
+                                }
+                            }
+                        ).collect { chunk ->
                             when (chunk) {
                                 is StreamChunk.ContentDelta -> {
                                     contentBuilder.append(chunk.text)
@@ -230,6 +252,7 @@ class ChatGenerationManager(
                     }
                 }
             } finally {
+                approvalBroker.cancelConversation(convId)
                 activeJobs.remove(convId)
                 _streamingByConversation.update { it - convId }
                 syncForegroundNotification("")

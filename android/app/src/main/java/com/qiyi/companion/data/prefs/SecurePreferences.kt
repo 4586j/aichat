@@ -34,7 +34,11 @@ data class AppSettings(
     val hasMusicApiKey: Boolean = false,
     val customInputPricePer1M: Double = 0.0,
     val customOutputPricePer1M: Double = 0.0,
-    val contextWindowOverride: Int = 0
+    val contextWindowOverride: Int = 0,
+    val deviceAgentEnabled: Boolean = false,
+    val deviceSecurityMode: String = "standard", // "standard" | "strict"
+    val allowDirectAppLaunch: Boolean = true,
+    val floatingOrbEnabled: Boolean = false
 )
 
 /**
@@ -78,7 +82,11 @@ class SecurePreferences(context: Context) {
         hasMusicApiKey = getMusicApiKey().isNotBlank(),
         customInputPricePer1M = plainPrefs.getFloat(KEY_INPUT_PRICE, 0f).toDouble(),
         customOutputPricePer1M = plainPrefs.getFloat(KEY_OUTPUT_PRICE, 0f).toDouble(),
-        contextWindowOverride = plainPrefs.getInt(KEY_CONTEXT_WINDOW_OVERRIDE, 0)
+        contextWindowOverride = plainPrefs.getInt(KEY_CONTEXT_WINDOW_OVERRIDE, 0),
+        deviceAgentEnabled = plainPrefs.getBoolean(KEY_DEVICE_AGENT_ENABLED, false),
+        deviceSecurityMode = plainPrefs.getString(KEY_DEVICE_SECURITY_MODE, "standard") ?: "standard",
+        allowDirectAppLaunch = plainPrefs.getBoolean(KEY_ALLOW_DIRECT_APP_LAUNCH, true),
+        floatingOrbEnabled = plainPrefs.getBoolean(KEY_FLOATING_ORB_ENABLED, false)
     )
 
     fun getApiKey(): String = secretPrefs.getString(KEY_API_KEY, "") ?: ""
@@ -164,6 +172,24 @@ class SecurePreferences(context: Context) {
         _settings.value = readSnapshot()
     }
 
+    fun setDeviceAgentSettings(
+        enabled: Boolean? = null,
+        securityMode: String? = null,
+        allowDirectAppLaunch: Boolean? = null,
+        floatingOrbEnabled: Boolean? = null
+    ) {
+        val editor = plainPrefs.edit()
+        if (enabled != null) editor.putBoolean(KEY_DEVICE_AGENT_ENABLED, enabled)
+        if (securityMode != null) {
+            val clean = if (securityMode == "strict") "strict" else "standard"
+            editor.putString(KEY_DEVICE_SECURITY_MODE, clean)
+        }
+        if (allowDirectAppLaunch != null) editor.putBoolean(KEY_ALLOW_DIRECT_APP_LAUNCH, allowDirectAppLaunch)
+        if (floatingOrbEnabled != null) editor.putBoolean(KEY_FLOATING_ORB_ENABLED, floatingOrbEnabled)
+        editor.apply()
+        _settings.value = readSnapshot()
+    }
+
     companion object {
         private const val KEY_BASE_URL = "base_url"
         private const val KEY_DEFAULT_MODEL = "default_model"
@@ -180,5 +206,9 @@ class SecurePreferences(context: Context) {
         private const val KEY_INPUT_PRICE = "usage_input_price_1m"
         private const val KEY_OUTPUT_PRICE = "usage_output_price_1m"
         private const val KEY_CONTEXT_WINDOW_OVERRIDE = "context_window_override"
+        private const val KEY_DEVICE_AGENT_ENABLED = "device_agent_enabled"
+        private const val KEY_DEVICE_SECURITY_MODE = "device_security_mode"
+        private const val KEY_ALLOW_DIRECT_APP_LAUNCH = "allow_direct_app_launch"
+        private const val KEY_FLOATING_ORB_ENABLED = "floating_orb_enabled"
     }
 }

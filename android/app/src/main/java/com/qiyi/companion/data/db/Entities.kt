@@ -200,3 +200,48 @@ data class ResumableRunEntity(
     val reason: String = "",
     val createdAt: Long = System.currentTimeMillis()
 )
+
+@Entity(
+    tableName = "authorized_directories",
+    indices = [Index("alias", unique = true)]
+)
+data class AuthorizedDirectoryEntity(
+    @PrimaryKey val id: String,
+    val alias: String,
+    val treeUri: String,
+    val displayName: String,
+    val readOnly: Boolean = false,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "file_snapshots",
+    indices = [Index("createdAt"), Index("auditLogId")]
+)
+data class FileSnapshotEntity(
+    @PrimaryKey val id: String,
+    val auditLogId: String = "",
+    val directoryId: String,
+    val relativePath: String,
+    val documentUri: String = "",
+    val operation: String, // "create" | "modify" | "delete"
+    val backupFilePath: String = "",
+    val createdAt: Long = System.currentTimeMillis(),
+    val restoredAt: Long = 0L
+)
+
+@Entity(
+    tableName = "agent_audit_logs",
+    indices = [Index("createdAt"), Index("conversationId")]
+)
+data class AgentAuditLogEntity(
+    @PrimaryKey val id: String,
+    val conversationId: String = "",
+    val toolName: String,
+    val riskLevel: String, // "SAFE" | "SENSITIVE" | "FORBIDDEN"
+    val argsSummary: String = "",
+    val decision: String, // "auto" | "approved" | "rejected" | "timeout" | "blocked"
+    val resultSummary: String = "",
+    val snapshotId: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+)

@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">栖忆</string>
+    <string name="accessibility_service_description">栖忆手机助理（可选）：仅在您主动触发读屏或拟回复时按需读取屏幕可见文字并填入输入框草稿；自动屏蔽支付、银行与密码框，绝不自动点击发送。</string>
 </resources>

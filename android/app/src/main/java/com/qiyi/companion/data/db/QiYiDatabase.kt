@@ -20,9 +20,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MemoryTripleEntity::class,
         ScheduledTaskEntity::class,
         MailDraftEntity::class,
-        ResumableRunEntity::class
+        ResumableRunEntity::class,
+        AuthorizedDirectoryEntity::class,
+        FileSnapshotEntity::class,
+        AgentAuditLogEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class QiYiDatabase : RoomDatabase() {
@@ -37,6 +40,9 @@ abstract class QiYiDatabase : RoomDatabase() {
     abstract fun scheduledTaskDao(): ScheduledTaskDao
     abstract fun mailDraftDao(): MailDraftDao
     abstract fun resumableRunDao(): ResumableRunDao
+    abstract fun authorizedDirectoryDao(): AuthorizedDirectoryDao
+    abstract fun fileSnapshotDao(): FileSnapshotDao
+    abstract fun agentAuditLogDao(): AgentAuditLogDao
 
     companion object {
         @Volatile
@@ -236,6 +242,61 @@ abstract class QiYiDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_9_10: Migration = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `authorized_directories` (
+                        `id` TEXT NOT NULL,
+                        `alias` TEXT NOT NULL,
+                        `treeUri` TEXT NOT NULL,
+                        `displayName` TEXT NOT NULL,
+                        `readOnly` INTEGER NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_authorized_directories_alias` ON `authorized_directories` (`alias`)")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `file_snapshots` (
+                        `id` TEXT NOT NULL,
+                        `auditLogId` TEXT NOT NULL,
+                        `directoryId` TEXT NOT NULL,
+                        `relativePath` TEXT NOT NULL,
+                        `documentUri` TEXT NOT NULL,
+                        `operation` TEXT NOT NULL,
+                        `backupFilePath` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `restoredAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_file_snapshots_createdAt` ON `file_snapshots` (`createdAt`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_file_snapshots_auditLogId` ON `file_snapshots` (`auditLogId`)")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `agent_audit_logs` (
+                        `id` TEXT NOT NULL,
+                        `conversationId` TEXT NOT NULL,
+                        `toolName` TEXT NOT NULL,
+                        `riskLevel` TEXT NOT NULL,
+                        `argsSummary` TEXT NOT NULL,
+                        `decision` TEXT NOT NULL,
+                        `resultSummary` TEXT NOT NULL,
+                        `snapshotId` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_agent_audit_logs_createdAt` ON `agent_audit_logs` (`createdAt`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_agent_audit_logs_conversationId` ON `agent_audit_logs` (`conversationId`)")
+            }
+        }
+
         fun getInstance(context: Context): QiYiDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -251,7 +312,8 @@ abstract class QiYiDatabase : RoomDatabase() {
                         MIGRATION_5_6,
                         MIGRATION_6_7,
                         MIGRATION_7_8,
-                        MIGRATION_8_9
+                        MIGRATION_8_9,
+                        MIGRATION_9_10
                     )
                     .build()
                     .also { instance = it }

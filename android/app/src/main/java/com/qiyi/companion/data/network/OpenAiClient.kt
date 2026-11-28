@@ -278,7 +278,9 @@ class OpenAiClient(
         model: String,
         messages: List<ChatPromptMessage>,
         toolsEnabled: Boolean,
-        knowledgeSearcher: suspend (String) -> String
+        knowledgeSearcher: suspend (String) -> String,
+        extraToolsDef: JsonArray = JsonArray(emptyList()),
+        toolExecutor: (suspend (name: String, args: JsonObject) -> String)? = null
     ): Flow<StreamChunk> {
         if (!toolsEnabled) return streamChat(baseUrl, apiKey, model, messages)
         return kotlinx.coroutines.flow.flow {
@@ -295,12 +297,20 @@ class OpenAiClient(
                 })
             }
 
-            val toolsDef = DeterministicToolRegistry.openAiToolDefinitions()
+            val baseTools = DeterministicToolRegistry.openAiToolDefinitions()
+            val toolsDef = if (extraToolsDef.isEmpty()) {
+                baseTools
+            } else {
+                buildJsonArray {
+                    baseTools.forEach { add(it) }
+                    extraToolsDef.forEach { add(it) }
+                }
+            }
             var lastFingerprint = ""
             var duplicateStreak = 0
             var failureStreak = 0
 
-            for (round in 0 until 6) {
+            for (round in 0 until 8) {
                 val bodyJson = buildJsonObject {
                     put("model", cleanModel)
                     put("messages", JsonArray(conversation))
@@ -374,18 +384,20 @@ class OpenAiClient(
                     }
 
                     val argsObj = runCatching { json.parseToJsonElement(argsRaw).jsonObject }.getOrElse { JsonObject(emptyMap()) }
-                    val toolOutput = runCatching {
-                        DeterministicToolRegistry.execute(fnName, argsObj, knowledgeSearcher)
-                    }.fold(
-                        onSuccess = { out ->
-                            failureStreak = 0
-                            out
-                        },
-                        onFailure = { err ->
-                            failureStreak++
-                            "工具执行失败：${err.message ?: "未知错误"}"
+                    val toolOutput = try {
+                        val out = if (toolExecutor != null) {
+                            toolExecutor(fnName, argsObj)
+                        } else {
+                            DeterministicToolRegistry.execute(fnName, argsObj, knowledgeSearcher)
                         }
-                    )
+                        failureStreak = 0
+                        out
+                    } catch (ce: kotlinx.coroutines.CancellationException) {
+                        throw ce
+                    } catch (err: Exception) {
+                        failureStreak++
+                        "工具执行失败：${err.message ?: "未知错误"}"
+                    }
 
                     emit(StreamChunk.ToolStep("调用 $fnName → ${toolOutput.take(160)}"))
                     conversation.add(buildJsonObject {
